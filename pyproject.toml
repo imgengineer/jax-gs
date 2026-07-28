@@ -1,0 +1,44 @@
+[project]
+name = "jax-gs"
+version = "0.1.0"
+description = "A Flax NNX and JAX implementation of differentiable Gaussian splatting"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE.md"]
+requires-python = ">=3.12"
+dependencies = [
+    "flax>=0.12.8",
+    "grain>=0.2.15",
+    "jax[cuda13]>=0.11.0",
+    "numpy>=2.0",
+    "optax>=0.2.8",
+    "orbax-checkpoint>=0.12.1",
+    "pillow>=11.0",
+    "scipy>=1.14",
+]
+
+[project.scripts]
+jax-gs = "jax_gs.cli:main"
+
+[dependency-groups]
+dev = [
+    "plyfile>=1.1.4",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra -m 'not resource_heavy'"
+testpaths = ["tests"]
+markers = [
+    "gpu: requires a CUDA-capable JAX device",
+    "slow: integration test using a local dataset",
+    "resource_heavy: run in an isolated process to bound JAX compiler memory",
+]
