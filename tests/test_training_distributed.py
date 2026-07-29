@@ -33,6 +33,7 @@ from jax_gs.training import (
     TrainingSafetyState,
     make_distributed_train_step,
 )
+from jax_gs.training.pose import CameraOptModule
 
 
 def _fixed_topology_config(**overrides) -> TrainConfig:
@@ -67,7 +68,11 @@ def _fixed_topology_config(**overrides) -> TrainConfig:
 
 
 def _topology_plan_config(
-    *, capacity: int = 2, bucket: int | None = None, **strategy_overrides
+    *,
+    capacity: int = 2,
+    bucket: int | None = None,
+    train: dict | None = None,
+    **strategy_overrides,
 ) -> TrainConfig:
     """Config whose refinement schedule fires on the first training step."""
 
@@ -89,6 +94,7 @@ def _topology_plan_config(
             initial_scale=0.2,
         ),
         strategy=StrategyConfig(**strategy),
+        **(train or {}),
     )
 
 
@@ -136,6 +142,12 @@ def _rank_bundle(
         model.capacity
     )
     return model, optimizer, strategy_state, TrainingSafetyState()
+
+
+def _zero_initialized_pose_module():
+    module = CameraOptModule(2, rngs=nnx.Rngs(7))
+    module.zero_init()
+    return module
 
 
 def _unstack_graph(graph, index):
@@ -998,9 +1010,11 @@ def test_two_virtual_cpu_nnx_pmap_smoke():
             "assert jax.local_device_count() == 2",
             "_run_two_rank_update(nnx.pmap)",
             "from tests.test_training_distributed import "
-            "_run_two_rank_screen_stats, _run_two_rank_growth_commit",
+            "_run_two_rank_screen_stats, _run_two_rank_growth_commit, "
+            "_run_two_rank_pose_update",
             "_run_two_rank_screen_stats(nnx.pmap)",
             "_run_two_rank_growth_commit(nnx.pmap)",
+            "_run_two_rank_pose_update(nnx.pmap)",
         )
     )
     environment = os.environ.copy()
@@ -1448,3 +1462,130 @@ def test_growing_all_shards_lets_the_skipped_step_replay():
     np.testing.assert_array_equal(
         np.asarray(grown[0].active_mask[...]).sum(axis=1), [3, 1]
     )
+
+
+def _pose_sensitive_rasterization(*args, **kwargs):
+    """Render a signal that depends only on the rank's own camera poses."""
+
+    means = args[0]
+    viewmats = args[5]
+    renders, alphas, info = _no_statistics_rasterization(*args, **kwargs)
+    signal = jax.nn.sigmoid(viewmats[:, 0, 3])
+    renders = jnp.broadcast_to(
+        signal[:, None, None, None] + 0.0 * renders, renders.shape
+    ).astype(means.dtype)
+    return renders, alphas, info
+
+
+def _run_two_rank_pose_update(map_transform):
+    """Two ranks optimize one replicated camera-pose module."""
+
+    config = _topology_plan_config(refine_start=4, train={"pose_opt": True})
+    bundles = _two_rank_bundles(config)
+    pose_adjust = _stack_graphs(
+        *[_zero_initialized_pose_module() for _ in range(2)]
+    )
+    pose_optimizer = _stack_graphs(
+        *[
+            training_module._create_pose_optimizer(
+                _zero_initialized_pose_module(), config
+            )
+            for _ in range(2)
+        ]
+    )
+    train_step = make_distributed_train_step(config, world_size=2)
+
+    @map_transform(in_axes=(0,) * 13, out_axes=0, axis_name="rank")
+    def mapped_step(
+        model,
+        optimizer,
+        strategy_state,
+        safety_state,
+        images,
+        intrinsics,
+        viewmats,
+        key,
+        sh_degree,
+        current_pose_adjust,
+        current_pose_optimizer,
+        camtoworlds,
+        image_ids,
+    ):
+        return train_step(
+            model,
+            optimizer,
+            strategy_state,
+            safety_state,
+            images,
+            intrinsics,
+            viewmats,
+            key,
+            sh_degree,
+            pose_adjust=current_pose_adjust,
+            pose_optimizer=current_pose_optimizer,
+            camtoworlds=camtoworlds,
+            image_ids=image_ids,
+        )
+
+    images = jnp.zeros((2, 1, 4, 4, 3), jnp.float32)
+    intrinsics = jnp.broadcast_to(
+        jnp.asarray(
+            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
+        )[None, None],
+        (2, 1, 3, 3),
+    )
+    camtoworlds = jnp.broadcast_to(
+        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
+    )
+    viewmats = camtoworlds
+    # Each rank owns a different training image, so only its own embedding row
+    # receives a local gradient.
+    image_ids = jnp.asarray([[0], [1]], jnp.int32)
+
+    with mock.patch.object(
+        training_module, "rasterization", _pose_sensitive_rasterization
+    ):
+        mapped_step(
+            *bundles,
+            images,
+            intrinsics,
+            viewmats,
+            jax.random.split(jax.random.key(0), 2),
+            jnp.zeros((2,), jnp.int32),
+            pose_adjust,
+            pose_optimizer,
+            camtoworlds,
+            image_ids,
+        )
+
+    embedding = np.asarray(pose_adjust.embeds.embedding[...])
+    # DDP keeps the replicas identical and averages both rows across ranks.
+    np.testing.assert_array_equal(embedding[0], embedding[1])
+    assert np.any(embedding[0, 0] != 0.0)
+    assert np.any(embedding[0, 1] != 0.0)
+    np.testing.assert_array_equal(pose_optimizer.step[...], [1, 1])
+    return embedding
+
+
+def test_named_two_rank_pose_update_averages_replicated_gradients():
+    embedding = _run_two_rank_pose_update(nnx.vmap)
+    # Each row's own rank contributed the only non-zero gradient, so DDP's mean
+    # halves it and both rows move by the same amount.
+    np.testing.assert_allclose(
+        np.abs(embedding[0, 0]), np.abs(embedding[0, 1]), rtol=1e-6
+    )
+
+
+def test_distributed_train_step_still_rejects_appearance_and_2dgs():
+    with pytest.raises(NotImplementedError, match="appearance"):
+        make_distributed_train_step(
+            _topology_plan_config(refine_start=4, train={"app_opt": True}),
+            world_size=2,
+        )
+    with pytest.raises(NotImplementedError, match="2DGS"):
+        make_distributed_train_step(
+            _topology_plan_config(
+                refine_start=4, train={"model_type": "2dgs"}
+            ),
+            world_size=2,
+        )

@@ -621,13 +621,37 @@ fresh shards, manifest contents, resharding and capacity rejection, config
 mismatch, cross-kind rejection, unsharded and step-divergent saves, and a
 restored world that keeps training with an aligned schedule.
 
+Camera-pose optimization and pose noise then join the sharded step. Upstream
+wraps `CameraOptModule` in DDP, so its parameters stay replicated and its
+gradient is averaged across ranks; Gaussians are sharded instead and keep the
+owner-scattered sum. This port reproduces that split with a single `pmean` on
+the pose gradient outside every conditional, and a two-rank test pins it: with
+one training image per rank, the replicas stay bit-identical and both embedding
+rows move by the averaged amount, which fails immediately if the reduction is
+dropped. The pose learning rate keeps upstream's local `sqrt(batch_size)`
+scaling rather than the global batch used for Gaussians.
+
+An audit against the pinned tree on 2026-07-29 confirmed that upstream `main`
+is still `2b902ff`, that every non-CUDA upstream module path resolves at the
+matching `jax_gs` path, and that 134 shared callables agree on parameter names
+except `SelectiveAdam`, whose JAX call surface is the documented adaptation.
+The same audit corrected an overstated gap list: upstream's C++ orchestrator
+rejects `distributed=True` together with Gaussian batch dimensions,
+`sparse_grad`, AbsGrad, UT, eval3d, returned normals, custom rays, non-pinhole
+cameras, rolling shutter, camera distortion, LiDAR coefficients, and per-view
+`[C, N, D]` colors, and its 2DGS entry point takes no `distributed` argument at
+all. Those rejections here are parity, not missing work. Packed projection,
+`visible_adam`, and MCMC remain genuinely unwired for the distributed step.
+
 These slices are intentionally dense SH pinhole 3DGS. Their photometric and
 active/visible metrics are rank-local, whereas overflow, intersection, and
 refinement diagnostics are global. Physical shard capacity never changes inside
 the step and no Scene/Dynamic sidecar is carried, so bucket growth, sidecar
 lineage, and resharding stay host work.
-Upstream current-main itself rejects distributed AbsGrad. Pose/appearance,
-packed/sparse/visible Adam, UT/Eval3D, 2DGS, host data
+Upstream current-main itself rejects distributed AbsGrad, UT/eval3d,
+non-pinhole cameras, `sparse_grad`, Gaussian batch dimensions, and the
+per-view colors appearance optimization produces. Packed projection,
+`visible_adam`, MCMC, host data
 sharding, eval, launch, and performance specialization remain later
 slices. Unified `train()` consequently continues to reject multiple JAX
 processes.
@@ -692,14 +716,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The opacity-reset parity 2026-07-29 forced-CPU non-resource
+The distributed pose 2026-07-29 forced-CPU non-resource
 acceptance
-reported `863 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `865 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-901 passing CPU cases in total.
+903 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all

@@ -134,9 +134,12 @@ status, and acceptance criteria.
   and each owner then commits its own events and scheduled opacity reset from
   the post-update state. The whole world can be checkpointed as one indivisible
   shard set and resumed at the same world size and shard capacity. This slice
-  does not include a launcher, Gaussian leading batch, pose/appearance,
-  device-side bucket growth, a Scene/Dynamic sidecar, resharding, host
-  data sharding, eval, or complete multi-process orchestration.
+  does not include a launcher, device-side bucket growth, a Scene/Dynamic
+  sidecar, resharding, host data sharding, eval, packed/`visible_adam`/MCMC
+  distributed steps, or complete multi-process orchestration. Rejecting a
+  Gaussian leading batch, appearance colors, UT/eval3d, non-pinhole cameras,
+  `sparse_grad`, and AbsGrad under `distributed=True` matches upstream's own
+  validation rather than marking a gap.
   Rank-local photometric/active metrics remain local while
   overflow/intersection diagnostics are global. Startup belongs to
   `jax.distributed`, MPI, Slurm, or another external launcher, and unified
@@ -144,10 +147,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  opacity-reset parity
-  forced-CPU acceptance reported `863 passed, 1 skipped, 38 deselected`; five
+  pose
+  forced-CPU acceptance reported `865 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  901 passing cases in total.
+  903 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -471,7 +474,17 @@ and local multi-device mapping belongs inside `pmap`/`shard_map`.
 
 `training.make_distributed_train_step()` builds on that renderer contract for
 the readable device-side training slices. It supports dense SH pinhole
-3DGS with equal physical shard capacities. Gaussian
+3DGS with equal physical shard capacities, plus camera-pose optimization and
+pose noise: the pose module is replicated and its gradient is averaged across
+ranks, which is what the DDP wrapper current-main puts around that module does,
+while Gaussians keep their owner-scattered sum. Its remaining rejections track
+upstream's own `distributed=True` validation, which refuses Gaussian batch
+dimensions, `sparse_grad`, AbsGrad, UT, eval3d, returned normals, custom rays,
+non-pinhole cameras, rolling shutter, camera distortion, LiDAR coefficients,
+and per-view `[C, N, D]` colors — the last of which is exactly what appearance
+optimization produces. Upstream's 2DGS entry point has no `distributed`
+parameter at all. Packed projection, `visible_adam`, and MCMC are allowed
+upstream but not yet wired here. Gaussian
 photometric gradients are the sum of rank-local mean losses, matching current
 main; local Gaussian regularizers remain owner-local. Global visibility and
 signed densification statistics are reduced before owner slicing, and both new

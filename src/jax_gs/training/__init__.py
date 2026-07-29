@@ -1488,6 +1488,13 @@ def _make_train_step(
                 rgb,
                 info,
             ) = result
+        if distributed and config.pose_opt:
+            assert distributed_axis_name is not None
+            assert pose_grads is not None
+            # Current-main wraps the camera-pose module in DDP, which averages
+            # the replicated gradient across ranks. Gaussians stay sharded and
+            # keep the owner-scattered sum instead.
+            pose_grads = jax.lax.pmean(pose_grads, distributed_axis_name)
         active_mask = model.active_mask[...]
         with jax.named_scope("inactive_grad_mask"):
             grads = jax.lax.cond(
@@ -2068,7 +2075,11 @@ def make_distributed_train_step(
     or SH degree returns ``distributed_state_mismatch=True`` and atomically
     skips the update. Signed screen-space statistics are reduced into each
     Gaussian owner; current-main distributed rendering does not support
-    AbsGrad.
+    AbsGrad. Camera-pose optimization and pose noise are supported: the
+    replicated module's gradient is averaged across ranks, matching the DDP
+    wrapper current-main puts around it, while Gaussians keep their sharded
+    sum. Appearance stays rejected because its per-view colors have no
+    distributed route upstream either.
 
     Refinement is planned, preflighted, and committed inside the step. Before
     the update every rank plans duplicate/split/prune events for the rows it
@@ -2109,10 +2120,6 @@ def make_distributed_train_step(
         raise NotImplementedError(
             "distributed appearance training requires gather-before-MLP "
             "camera colors and is not part of the first slice"
-        )
-    if config.pose_opt or config.pose_noise > 0.0:
-        raise NotImplementedError(
-            "distributed pose modules are not part of the first slice"
         )
     if config.packed or config.sparse_grad or config.visible_adam:
         raise NotImplementedError(
