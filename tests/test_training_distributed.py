@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from unittest import mock
 
 from flax import nnx
 import jax
@@ -187,6 +188,72 @@ def _cross_rank_visibility_rasterization(*args, **kwargs):
     return renders, alphas, {**info, "valid": valid}
 
 
+def _screen_stats_rasterization(
+    means,
+    _quats,
+    _scales,
+    _opacities,
+    _colors,
+    viewmats,
+    _intrinsics,
+    width,
+    height,
+    **kwargs,
+):
+    axis_name = kwargs["distributed_axis_name"]
+    gathered_means = jax.lax.all_gather(
+        means, axis_name, axis=0, tiled=True
+    )
+    global_capacity = gathered_means.shape[0]
+    screen_probe = kwargs["_means2d_offset"]
+    assert screen_probe.shape == (viewmats.shape[0], global_capacity, 2)
+    rank = jax.lax.axis_index(axis_name)
+    screen_coefficients = jnp.where(
+        rank == 0,
+        jnp.asarray([[[1.0, 0.0], [100.0, 100.0]]]),
+        jnp.asarray([[[-3.0, 0.0], [6.0, 8.0]]]),
+    ).astype(means.dtype)
+    signal = (
+        jnp.asarray(0.25, means.dtype)
+        + 1.0e-3 * jnp.sum(gathered_means)
+        + jnp.sum(screen_probe * screen_coefficients)
+    )
+    renders = jnp.broadcast_to(signal, (viewmats.shape[0], height, width, 3))
+    alphas = jnp.ones(
+        (viewmats.shape[0], height, width, 1), dtype=means.dtype
+    )
+    radii = jnp.where(
+        rank == 0,
+        jnp.asarray([[[4.0, 2.0], [7.0, 7.0]]]),
+        jnp.asarray([[[2.0, 2.0], [1.0, 2.0]]]),
+    ).astype(means.dtype)
+    valid = jnp.where(
+        rank == 0,
+        jnp.asarray([[True, False]]),
+        jnp.asarray([[True, True]]),
+    )
+    info = {
+        "radii": radii,
+        "valid": valid,
+        "tile_overflow": jnp.zeros(
+            (viewmats.shape[0], 1, 1), dtype=jnp.bool_
+        ),
+        "candidate_limit_exceeded": jnp.zeros(
+            (viewmats.shape[0], 1, 1), dtype=jnp.bool_
+        ),
+        "intersection_overflow": jnp.zeros(
+            (viewmats.shape[0],), dtype=jnp.bool_
+        ),
+        "intersection_count": jnp.ones(
+            (viewmats.shape[0],), dtype=jnp.int32
+        ),
+        "intersection_required_count": jnp.ones(
+            (viewmats.shape[0],), dtype=jnp.int32
+        ),
+    }
+    return renders, alphas, info
+
+
 def test_distributed_train_step_rejects_unsupported_first_slice_modes():
     with pytest.raises(ValueError, match="world_size must be greater than one"):
         make_distributed_train_step(
@@ -199,6 +266,19 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
     with pytest.raises(NotImplementedError, match="2DGS"):
         make_distributed_train_step(
             _fixed_topology_config(model_type="2dgs"), world_size=2
+        )
+    with pytest.raises(NotImplementedError, match="AbsGrad"):
+        make_distributed_train_step(
+            _fixed_topology_config(
+                strategy=StrategyConfig(
+                    refine_start=3,
+                    refine_stop=4,
+                    reset_every=4,
+                    max_new_per_refine=1,
+                    absgrad=True,
+                )
+            ),
+            world_size=2,
         )
     with pytest.raises(NotImplementedError, match="fixed topology"):
         make_distributed_train_step(
@@ -314,13 +394,37 @@ def _run_two_rank_update(
     expected_steps = np.asarray(initial_optimizer_steps) + int(expect_update)
     np.testing.assert_array_equal(optimizer.step[...], expected_steps)
     assert (not np.array_equal(model.means[...], means_before)) == expect_update
-    np.testing.assert_array_equal(strategy_state.grad_accum[...], 0.0)
-    np.testing.assert_array_equal(strategy_state.visible_count[...], 0.0)
     return model, optimizer, strategy_state, safety_state, metrics
 
 
 def test_named_two_rank_train_step_updates_shards_with_global_rendering():
-    _run_two_rank_update(nnx.vmap)
+    _, _, strategy_state, _, _ = _run_two_rank_update(nnx.vmap)
+
+    assert np.all(np.isfinite(strategy_state.grad_accum[...]))
+    assert np.any(np.asarray(strategy_state.grad_accum[...]) > 0.0)
+    assert np.all(np.asarray(strategy_state.visible_count[...]) > 0.0)
+
+
+def _run_two_rank_screen_stats(map_transform):
+    with mock.patch.object(
+        training_module, "rasterization", _screen_stats_rasterization
+    ):
+        _, _, strategy_state, _, _ = _run_two_rank_update(map_transform)
+
+    np.testing.assert_allclose(
+        strategy_state.grad_accum[...],
+        [[8.0], [20.0]],
+        rtol=2.0e-6,
+        atol=1.0e-6,
+    )
+    np.testing.assert_array_equal(
+        strategy_state.visible_count[...], [[2.0], [1.0]]
+    )
+    np.testing.assert_allclose(strategy_state.max_radii[...], [[1.0], [0.5]])
+
+
+def test_named_two_rank_screen_statistics_reduce_before_owner_slice():
+    _run_two_rank_screen_stats(nnx.vmap)
 
 
 def test_distributed_train_step_rejects_wrong_optimizer_world_size():
@@ -414,6 +518,9 @@ def test_two_virtual_cpu_nnx_pmap_smoke():
             "from tests.test_training_distributed import _run_two_rank_update",
             "assert jax.local_device_count() == 2",
             "_run_two_rank_update(nnx.pmap)",
+            "from tests.test_training_distributed import "
+            "_run_two_rank_screen_stats",
+            "_run_two_rank_screen_stats(nnx.pmap)",
         )
     )
     environment = os.environ.copy()
@@ -442,6 +549,9 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
         _rank_bundle(config, -0.08),
         _rank_bundle(config, 0.08),
     )
+    strategy_state.grad_accum[...] = jnp.asarray([[5.0], [7.0]])
+    strategy_state.visible_count[...] = jnp.asarray([[11.0], [13.0]])
+    strategy_state.max_radii[...] = jnp.asarray([[0.25], [0.75]])
     train_step = make_distributed_train_step(
         config, world_size=2, axis_name="rank"
     )
@@ -501,6 +611,7 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
     )
     model_before = _snapshot_graph_arrays(model)
     optimizer_before = _snapshot_graph_arrays(optimizer)
+    strategy_before = _snapshot_graph_arrays(strategy_state)
     metrics = mapped_step(*call_args)
 
     np.testing.assert_array_equal(
@@ -522,6 +633,10 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
         np.testing.assert_array_equal(after, before)
     for before, after in zip(
         optimizer_before, _snapshot_graph_arrays(optimizer), strict=True
+    ):
+        np.testing.assert_array_equal(after, before)
+    for before, after in zip(
+        strategy_before, _snapshot_graph_arrays(strategy_state), strict=True
     ):
         np.testing.assert_array_equal(after, before)
 
@@ -558,3 +673,7 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
         safety_state.max_overflow_tiles[...], [3, 3]
     )
     np.testing.assert_array_equal(optimizer.step[...], [0, 0])
+    for before, after in zip(
+        strategy_before, _snapshot_graph_arrays(strategy_state), strict=True
+    ):
+        np.testing.assert_array_equal(after, before)

@@ -69,7 +69,7 @@ status, and acceptance criteria.
 | `export_splats` and `load_ply_to_splats` | Implemented | Upstream bytes-returning `ply`, `splat`, and Supersplat `ply_compressed` formats plus float32 JAX PLY loading; CLI export canonically bakes appearance with zero camera embedding/direction and the configured full direction-basis degree into degree-zero SH before using these formats; raw features/colors are rejected by the generic exporter |
 | `utils` geometry/transforms/deprecated PLY helper | Implemented | Pure JAX for differentiable math, including upstream `x`/`y`/`quat` keyword signatures; host NumPy only for PLY serialization |
 | current-main `trace` and `profile` | Implemented for JAX | `jax.profiler.TraceAnnotation`, synchronized timing with current-main dunder keywords/returns, environment-driven input capture, override parsing, and forward/gradient replay; capture payloads use pickle/NumPy and `load_capture` |
-| current-main distributed renderer helpers, root routing, `cli`, and fixed-topology training | Renderer plus first device-training slice implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with fixed topology, global overflow atomics, owner-correct visibility, and current-main Gaussian gradient/Adam scaling. Host data/topology/checkpoint/eval and multi-process orchestration remain open |
+| current-main distributed renderer helpers, root routing, `cli`, and fixed-topology training | Renderer plus first device-training slice implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with fixed topology, global overflow atomics, owner-correct visibility and signed densification statistics, and current-main Gaussian gradient/Adam scaling. Host data/topology/checkpoint/eval and multi-process orchestration remain open |
 | current-main capability queries | Implemented | Report pure-JAX subsystem availability rather than CUDA compile flags; `has_camera_wrappers()` and `has_losses()` are true for their completed facades |
 
 ## Deliberate behavioral boundaries and pending acceptance
@@ -121,20 +121,24 @@ status, and acceptance criteria.
   a fixed-topology, dense-SH, pinhole 3DGS device step inside `nnx.pmap`: each
   rank owns a Gaussian shard and local camera batch, gather transpose sums the
   rank-local photometric gradients, visibility is reduced in global Gaussian
-  coordinates before owner slicing, and overflow or rank step/SH-degree
-  mismatch atomically skips every shard. The optimizer is required to carry
-  matching batch/world/scene-scale/config metadata. This slice does not include
-  a launcher, Gaussian leading batch, pose/appearance, densification statistics,
-  dynamic topology, host data sharding, checkpoint/eval, or complete
-  multi-process orchestration. Rank-local photometric/active metrics remain
-  local while overflow/intersection diagnostics are global. Startup belongs to
+  coordinates before owner slicing, and signed screen statistics preserve the
+  local-camera dimension until each visible gradient has been normalized and
+  reduced by `sum/sum/max` into its Gaussian owner. Overflow or rank
+  step/SH-degree mismatch atomically skips model, optimizer, and statistics on
+  every shard. The optimizer is required to carry matching
+  batch/world/scene-scale/config metadata. This slice does not include a
+  launcher, Gaussian leading batch, pose/appearance, dynamic topology, host
+  data sharding, checkpoint/eval, or complete multi-process orchestration.
+  Rank-local photometric/active metrics remain local while
+  overflow/intersection diagnostics are global. Startup belongs to
   `jax.distributed`, MPI, Slurm, or another external launcher, and unified
   `train()` still rejects `jax.process_count() != 1`.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
-  normalization are implemented. The 2026-07-28 forced-CPU acceptance reported
-  `838 passed, 1 skipped, 38 deselected`; five fresh-process resource-heavy
-  groups then passed `19+5+9+3+2=38` cases, for 876 passing cases in total.
+  normalization are implemented. The 2026-07-29 distributed signed-statistics
+  forced-CPU acceptance reported `839 passed, 1 skipped, 38 deselected`; five
+  fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
+  877 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.

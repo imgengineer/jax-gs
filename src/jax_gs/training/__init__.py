@@ -46,6 +46,7 @@ from ..rasterization import _automatic_intersection_capacity, rasterization
 from ..strategy import (
     build_densification_stats,
     DefaultStrategy,
+    DensificationStats,
     MCMCStrategy,
     StrategyState,
     reset_opacities,
@@ -1073,7 +1074,7 @@ def _make_train_step(
     use_absgrad = config.strategy.absgrad
     row_selective_optimizer = config.sparse_grad or config.visible_adam
     distributed = distributed_world_size > 1
-    collect_screen_stats = not distributed and not (
+    collect_screen_stats = not (
         config.strategy.kind == "mcmc"
         and (config.with_ut or config.with_eval3d)
     )
@@ -1217,8 +1218,14 @@ def _make_train_step(
             1, dtype=optimizer.step[...].dtype
         )
 
+        # Keep distributed camera probes independent while spanning the global
+        # Gaussian axis. Gathering local probes would sum signed gradients in
+        # the gather VJP before the strategy can take each camera's norm.
+        screen_gaussian_count = model.means.shape[0] * (
+            distributed_world_size if distributed else 1
+        )
         screen_probe_shape = (
-            (viewmats.shape[0], model.means.shape[0], 2)
+            (viewmats.shape[0], screen_gaussian_count, 2)
             if collect_screen_stats
             else ()
         )
@@ -1492,9 +1499,15 @@ def _make_train_step(
                     camera_count=viewmats.shape[0],
                 )
             )
+            stats_projection_radii = projection_radii
+            stats_projection_valid = projection_valid
+            stats_active_mask = active_mask
         else:
             projection_radii = info["radii"]
             projection_valid = info["valid"]
+            stats_projection_radii = projection_radii
+            stats_projection_valid = projection_valid
+            stats_active_mask = active_mask
             visible = jnp.any(
                 jnp.asarray(projection_valid, dtype=jnp.bool_)
                 & jnp.all(jnp.asarray(projection_radii) > 0, axis=-1),
@@ -1512,6 +1525,12 @@ def _make_train_step(
                 owner_start = (
                     jax.lax.axis_index(distributed_axis_name)
                     * model.capacity
+                )
+                stats_active_mask = jax.lax.all_gather(
+                    active_mask,
+                    distributed_axis_name,
+                    axis=0,
+                    tiled=True,
                 )
                 projection_radii = jax.lax.dynamic_slice_in_dim(
                     projection_radii,
@@ -1535,12 +1554,44 @@ def _make_train_step(
         if collect_screen_stats:
             densification_stats = build_densification_stats(
                 screen_grad,
-                projection_radii,
-                projection_valid,
-                active_mask,
+                stats_projection_radii,
+                stats_projection_valid,
+                stats_active_mask,
                 render_width,
                 render_height,
             )
+            if distributed:
+                assert distributed_axis_name is not None
+                # The per-camera norm is already in these scalar statistics.
+                # Reduce globally before slicing the current Gaussian owner.
+                global_stats = DensificationStats(
+                    jax.lax.psum(
+                        densification_stats.grad_sum,
+                        distributed_axis_name,
+                    ),
+                    jax.lax.psum(
+                        densification_stats.count,
+                        distributed_axis_name,
+                    ),
+                    jax.lax.pmax(
+                        densification_stats.max_radii,
+                        distributed_axis_name,
+                    ),
+                )
+
+                def owner_slice(value):
+                    return jax.lax.dynamic_slice_in_dim(
+                        value,
+                        owner_start,
+                        model.capacity,
+                        axis=0,
+                    )
+
+                densification_stats = DensificationStats(
+                    owner_slice(global_stats.grad_sum),
+                    owner_slice(global_stats.count),
+                    owner_slice(global_stats.max_radii),
+                )
         overflow_tiles = jnp.count_nonzero(info["tile_overflow"])
         intersection_overflow = jnp.any(info["intersection_overflow"])
         previous_max_overflow_tiles = safety_state.max_overflow_tiles[...]
@@ -1849,7 +1900,9 @@ def make_distributed_train_step(
     separate orchestration work, so :func:`train` continues to fail fast for
     multiple JAX processes. ``scene_scale`` must match the value passed to the
     Gaussian optimizer. A rank mismatch in optimizer step or SH degree returns
-    ``distributed_state_mismatch=True`` and atomically skips the update.
+    ``distributed_state_mismatch=True`` and atomically skips the update. Signed
+    screen-space statistics are reduced into each Gaussian owner; current-main
+    distributed rendering does not support AbsGrad.
     """
 
     try:
@@ -1890,7 +1943,7 @@ def make_distributed_train_step(
         )
     if config.strategy.absgrad:
         raise NotImplementedError(
-            "distributed AbsGrad is not part of the first slice"
+            "current-main distributed rendering does not support AbsGrad"
         )
     if config.strategy.kind != "default":
         raise NotImplementedError(

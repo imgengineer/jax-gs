@@ -323,14 +323,20 @@ def rasterization(
         )
     if kwargs.get("_means2d_offset") is not None:
         means2d_offset = jnp.asarray(kwargs["_means2d_offset"])
-        expected_shape = (camera_count, local_capacity, 2)
-        if means2d_offset.shape != expected_shape:
-            raise ValueError(
-                f"_means2d_offset must have shape {expected_shape} on each rank"
+        local_shape = (camera_count, local_capacity, 2)
+        global_shape = (camera_count, local_capacity * world_size, 2)
+        if means2d_offset.shape == local_shape:
+            means2d_offset = _all_gather_axis(
+                means2d_offset, 1, axis_name
             )
-        kwargs["_means2d_offset"] = _all_gather_axis(
-            means2d_offset, 1, axis_name
-        )
+        # Training uses an already-global probe per local camera batch so its
+        # screen gradient stays separate until after the per-camera norm.
+        elif means2d_offset.shape != global_shape:
+            raise ValueError(
+                "_means2d_offset must have rank-local shape "
+                f"{local_shape} or global-Gaussian shape {global_shape}"
+            )
+        kwargs["_means2d_offset"] = means2d_offset
 
     renders, alphas, info = local_rasterization(
         means,

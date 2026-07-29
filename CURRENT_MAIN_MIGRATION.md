@@ -532,19 +532,26 @@ gradients; it is deliberately not followed by `pmean`. Optimizer metadata binds
 the local batch, world size, scene scale, and full optimizer config, while the
 factory requires `optimizer.max_steps == TrainConfig.steps`. Global visibility
 is reduced in global Gaussian coordinates before slicing the owner segment.
-Current and prior sticky overflow state are synchronized, and any rank mismatch
-in optimizer step or SH degree makes the complete mapped update a no-op. Tests
-cover the sum-vs-mean Adam moment, asymmetric visibility/overflow, named vmap,
-and a real two-virtual-CPU `nnx.pmap` call.
+Signed densification statistics use an independent
+local-camera/global-Gaussian probe: each rank first normalizes and takes the L2
+norm for every visible camera/Gaussian pair, then `psum/psum/pmax` combines
+gradient sums, counts, and radii before the owner segment is selected. Current
+and prior sticky overflow state are synchronized, and any rank mismatch in
+optimizer step or SH degree makes the complete mapped update, including
+strategy statistics, a no-op. Tests cover the sum-vs-mean Adam moment,
+opposite-direction signed screen gradients, asymmetric visibility/radii and
+overflow, named vmap, and a real two-virtual-CPU `nnx.pmap` call.
 
 This first slice is intentionally dense SH pinhole 3DGS with fixed topology.
 Its photometric and active/visible metrics are rank-local, whereas overflow and
-intersection diagnostics are global. It does not accumulate distributed
-densification statistics, so the strategy state is not a future topology-resume
-point. Pose/appearance, packed/sparse/visible Adam, AbsGrad, UT/Eval3D, 2DGS,
-dynamic topology, host data sharding, checkpoint/eval, launch, and performance
-specialization remain later slices. Unified `train()` consequently continues
-to reject multiple JAX processes.
+intersection diagnostics are global. Its owner-local signed densification
+statistics now include all rank-local camera batches and are ready for a later
+topology slice, but device-side duplicate/split is still disabled. Upstream
+current-main itself rejects distributed AbsGrad. Pose/appearance,
+packed/sparse/visible Adam, UT/Eval3D, 2DGS, dynamic topology, host data
+sharding, checkpoint/eval, launch, and performance specialization remain later
+slices. Unified `train()` consequently continues to reject multiple JAX
+processes.
 
 The means optimizer receives the scene scale derived after current-main spatial
 normalization. The 4x4 transform and the final `1.1 * global_scale` camera
@@ -602,13 +609,13 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The scene-normalization/checkpoint-v6 2026-07-28 forced-CPU non-resource
-acceptance reported `838 passed, 1 skipped, 38 deselected`; the warnings were
-four known Orbax restore sharding warnings and the only skip was the unavailable
-optional local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy
-selections passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS,
-9 Eval3D, 3 sparse rasterization, and 2 visibility cases. The current slice
-therefore has 876 passing CPU cases in total.
+The distributed signed-statistics 2026-07-29 forced-CPU non-resource acceptance
+reported `839 passed, 1 skipped, 38 deselected`; the warnings were four known
+Orbax restore sharding warnings and the only skip was the unavailable optional
+local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
+passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
+3 sparse rasterization, and 2 visibility cases. The current slice therefore has
+877 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all
