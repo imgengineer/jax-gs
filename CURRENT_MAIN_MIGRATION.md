@@ -95,6 +95,26 @@ The detailed source of truth for names and behavior is the pinned upstream
 tree. `COMPATIBILITY.md` records current implemented adaptations; this file
 records migration order and phase exit criteria.
 
+Reverse-mode memory is bounded by rematerialization rather than by storage.
+Each tile-mapped renderer here evaluates a tile through `jax.lax.map`, and the
+per-tile body materializes `[max_gaussians_per_tile, pixel]` compositing
+intermediates. Differentiating that map stored those intermediates for every
+tile at once, so backward temporaries grew with the tile count until they
+dwarfed the forward workspace by three to five orders of magnitude and a
+realistic training-sized backward pass could not be allocated at all.
+Checkpointing the per-tile function makes the backward recompute one tile batch
+at a time, which is also what the upstream backward kernel does when it
+re-evaluates per-(Gaussian, pixel) responses instead of saving them. Measured
+with XLA's compiled memory analysis: 1,169.6 GiB to 5.16 GiB for the dense path
+at 200k Gaussians and 640x360, 48.3 to 1.39 GiB for the reference backend, 88.2
+to 3.44 GiB for 2DGS, and 15.5 to 0.31 GiB for eval3d, for a measured 1.21x
+increase in `value_and_grad` flops. Dense and reference gradients are bitwise
+unchanged and 2DGS agrees to one float32 ulp. A parametrized test pins the
+structural property that backward temporaries no longer grow with the tile
+count; before the change, quadrupling the tile count multiplied them by 3.6.
+The sparse per-pixel compositor maps over pixels rather than tiles and was left
+alone.
+
 Unless a paragraph gives an explicit date, all test counts below are historical
 phase-exit snapshots recorded before the latest 2026-07-27 integration changes;
 their exact run timestamps were not retained. They are not the final acceptance
@@ -727,14 +747,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The distributed packed/visible_adam/MCMC 2026-07-29 forced-CPU non-resource
+The backward-rematerialization 2026-07-29 forced-CPU non-resource
 acceptance
-reported `869 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `872 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-907 passing CPU cases in total.
+910 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all

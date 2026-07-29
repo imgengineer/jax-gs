@@ -1523,15 +1523,13 @@ def _make_train_step(
                     axis=0,
                     tiled=True,
                 )
-            projection_radii, projection_valid, visible = (
+            stats_projection_radii, stats_projection_valid, visible = (
                 _unpack_training_projection_metadata(
                     info,
                     packed_active_mask,
                     camera_count=viewmats.shape[0],
                 )
             )
-            stats_projection_radii = projection_radii
-            stats_projection_valid = projection_valid
             stats_active_mask = packed_active_mask
             if distributed:
                 assert distributed_axis_name is not None
@@ -1549,14 +1547,12 @@ def _make_train_step(
                 )
                 visible = visible & active_mask
         else:
-            projection_radii = info["radii"]
-            projection_valid = info["valid"]
-            stats_projection_radii = projection_radii
-            stats_projection_valid = projection_valid
+            stats_projection_radii = info["radii"]
+            stats_projection_valid = info["valid"]
             stats_active_mask = active_mask
             visible = jnp.any(
-                jnp.asarray(projection_valid, dtype=jnp.bool_)
-                & jnp.all(jnp.asarray(projection_radii) > 0, axis=-1),
+                jnp.asarray(stats_projection_valid, dtype=jnp.bool_)
+                & jnp.all(jnp.asarray(stats_projection_radii) > 0, axis=-1),
                 axis=0,
             )
             if distributed:
@@ -1573,18 +1569,6 @@ def _make_train_step(
                     distributed_axis_name,
                     axis=0,
                     tiled=True,
-                )
-                projection_radii = jax.lax.dynamic_slice_in_dim(
-                    projection_radii,
-                    owner_start,
-                    model.capacity,
-                    axis=1,
-                )
-                projection_valid = jax.lax.dynamic_slice_in_dim(
-                    projection_valid,
-                    owner_start,
-                    model.capacity,
-                    axis=1,
                 )
                 visible = jax.lax.dynamic_slice_in_dim(
                     visible,

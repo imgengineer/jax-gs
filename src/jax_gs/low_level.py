@@ -1151,7 +1151,13 @@ def rasterize_to_pixels(
 
     tile_ids = jnp.arange(tile_count, dtype=jnp.int32)
     rendered_tiles, alpha_tiles, tile_overflow = jax.lax.map(
-        render_tile, tile_ids, batch_size=tile_batch_size
+        # Reverse mode otherwise keeps every chunk of every tile's
+        # [max_gaussians_per_tile, pixel] compositing intermediates alive at
+        # once, which dwarfs the forward workspace. Recomputing one tile batch
+        # at a time is also what the upstream backward kernel does.
+        jax.checkpoint(render_tile),
+        tile_ids,
+        batch_size=tile_batch_size,
     )
     render_colors = (
         rendered_tiles.reshape(

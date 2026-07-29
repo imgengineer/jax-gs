@@ -333,7 +333,13 @@ def _render_camera_tiles(
         candidate_limit_exceeded,
         selected_gaussian_ids,
         selected_valid,
-    ) = jax.lax.map(render_tile, tile_ids, batch_size=config.tile_batch_size)
+    ) = jax.lax.map(
+        # Reverse mode otherwise keeps every tile's [candidate, pixel]
+        # compositing intermediates alive at once.
+        jax.checkpoint(render_tile),
+        tile_ids,
+        batch_size=config.tile_batch_size,
+    )
 
     intersection_capacity = tile_count * candidate_limit
     flat_selected_valid = selected_valid.reshape(-1)

@@ -1789,3 +1789,65 @@ def test_inria_wrapper_matches_upstream_signature_and_return_contract():
     assert jnp.allclose(wrapped, expected)
     assert alpha is None
     assert info == {}
+
+
+def _backward_temp_bytes(
+    config: RasterizationConfig, width: int, height: int, **kwargs
+) -> int:
+    """Compile one backward pass and report its temporary memory."""
+
+    count = 2_000
+    k1, k2, k3 = jax.random.split(jax.random.key(11), 3)
+    means = jax.random.normal(k1, (count, 3), jnp.float32) * 0.4 + jnp.asarray(
+        [0.0, 0.0, 3.0]
+    )
+    quats = jnp.tile(jnp.asarray([1.0, 0.0, 0.0, 0.0], jnp.float32), (count, 1))
+    scales = jnp.exp(
+        jax.random.normal(k2, (count, 3), jnp.float32) * 0.2 - 3.0
+    )
+    opacities = jax.nn.sigmoid(jax.random.normal(k3, (count,), jnp.float32))
+    colors = jnp.zeros((count, 1, 3), jnp.float32)
+    viewmats = jnp.eye(4, dtype=jnp.float32)[None]
+    intrinsics = jnp.asarray(
+        [[[96.0, 0.0, width / 2], [0.0, 96.0, height / 2], [0.0, 0.0, 1.0]]],
+        jnp.float32,
+    )
+
+    def loss(m, q, s, o, c):
+        rendered = rasterization(
+            m, q, s, o, c, viewmats, intrinsics, width, height,
+            sh_degree=0, config=config, **kwargs,
+        )[0]
+        return jnp.mean(rendered**2)
+
+    compiled = (
+        jax.jit(jax.value_and_grad(loss, argnums=(0, 1, 2, 3, 4)))
+        .lower(means, quats, scales, opacities, colors)
+        .compile()
+    )
+    try:
+        return compiled.memory_analysis().temp_size_in_bytes
+    except (AttributeError, NotImplementedError) as exc:  # pragma: no cover
+        pytest.skip(f"memory analysis is unavailable: {exc}")
+
+
+@pytest.mark.parametrize(
+    ("config", "kwargs"),
+    [
+        (RasterizationConfig(max_intersections=8192), {}),
+        (RasterizationConfig(backend="reference", max_intersections=8192), {}),
+        (
+            RasterizationConfig(max_intersections=8192),
+            {"with_ut": True, "with_eval3d": True},
+        ),
+    ],
+    ids=["dense", "reference", "eval3d"],
+)
+def test_backward_memory_does_not_grow_with_the_tile_count(config, kwargs):
+    # Per-tile compositing is rematerialized, so reverse mode keeps only one
+    # tile batch of [max_gaussians_per_tile, pixel] intermediates alive.
+    # Without it, quadrupling the tile count multiplied this by about 3.6.
+    small = _backward_temp_bytes(config, 96, 64, **kwargs)
+    large = _backward_temp_bytes(config, 192, 128, **kwargs)
+
+    assert large < 1.5 * small

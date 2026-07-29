@@ -1968,7 +1968,9 @@ def _rasterize_eval3d_camera(
         tile_overflow,
         candidate_limit_exceeded,
     ) = jax.lax.map(
-        render_tile,
+        # Reverse mode otherwise keeps every tile's [candidate, pixel]
+        # compositing intermediates alive at once.
+        jax.checkpoint(render_tile),
         jnp.arange(tile_count, dtype=jnp.int32),
         batch_size=tile_batch_size,
     )
@@ -2269,7 +2271,9 @@ def _rasterize_eval3d_lidar(
         tile_overflow,
         candidate_limit_exceeded,
     ) = jax.lax.map(
-        render_tile,
+        # Reverse mode otherwise keeps every tile's [candidate, pixel]
+        # compositing intermediates alive at once.
+        jax.checkpoint(render_tile),
         jnp.arange(tile_count, dtype=jnp.int32),
         batch_size=tile_batch_size,
     )

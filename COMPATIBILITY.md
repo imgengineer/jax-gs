@@ -147,10 +147,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  packed/visible_adam/MCMC
-  forced-CPU acceptance reported `869 passed, 1 skipped, 38 deselected`; five
+  backward rematerialization
+  forced-CPU acceptance reported `872 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  907 passing cases in total.
+  910 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -572,6 +572,26 @@ reduction order can still produce small floating-point differences; the
 implementation promises tolerance-based agreement, not bitwise identity.
 
 ## Measured performance status
+
+Reverse mode rematerializes per-tile compositing. Every tile-mapped renderer —
+the dense 3DGS pixel path, the reference backend, 2DGS, and the two eval3d
+paths — recomputes one tile batch at a time in the backward pass instead of
+keeping every tile's `[max_gaussians_per_tile, pixel]` intermediates alive at
+once. The stored version made backward temporary memory grow with the tile
+count and dwarf the forward workspace: at 200k Gaussians, 640x360, SH degree 3
+and the trainer's default 65,536-intersection bucket, XLA's compiled memory
+analysis reported 1,169.6 GiB of backward temporaries against 30 MiB for the
+forward pass, and a matching run really did fail allocating tens of terabytes.
+With rematerialization the same case reports 5.16 GiB, a 227x reduction that
+holds at larger intersection buckets (4,678 GiB to 20.3 GiB, 18,713 GiB to
+81.1 GiB). The reference backend drops 35x, 2DGS 26x, and eval3d 50x on their
+own probes, and quadrupling the tile count no longer changes backward
+temporaries at all. The cost is one extra evaluation of the compositing
+region: a measured 1.21x increase in `value_and_grad` flops. Dense and
+reference gradients stay bitwise identical; 2DGS agrees to within one float32
+ulp (6.2e-8 relative) because XLA reassociates the recomputed region. Upstream
+recomputes per-(Gaussian, pixel) responses in its backward kernel too, so this
+moves toward its memory profile rather than away from it.
 
 No historical specialized-backend timing is presented as a measurement of the
 current pure-JAX renderer. The migration currently prioritizes API parity,

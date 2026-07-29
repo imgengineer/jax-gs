@@ -887,7 +887,9 @@ def _render_camera_tiles_2dgs(
 
     tile_ids = jnp.arange(tile_count, dtype=jnp.int32)
     mapped = jax.lax.map(
-        render_tile,
+        # Reverse mode otherwise keeps every tile's [candidate, pixel]
+        # compositing intermediates alive at once.
+        jax.checkpoint(render_tile),
         tile_ids,
         batch_size=min(config.tile_batch_size, tile_count),
     )
