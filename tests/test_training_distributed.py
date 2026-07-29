@@ -789,6 +789,29 @@ def test_scheduled_opacity_reset_is_committed():
     )
 
 
+def test_scheduled_opacity_reset_stops_at_refine_stop():
+    config = _topology_plan_config(reset_every=1, refine_stop=1)
+    opacity_before = {}
+
+    def prepare(model, optimizer, strategy_state):
+        del optimizer, strategy_state
+        opacity_before["value"] = np.asarray(model.opacity_logits[...]).copy()
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_statistics_rasterization
+    ):
+        model, _, _, _, metrics = _run_two_rank_update(
+            nnx.vmap, config=config, prepare=prepare
+        )
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [False, False])
+    np.testing.assert_array_equal(metrics["reset_scheduled"], [False, False])
+    np.testing.assert_array_equal(metrics["opacity_reset"], [False, False])
+    np.testing.assert_array_equal(
+        model.opacity_logits[...], opacity_before["value"]
+    )
+
+
 def test_single_rank_plan_overflow_atomically_skips_every_rank():
     config = _topology_plan_config(
         refine_scale2d_stop_iter=100, grow_scale2d=0.05

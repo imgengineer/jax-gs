@@ -57,7 +57,7 @@ status, and acceptance criteria.
 | current-main `isect_tiles_sparse` | Implemented | Complete Cartesian capacity by default; optional smaller capacity reports exact required count and overflow |
 | current-main `rasterize_to_pixels_sparse` | Implemented | Decodes the static uint32 tile layout, scans the complete retained tile range, and supports ordinary gradients plus true AbsGrad through an explicit zero-valued probe |
 | current-main dense/sparse contributor and top-contributor queries | Implemented | Runtime maximum contributor lists become `PaddedContributors` with per-pixel counts, required capacity, and overflow metadata |
-| current-main `strategy` package, lifecycle, `DefaultStrategy`, and `MCMCStrategy` | Integrated on fixed-capacity state | Public hooks consume exact signed `<key>_gradient` or true `<key>_absgrad`; same-parent duplicate+split and Scene/Dynamic topology preserve alignment; scheduled MCMC capacity overflow atomically skips optimizer/model/stats/refine/noise commits |
+| current-main `strategy` package, lifecycle, `DefaultStrategy`, and `MCMCStrategy` | Integrated on fixed-capacity state | Public hooks consume exact signed `<key>_gradient` or true `<key>_absgrad`; same-parent duplicate+split and Scene/Dynamic topology preserve alignment; refinement, statistics, and the scheduled opacity reset all stop at `refine_stop`; scheduled MCMC capacity overflow atomically skips optimizer/model/stats/refine/noise commits |
 | `compute_relocation` | Implemented | Pure-JAX Equation 9 primitive; fixed-slot MCMC applies it to donors, relocated slots, and births |
 | current-main `optimizers` package and `SelectiveAdam` | Implemented with a JAX call-surface adaptation | Gaussian groups use current-main global-batch LR/epsilon/beta scaling and means-only scene-scale multiplication; sparse-gradient row selection uses bias-corrected Optax Adam, while `visible_adam`/`SelectiveAdam` uses current-main's uncorrected moments; the wrapper exposes `update(model, grads, visible_mask)` plus a step counter instead of PyTorch's post-autograd `step(visibility)` |
 | current-main `init_utils` and point-cloud scale initialization | Implemented in pure JAX | Multi-frame depth unprojection plus chunked KNN; `ModelConfig.initial_scale` defaults to 1.0 and active point-cloud scales are RMS distance to up to three nearest neighbours times that multiplier |
@@ -144,10 +144,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  shard-growth
-  forced-CPU acceptance reported `861 passed, 1 skipped, 38 deselected`; five
+  opacity-reset parity
+  forced-CPU acceptance reported `863 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  899 passing cases in total.
+  901 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.

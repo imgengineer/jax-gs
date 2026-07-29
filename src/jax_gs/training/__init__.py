@@ -1665,8 +1665,10 @@ def _make_train_step(
                     >= config.strategy.pause_refine_after_reset
                 )
             )
-            reset_scheduled = (training_step > 0) & (
-                training_step % config.strategy.reset_every == 0
+            reset_scheduled = (
+                (training_step > 0)
+                & (training_step < config.strategy.refine_stop)
+                & (training_step % config.strategy.reset_every == 0)
             )
             # Every shard decides on its own rows. The step's scene scale is
             # the value already checked against the optimizer, so no rank can

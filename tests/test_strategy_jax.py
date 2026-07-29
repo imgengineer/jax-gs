@@ -405,6 +405,24 @@ def test_default_hook_overflow_skips_same_step_opacity_reset():
         assert jnp.array_equal(after, before)
 
 
+def test_default_strategy_stops_resetting_opacity_at_refine_stop():
+    strategy = DefaultStrategy(
+        StrategyConfig(
+            refine_start=0,
+            refine_stop=6,
+            refine_every=1,
+            reset_every=3,
+        )
+    )
+
+    assert strategy.should_reset(3)
+    assert not strategy.should_reset(0)
+    # current-main returns from the post-backward hook before its reset once
+    # refinement has stopped.
+    assert not strategy.should_reset(6)
+    assert not strategy.should_reset(9)
+
+
 def test_default_strategy_splits_before_pruning_large_gaussians():
     model = GaussianModel.empty(ModelConfig(capacity=2, sh_degree=0))
     model.active_mask[0] = True

@@ -1164,7 +1164,10 @@ class DefaultStrategy(Strategy):
         )
 
     def should_reset(self, step: int) -> bool:
-        return step > 0 and step % self.config.reset_every == 0
+        return (
+            0 < step < self.config.refine_stop
+            and step % self.config.reset_every == 0
+        )
 
     def plan_refine(
         self,

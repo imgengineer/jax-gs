@@ -378,7 +378,11 @@ PyTorch's mutable tensor-side field. Both accept exact dense `[C, N, 2]` or
 padded `[P, 2]` statistics, while a legacy capacity-shaped signed gradient
 remains accepted. Duplicate, split, remove, opacity reset, relocation,
 sample-add, and MCMC position perturbation keep model, optimizer, strategy,
-Scene sidecar, and Dynamic-mask rows aligned. When one original parent satisfies
+Scene sidecar, and Dynamic-mask rows aligned. Upstream returns from the whole
+post-backward hook once `step >= refine_stop_iter`, so `should_reset` carries
+that bound as well and no scheduled opacity reset runs after refinement stops,
+in the public hook, the single-process trainer, and the distributed step
+alike. When one original parent satisfies
 both current-main growth conditions, the plan emits both a duplicate and a
 split from the original snapshot; the event cap preserves duplicate-before-split
 ordering, and the retained original plus split child receive independent split
@@ -688,14 +692,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The distributed shard-growth 2026-07-29 forced-CPU non-resource
+The opacity-reset parity 2026-07-29 forced-CPU non-resource
 acceptance
-reported `861 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `863 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-899 passing CPU cases in total.
+901 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all
