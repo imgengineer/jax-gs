@@ -7,20 +7,19 @@
 本仓库正在以 **pure JAX + Flax NNX** 逐子系统迁移
 [`nerfstudio-project/gsplat`](https://github.com/nerfstudio-project/gsplat)。当前兼容基线固定在
 upstream `main@2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c`；单进程训练和大部分
-backend-independent API 已完成，最新完成的是分布式训练的 owner-local topology transaction：update
-前全 rank preflight，update 后按 current-main 顺序提交 duplicate/split/prune/reset。下一阶段应做
-分布式 checkpoint 与 host 编排（含 shard 扩容重放），而不是提前优化 kernel 性能。
+backend-independent API 已完成，最新完成的是分布式 owner-local topology transaction 与不可分割的
+shard checkpoint。下一阶段应做 host 编排（shard 扩容 + overflow 重放、数据分片、eval），而不是
+提前优化 kernel 性能。
 
 ## 2. 仓库与版本状态
 
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`e8ea88b`
-  (`feat(training): commit distributed topology transactions`)
-- 前一提交：`40c57e9`
-  (`feat(training): plan distributed topology without committing`)、
-  `f74efbd` (`feat(training): add distributed densification stats`)
+- 已推送代码基线：`a09114a` (`feat(checkpoints): persist distributed shard sets`)
+- 前一提交：`e8ea88b`
+  (`feat(training): commit distributed topology transactions`)、
+  `40c57e9` (`feat(training): plan distributed topology without committing`)
 - upstream `main` 在 2026-07-29 再次确认仍为 `2b902ff`
 
 检查状态：
@@ -123,6 +122,10 @@ git push origin main
 - update 后每个 owner 用普通 `DefaultStrategy.refine` 提交自己的 duplicate/split/prune 和
   scheduled opacity reset；shard 物理容量不变，step 内不做 bucket 扩容，也没有 Scene/Dynamic
   sidecar。
+- `save_distributed_checkpoint`/`restore_distributed_checkpoint`/
+  `load_distributed_checkpoint_manifest` 把 stacked model/optimizer/StrategyState/
+  TrainingSafetyState 作为不可分割 shard 集存取，只支持同 world-size、同 shard capacity 的精确
+  resume。
 
 ## 6. 分布式 statistics 与 topology plan 的关键语义
 
@@ -233,8 +236,9 @@ psum(new_count) / psum(pruned_count) / pmax(commit_overflow) / pmax(opacity_rese
 
 1. 分布式 host 编排：shard bucket 扩容 + overflow 重放、camera-data sharding、
    multi-process/multi-host trainer、distributed eval。设备侧 topology transaction 已完成
-   （见 6.2），但没有任何 host 会消费 `refine_*` metrics。
-2. 分布式 checkpoint/resume、shard manifest、world-size 校验与重分片。
+   （见 6.2），但没有任何 host 会消费 `refine_*` metrics 或调用 shard checkpoint API。
+2. world-size 变更的重分片；当前 restore 明确拒绝。分布式 checkpoint 也不保存 scene
+   transform/scene scale，resume 方必须自己带这两个值（optimizer 与 train step 都需要）。
 3. 分布式 Scene/Dynamic sidecar lineage；device 提交会丢弃 `_slot_copy_*` transaction。
 4. distributed pose/appearance、packed/sparse/visible Adam、UT/Eval3D、2DGS。
 5. Gaussian leading-batch distributed renderer。
@@ -253,14 +257,14 @@ psum(new_count) / psum(pruned_count) / pmax(commit_overflow) / pmax(opacity_rese
 events（贴 upstream），preflight 保留为 host 扩容信号。验收见
 `tests/test_training_distributed.py` 的 12 个 topology 测试。
 
-### Slice C：分布式 checkpoint（下一步二选一）
+### Slice C：分布式 checkpoint（已完成）
 
-1. 将每 rank model、optimizer、StrategyState、TrainingSafetyState 作为不可分割 shard 保存。
-2. manifest 记录 world size、rank、local/global capacity、slot layout 和 config fingerprint。
-3. 先支持 same-world-size exact resume；不支持的 world-size 变化应明确拒绝。
-4. 后续再实现 model/optimizer/stats 三者一起重分片。
+实现见 `src/jax_gs/checkpoints.py` 的 `save_distributed_checkpoint`、
+`restore_distributed_checkpoint` 和 `load_distributed_checkpoint_manifest`，验收见
+`tests/test_training_distributed.py` 末尾的 8 个 checkpoint 测试。重分片仍未实现：restore 在
+world-size 或 shard capacity 不一致时明确拒绝，需要 model/optimizer/stats 三者一起重分片才能放开。
 
-### Slice D：host shard 扩容与重放（下一步二选一）
+### Slice D：host shard 扩容与重放（下一步）
 
 设备侧已经会在 `refine_capacity_overflow=True` 时原子跳过整步，但没有 host 消费这个信号。
 
@@ -270,6 +274,8 @@ events（贴 upstream），preflight 保留为 host 扩容信号。验收见
 2. 所有 shard 的 `L` 必须保持相同静态值；不要让某个 rank 单独扩容。
 3. 到达 `max_capacity` 且仍然溢出时必须显式失败或明确停止 refine，否则同一步会无限重复。
 4. `refine_commit_overflow=True` 不需要重放，只需在下一次 refine 前扩容。
+5. 扩容会改变 shard checkpoint 的 `local_capacity`；重放前后保存的 checkpoint 不能互相 resume，
+   这一点要在 host 里显式处理，不要指望 restore 帮你迁移。
 
 ## 9. 环境和常用命令
 
@@ -298,9 +304,9 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`850 passed, 1 skipped, 38 deselected`
+- 常规：`858 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`888`
+- CPU 总通过数：`896`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
@@ -321,8 +327,9 @@ GPU 安全脚本此前两次分别通过 21 和 32 个独立 CUDA case，随后�
 - stats collective 可以在 overflow 判断前执行，但 mutation 必须只在统一 apply 分支提交。
 - `refine_*`/`reset_scheduled` metrics 只在 distributed + DefaultStrategy 下出现；单进程 metrics
   字典不含这些 key，host 侧读取前要按 key 存在性判断。
-- checkpoint 格式已有 v6；不要因为 owner-local stats 已可保存就宣称 distributed checkpoint
-  完成。rank 0 单独保存只包含 owner-0 shard。
+- 单进程 checkpoint 与分布式 shard checkpoint 是两种 artifact：manifest 的 `kind` 字段区分，
+  两个 restore 入口会互相拒绝。不要用 `save_checkpoint` 保存 stacked shard（`model.capacity`
+  会读成 world size）。
 - 技术结论优先对照 pinned upstream 的 production code 和官方测试，不依据旧 release 或二手
   文档猜测。
 - 修改 API/边界/验收结果时同步更新 README、COMPATIBILITY 和
