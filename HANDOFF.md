@@ -7,18 +7,18 @@
 本仓库正在以 **pure JAX + Flax NNX** 逐子系统迁移
 [`nerfstudio-project/gsplat`](https://github.com/nerfstudio-project/gsplat)。当前兼容基线固定在
 upstream `main@2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c`；单进程训练和大部分
-backend-independent API 已完成，最新完成的是分布式 owner-local topology transaction 与不可分割的
-shard checkpoint。下一阶段应做 host 编排（shard 扩容 + overflow 重放、数据分片、eval），而不是
-提前优化 kernel 性能。
+backend-independent API 已完成，最新完成的是分布式 owner-local topology transaction、不可分割的
+shard checkpoint 和统一 shard 扩容原语。下一阶段应做 host 编排（驱动扩容/重放循环、相机数据
+分片、distributed eval），而不是提前优化 kernel 性能。
 
 ## 2. 仓库与版本状态
 
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`a09114a` (`feat(checkpoints): persist distributed shard sets`)
-- 前一提交：`e8ea88b`
-  (`feat(training): commit distributed topology transactions`)、
+- 已推送代码基线：`24c88b0` (`feat(capacity): grow every distributed shard together`)
+- 前一提交：`a09114a` (`feat(checkpoints): persist distributed shard sets`)、
+  `e8ea88b` (`feat(training): commit distributed topology transactions`)、
   `40c57e9` (`feat(training): plan distributed topology without committing`)
 - upstream `main` 在 2026-07-29 再次确认仍为 `2b902ff`
 
@@ -126,6 +126,8 @@ git push origin main
   `load_distributed_checkpoint_manifest` 把 stacked model/optimizer/StrategyState/
   TrainingSafetyState 作为不可分割 shard 集存取，只支持同 world-size、同 shard capacity 的精确
   resume。
+- `resize_distributed_training_state()` 统一扩容所有 shard；被 preflight overflow 跳过的 step
+  扩容后可原样重放。
 
 ## 6. 分布式 statistics 与 topology plan 的关键语义
 
@@ -234,9 +236,9 @@ psum(new_count) / psum(pruned_count) / pmax(commit_overflow) / pmax(opacity_rese
 
 不要在 README 或提交说明中声称完整分布式/性能 parity。当前仍缺少：
 
-1. 分布式 host 编排：shard bucket 扩容 + overflow 重放、camera-data sharding、
-   multi-process/multi-host trainer、distributed eval。设备侧 topology transaction 已完成
-   （见 6.2），但没有任何 host 会消费 `refine_*` metrics 或调用 shard checkpoint API。
+1. 分布式 host 编排：camera-data sharding、multi-process/multi-host trainer、distributed eval，
+   以及驱动扩容/重放的循环。设备侧 topology transaction、shard checkpoint 和扩容原语都已完成，
+   但没有任何 host 会消费 `refine_*` metrics 或调用这些 API。
 2. world-size 变更的重分片；当前 restore 明确拒绝。分布式 checkpoint 也不保存 scene
    transform/scene scale，resume 方必须自己带这两个值（optimizer 与 train step 都需要）。
 3. 分布式 Scene/Dynamic sidecar lineage；device 提交会丢弃 `_slot_copy_*` transaction。
@@ -264,18 +266,26 @@ events（贴 upstream），preflight 保留为 host 扩容信号。验收见
 `tests/test_training_distributed.py` 末尾的 8 个 checkpoint 测试。重分片仍未实现：restore 在
 world-size 或 shard capacity 不一致时明确拒绝，需要 model/optimizer/stats 三者一起重分片才能放开。
 
-### Slice D：host shard 扩容与重放（下一步）
+### Slice D：host shard 扩容与重放（原语已完成，host 循环待做）
 
-设备侧已经会在 `refine_capacity_overflow=True` 时原子跳过整步，但没有 host 消费这个信号。
+已完成：`jax_gs.capacity.resize_distributed_training_state()` 把 stacked
+model/optimizer/StrategyState 的每个 shard 按单进程规则扩容后重新 stack，所有 rank 保持同一
+physical capacity；`tests/test_training_distributed.py::
+test_growing_all_shards_lets_the_skipped_step_replay` 已经跑通「溢出跳过 → 扩容 → 原样重放并
+提交」整条链路。
 
-1. 读取 `refine_required_capacity`，对所有 rank 同时 `resize_training_state` 到同一 bucket，
-   重编译 pmap step，再重放被跳过的那一步（参照单进程 `synchronize_pending_steps` 的
-   intersection-overflow 重放）。
+待做的 host 循环：
+
+1. 读取 `refine_required_capacity` 选 bucket（参照单进程
+   `bounded_required` / `config.model.bucket_capacity`），调用上面的原语，重编译 pmap step，
+   再重放被跳过的那一步（参照 `synchronize_pending_steps` 的 intersection-overflow 重放）。
 2. 所有 shard 的 `L` 必须保持相同静态值；不要让某个 rank 单独扩容。
 3. 到达 `max_capacity` 且仍然溢出时必须显式失败或明确停止 refine，否则同一步会无限重复。
 4. `refine_commit_overflow=True` 不需要重放，只需在下一次 refine 前扩容。
 5. 扩容会改变 shard checkpoint 的 `local_capacity`；重放前后保存的 checkpoint 不能互相 resume，
    这一点要在 host 里显式处理，不要指望 restore 帮你迁移。
+6. 显存预算检查还没有分布式版本：`_check_bucket_transition_memory_budget` 只算单进程，世界级
+   转换大约需要 `W` 倍，且原语过程中会短暂多占一份世界拷贝。
 
 ## 9. 环境和常用命令
 
@@ -304,9 +314,9 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`858 passed, 1 skipped, 38 deselected`
+- 常规：`861 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`896`
+- CPU 总通过数：`899`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
