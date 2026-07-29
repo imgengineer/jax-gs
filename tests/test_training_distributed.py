@@ -18,7 +18,7 @@ from jax_gs.config import (
     StrategyConfig,
     TrainConfig,
 )
-from jax_gs.model import GaussianModel
+from jax_gs.model import GaussianModel, inverse_sigmoid
 from jax_gs.optimizers import create_optimizer
 from jax_gs.strategy import DefaultStrategy
 from jax_gs.training import (
@@ -130,6 +130,24 @@ def _rank_bundle(
     return model, optimizer, strategy_state, TrainingSafetyState()
 
 
+def _unstack_graph(graph, index):
+    graphdef, state = nnx.split(graph)
+    return nnx.merge(graphdef, jax.tree.map(lambda x: x[index], state))
+
+
+def _adam_means_moments(optimizer):
+    moments = []
+    leaves, _ = jax.tree_util.tree_flatten_with_path(
+        nnx.as_pure(nnx.state(optimizer.opt_state))
+    )
+    for path, value in leaves:
+        keys = tuple(getattr(entry, "key", None) for entry in path)
+        if keys[-2:] == ("mu", "means"):
+            moments.append(np.asarray(value))
+    assert len(moments) == 1
+    return moments[0]
+
+
 def _snapshot_graph_arrays(graph):
     return tuple(
         np.asarray(leaf).copy()
@@ -211,6 +229,20 @@ def _no_overflow_rasterization(*args, **kwargs):
         ),
     }
     return renders, alphas, info
+
+
+def _no_statistics_rasterization(*args, **kwargs):
+    """Render without a single visible (camera, Gaussian) pair.
+
+    Densification statistics then stay exactly as a test prepared them, so the
+    post-update commit decides on the same state as the pre-update plan.
+    """
+
+    renders, alphas, info = _no_overflow_rasterization(*args, **kwargs)
+    return renders, alphas, {
+        **info,
+        "valid": jnp.zeros_like(info["valid"]),
+    }
 
 
 def _cross_rank_visibility_rasterization(*args, **kwargs):
@@ -461,7 +493,123 @@ def test_distributed_train_step_plans_a_refinement_schedule():
     make_distributed_train_step(_topology_plan_config(), world_size=2)
 
 
-def test_owner_local_duplicate_plan_reduces_across_ranks():
+def _duplicate_only_run(map_transform, *, config=None):
+    config = _topology_plan_config() if config is None else config
+
+    def prepare(model, optimizer, strategy_state):
+        del model, optimizer
+        _set_owner_statistics(
+            strategy_state, [[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]
+        )
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_statistics_rasterization
+    ):
+        return _run_two_rank_update(
+            map_transform, config=config, prepare=prepare
+        )
+
+
+def test_owner_local_duplicate_is_planned_and_committed():
+    model, optimizer, strategy_state, _, metrics = _duplicate_only_run(
+        nnx.vmap
+    )
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
+    np.testing.assert_array_equal(metrics["reset_scheduled"], [False, False])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
+    np.testing.assert_array_equal(
+        metrics["refine_planned_pruned_count"], [0, 0]
+    )
+    np.testing.assert_array_equal(metrics["refine_required_capacity"], [2, 2])
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(metrics["refine_new_count"], [1, 1])
+    np.testing.assert_array_equal(metrics["refine_pruned_count"], [0, 0])
+    np.testing.assert_array_equal(
+        metrics["refine_commit_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(metrics["opacity_reset"], [False, False])
+    # Only the rank-0 owner grows, and its child is an exact copy.
+    np.testing.assert_array_equal(
+        model.active_mask[...], [[True, True], [True, False]]
+    )
+    np.testing.assert_array_equal(model.means[0, 1], model.means[0, 0])
+    np.testing.assert_array_equal(model.sh0[0, 1], model.sh0[0, 0])
+    np.testing.assert_array_equal(
+        model.opacity_logits[0, 1], model.opacity_logits[0, 0]
+    )
+    # A committed refinement clears the statistics of every owner.
+    np.testing.assert_array_equal(strategy_state.grad_accum[...], 0.0)
+    np.testing.assert_array_equal(strategy_state.visible_count[...], 0.0)
+    np.testing.assert_array_equal(strategy_state.max_radii[...], 0.0)
+    means_moments = _adam_means_moments(optimizer)
+    np.testing.assert_array_equal(means_moments[0, 1], 0.0)
+
+
+def _run_two_rank_growth_commit(map_transform):
+    """Commit a duplicate and a split for the same rank-0 parent."""
+
+    config = _topology_plan_config(
+        capacity=4, refine_scale2d_stop_iter=100, grow_scale2d=0.05
+    )
+
+    def prepare(model, optimizer, strategy_state):
+        del model, optimizer
+        _set_owner_statistics(
+            strategy_state,
+            [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+            [[0.5, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+        )
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_statistics_rasterization
+    ):
+        model, optimizer, _, _, metrics = _run_two_rank_update(
+            map_transform, config=config, prepare=prepare
+        )
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [2, 2])
+    np.testing.assert_array_equal(
+        metrics["refine_planned_pruned_count"], [0, 0]
+    )
+    np.testing.assert_array_equal(metrics["refine_required_capacity"], [3, 3])
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(metrics["refine_new_count"], [2, 2])
+    np.testing.assert_array_equal(
+        metrics["refine_commit_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(
+        np.asarray(model.active_mask[...]).sum(axis=1), [3, 1]
+    )
+    # The split shrinks the parent and its own child by 1.6, while the
+    # duplicate child keeps the parent's original scale.
+    log_scales = np.asarray(model.log_scales[...])
+    np.testing.assert_allclose(
+        log_scales[0, 0], log_scales[0, 2], rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        log_scales[0, 1] - log_scales[0, 0],
+        np.full(3, np.log(1.6), np.float32),
+        rtol=1e-6,
+    )
+    # A refined owner restarts its Adam moments; the untouched owner keeps its.
+    means_moments = _adam_means_moments(optimizer)
+    np.testing.assert_array_equal(means_moments[0, 0], 0.0)
+    assert np.any(means_moments[1, 0] != 0.0)
+
+
+def test_named_two_rank_commits_duplicate_and_split_for_one_parent():
+    _run_two_rank_growth_commit(nnx.vmap)
+
+
+def test_commit_recomputes_from_post_update_statistics():
+    # The plan runs before the update, so the extra visible count this step
+    # adds drops the average gradient to the threshold and cancels the event.
     config = _topology_plan_config()
 
     def prepare(model, optimizer, strategy_state):
@@ -477,59 +625,48 @@ def test_owner_local_duplicate_plan_reduces_across_ranks():
             nnx.vmap, config=config, prepare=prepare
         )
 
-    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
-    np.testing.assert_array_equal(metrics["reset_scheduled"], [False, False])
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
-    np.testing.assert_array_equal(
-        metrics["refine_planned_pruned_count"], [0, 0]
-    )
-    np.testing.assert_array_equal(metrics["refine_required_capacity"], [2, 2])
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_new_count"], [0, 0])
     np.testing.assert_array_equal(
         model.active_mask[...], [[True, False], [True, False]]
     )
 
 
-def _run_two_rank_growth_plan(map_transform):
-    """Plan a duplicate and a split for the same rank-0 parent."""
+def test_owner_commit_matches_single_process_refine():
+    committed_model, _, _, _, _ = _duplicate_only_run(nnx.vmap)
+    # The same inputs with the schedule disabled leave the post-update state
+    # the commit decided on.
+    unrefined = _duplicate_only_run(
+        nnx.vmap, config=_topology_plan_config(refine_start=4)
+    )
+    expected_model = _unstack_graph(unrefined[0], 0)
+    expected_optimizer = _unstack_graph(unrefined[1], 0)
+    expected_state = _unstack_graph(unrefined[2], 0)
 
-    config = _topology_plan_config(
-        capacity=4, refine_scale2d_stop_iter=100, grow_scale2d=0.05
+    # Duplicate-only refinement consumes no randomness, so any key reproduces
+    # the owner-local commit.
+    DefaultStrategy(_topology_plan_config().strategy).refine(
+        expected_model,
+        expected_state,
+        expected_optimizer,
+        jax.random.key(0),
+        1.0,
+        step=1,
     )
 
-    def prepare(model, optimizer, strategy_state):
-        del model, optimizer
-        _set_owner_statistics(
-            strategy_state,
-            [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
-            [[0.5, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
-        )
-
-    with mock.patch.object(
-        training_module, "rasterization", _no_overflow_rasterization
-    ):
-        model, _, _, _, metrics = _run_two_rank_update(
-            map_transform, config=config, prepare=prepare
-        )
-
-    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
-    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [2, 2])
     np.testing.assert_array_equal(
-        metrics["refine_planned_pruned_count"], [0, 0]
-    )
-    np.testing.assert_array_equal(metrics["refine_required_capacity"], [3, 3])
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
+        committed_model.active_mask[0], expected_model.active_mask[...]
     )
     np.testing.assert_array_equal(
-        np.asarray(model.active_mask[...]).sum(axis=1), [1, 1]
+        committed_model.means[0], expected_model.means[...]
     )
-
-
-def test_named_two_rank_plan_duplicates_and_splits_one_parent():
-    _run_two_rank_growth_plan(nnx.vmap)
+    np.testing.assert_array_equal(
+        committed_model.log_scales[0], expected_model.log_scales[...]
+    )
+    np.testing.assert_array_equal(
+        committed_model.opacity_logits[0],
+        expected_model.opacity_logits[...],
+    )
 
 
 def test_plan_uses_the_train_step_scene_scale():
@@ -590,11 +727,11 @@ def test_inactive_padding_rows_are_never_planned():
     np.testing.assert_array_equal(metrics["refine_required_capacity"], [1, 1])
 
 
-def test_owner_local_prune_plan_reduces_across_ranks():
+def test_owner_local_prune_is_planned_and_committed():
     config = _topology_plan_config(prune_opacity=0.5)
 
     with mock.patch.object(
-        training_module, "rasterization", _no_overflow_rasterization
+        training_module, "rasterization", _no_statistics_rasterization
     ):
         model, _, _, _, metrics = _run_two_rank_update(nnx.vmap, config=config)
 
@@ -605,29 +742,27 @@ def test_owner_local_prune_plan_reduces_across_ranks():
     np.testing.assert_array_equal(
         metrics["refine_capacity_overflow"], [False, False]
     )
-    np.testing.assert_array_equal(
-        model.active_mask[...], [[True, False], [True, False]]
-    )
+    np.testing.assert_array_equal(metrics["refine_pruned_count"], [2, 2])
+    np.testing.assert_array_equal(metrics["refine_new_count"], [0, 0])
+    np.testing.assert_array_equal(model.active_mask[...], False)
 
 
-def test_scheduled_opacity_reset_is_planned_but_not_committed():
+def test_scheduled_opacity_reset_is_committed():
     config = _topology_plan_config(reset_every=1)
-    opacity_before = {}
-
-    def prepare(model, optimizer, strategy_state):
-        del optimizer, strategy_state
-        opacity_before["value"] = np.asarray(model.opacity_logits[...]).copy()
 
     with mock.patch.object(
-        training_module, "rasterization", _no_overflow_rasterization
+        training_module, "rasterization", _no_statistics_rasterization
     ):
         model, _, _, _, metrics = _run_two_rank_update(
-            nnx.vmap, config=config, prepare=prepare
+            nnx.vmap, config=config
         )
 
     np.testing.assert_array_equal(metrics["reset_scheduled"], [True, True])
-    np.testing.assert_array_equal(
-        model.opacity_logits[...], opacity_before["value"]
+    np.testing.assert_array_equal(metrics["opacity_reset"], [True, True])
+    np.testing.assert_allclose(
+        model.opacity_logits[:, 0],
+        np.full(2, inverse_sigmoid(config.strategy.reset_opacity), np.float32),
+        rtol=1e-6,
     )
 
 
@@ -656,6 +791,9 @@ def test_single_rank_plan_overflow_atomically_skips_every_rank():
     np.testing.assert_array_equal(
         metrics["refine_capacity_overflow"], [True, True]
     )
+    np.testing.assert_array_equal(metrics["refine_new_count"], [0, 0])
+    np.testing.assert_array_equal(metrics["refine_pruned_count"], [0, 0])
+    np.testing.assert_array_equal(metrics["opacity_reset"], [False, False])
     for graph, name in (
         (model, "model"),
         (optimizer, "optimizer"),
@@ -665,6 +803,61 @@ def test_single_rank_plan_overflow_atomically_skips_every_rank():
             before[name], _snapshot_graph_arrays(graph), strict=True
         ):
             np.testing.assert_array_equal(new, old)
+
+
+def test_owner_commit_overflow_keeps_that_owner_unchanged():
+    # This step's statistics push the rank-0 owner from one planned event to a
+    # duplicate plus a radius split, which no longer fits its single free slot.
+    config = _topology_plan_config(
+        grow_grad2d=0.1,
+        refine_scale2d_stop_iter=100,
+        grow_scale2d=0.05,
+        reset_every=1,
+    )
+
+    def prepare(model, optimizer, strategy_state):
+        del model, optimizer
+        _set_owner_statistics(
+            strategy_state, [[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]
+        )
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        model, _, strategy_state, _, metrics = _run_two_rank_update(
+            nnx.vmap, config=config, prepare=prepare
+        )
+
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(
+        metrics["refine_commit_overflow"], [True, True]
+    )
+    np.testing.assert_array_equal(metrics["refine_new_count"], [1, 1])
+    # Only the owner that fits grows, resets opacities, and clears statistics.
+    np.testing.assert_array_equal(
+        model.active_mask[...], [[True, False], [True, True]]
+    )
+    np.testing.assert_array_equal(
+        strategy_state.capacity_overflow[...], [True, False]
+    )
+    np.testing.assert_array_equal(
+        strategy_state.grad_accum[...], [[1.0, 0.0], [0.0, 0.0]]
+    )
+    # Both ranks' cameras see the retained owner, so its count grew by two.
+    np.testing.assert_array_equal(
+        strategy_state.visible_count[...], [[3.0, 0.0], [0.0, 0.0]]
+    )
+    np.testing.assert_allclose(
+        model.opacity_logits[:, 0],
+        [
+            inverse_sigmoid(0.1),
+            inverse_sigmoid(config.strategy.reset_opacity),
+        ],
+        rtol=1e-6,
+    )
 
 
 def test_distributed_train_step_rejects_wrong_optimizer_world_size():
@@ -759,9 +952,9 @@ def test_two_virtual_cpu_nnx_pmap_smoke():
             "assert jax.local_device_count() == 2",
             "_run_two_rank_update(nnx.pmap)",
             "from tests.test_training_distributed import "
-            "_run_two_rank_screen_stats, _run_two_rank_growth_plan",
+            "_run_two_rank_screen_stats, _run_two_rank_growth_commit",
             "_run_two_rank_screen_stats(nnx.pmap)",
-            "_run_two_rank_growth_plan(nnx.pmap)",
+            "_run_two_rank_growth_commit(nnx.pmap)",
         )
     )
     environment = os.environ.copy()

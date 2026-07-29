@@ -42,7 +42,7 @@ A subsystem is complete only when all of the following hold:
 | 5a | Losses and regularization | current loss surface, fused Gaussian losses, color correction, and occlusion regularizers | Complete |
 | 5b | Compression and export | PNG/NPZ/K-means compression, spatial sorting, PLY/splat import and export | Complete |
 | 5c | Experimental inference | packed-scene functional rendering and reusable inference renderer | Complete |
-| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, current-main scene normalization, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH Gaussian-sharded device step with globally preflighted but uncommitted refinement plans are implemented; the topology commit, host-distributed data/checkpoint/eval orchestration, performance work, and final GPU acceptance remain open |
+| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, current-main scene normalization, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH Gaussian-sharded device step with globally preflighted owner-local refinement commits are implemented; host-distributed bucket growth, data/checkpoint/eval orchestration, performance work, and final GPU acceptance remain open |
 
 Phases describe dependency order, not monolithic patches. Each phase is split
 into independently reviewable slices, and unsupported combinations raise at
@@ -543,7 +543,7 @@ opposite-direction signed screen gradients, asymmetric visibility/radii and
 overflow, named vmap, and a real two-virtual-CPU `nnx.pmap` call.
 
 The next slice turns those statistics into an owner-local refinement plan and a
-global preflight, without committing any topology change. A refinement schedule
+global preflight. A refinement schedule
 is now accepted. On every step the shard runs the ordinary `DefaultStrategy`
 plan over its own `[L]` rows, using the train step's `scene_scale` rather than
 `StrategyState`'s per-rank copy so no rank can score growth or pruning against
@@ -561,17 +561,39 @@ runs its post-backward strategy callback on rank-local parameters, this
 owner-local plan is the faithful decomposition; the fixed-capacity
 `max_new_per_refine` bound, however, applies per shard rather than globally.
 Tests cover an owner-only duplicate, a same-parent duplicate plus split,
-prune counts summed across ranks, inactive padding, a scheduled opacity reset
-that is not committed, the scene-scale source, single-rank overflow atomics,
+prune counts summed across ranks, inactive padding, the scene-scale source,
+single-rank overflow atomics,
 and named `nnx.vmap` versus two-virtual-CPU `nnx.pmap` agreement.
+
+The slice after it commits the transaction. Once the update branch has stepped
+Adam and accumulated this step's statistics, every owner runs the ordinary
+`DefaultStrategy.refine` on its own rows and then its scheduled opacity reset,
+which is current-main's post-optimizer callback order. The commit deliberately
+recomputes its events from that post-update state instead of replaying the
+pre-update preflight, because upstream decides on post-update parameters and
+post-accumulation statistics; the preflight remains the host's growth signal,
+and the two can legitimately disagree when this step's statistics move a
+threshold. Parameters, Adam moments, and strategy statistics stay owner-local,
+so `_default_refine`'s existing fixed-slot assignment, moment reset, and
+statistics clearing carry over unchanged. An owner whose recomputed events no
+longer fit its free slots keeps its rows and statistics, skips its opacity
+reset, and reports through `refine_commit_overflow` while other owners still
+commit, exactly as independent per-rank upstream strategies would. The
+committed counters cross ranks only after both update branches rejoin, so no
+collective ever runs inside a conditional. Tests cover a committed owner-only
+duplicate, a committed same-parent duplicate plus split with its Adam moment
+reset, pruning, a committed opacity reset, the deliberate plan/commit
+divergence, single-owner commit overflow with a diverging reset, equality with
+a single-process `DefaultStrategy.refine` on the same shard, and `nnx.pmap`
+agreement.
 
 These slices are intentionally dense SH pinhole 3DGS. Their photometric and
 active/visible metrics are rank-local, whereas overflow, intersection, and
-refinement-plan diagnostics are global. Device-side duplicate/split/prune/reset
-are planned but never applied, so the topology is still fixed in practice.
+refinement diagnostics are global. Physical shard capacity never changes inside
+the step and no Scene/Dynamic sidecar is carried, so bucket growth, sidecar
+lineage, and resharding stay host work.
 Upstream current-main itself rejects distributed AbsGrad. Pose/appearance,
-packed/sparse/visible Adam, UT/Eval3D, 2DGS, the committed topology
-transaction, host data
+packed/sparse/visible Adam, UT/Eval3D, 2DGS, host data
 sharding, checkpoint/eval, launch, and performance specialization remain later
 slices. Unified `train()` consequently continues to reject multiple JAX
 processes.
@@ -615,15 +637,15 @@ independent parameter groups, topology transactions, trainer-generated v6
 scene-aware exact resume,
 zero-embedding evaluation, and canonical export bake are also complete. Phase
 6 also has a tested dense-SH Gaussian-sharded device train step whose
-refinement schedule is planned and globally preflighted but never committed;
-it still requires the committed topology transaction plus host-distributed
+refinement schedule is globally preflighted and committed owner-locally at
+fixed shard capacity; it still requires host-distributed bucket growth and
 data/checkpoint/eval orchestration,
 performance work, and the full serial GPU acceptance rerun.
 Deliberate boundaries also include dense storage underneath sparse-gradient
 semantics, the JAX-specific `SelectiveAdam.update(...)` call surface, explicit
 zero probes instead of mutable `.absgrad`, FTheta sparse rejection, external
 process launch/equal padded renderer shards, no distributed Gaussian leading
-batch, plan-only distributed refinement with a per-shard
+batch, fixed-capacity distributed refinement with a per-shard
 `max_new_per_refine` bound, and rejection of 2DGS
 reference+packed training where cross metadata is unavailable.
 
@@ -635,13 +657,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The distributed topology-plan 2026-07-29 forced-CPU non-resource acceptance
-reported `847 passed, 1 skipped, 38 deselected`; the warnings were four known
+The distributed topology-transaction 2026-07-29 forced-CPU non-resource
+acceptance
+reported `850 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-885 passing CPU cases in total.
+888 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all

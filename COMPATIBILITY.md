@@ -69,7 +69,7 @@ status, and acceptance criteria.
 | `export_splats` and `load_ply_to_splats` | Implemented | Upstream bytes-returning `ply`, `splat`, and Supersplat `ply_compressed` formats plus float32 JAX PLY loading; CLI export canonically bakes appearance with zero camera embedding/direction and the configured full direction-basis degree into degree-zero SH before using these formats; raw features/colors are rejected by the generic exporter |
 | `utils` geometry/transforms/deprecated PLY helper | Implemented | Pure JAX for differentiable math, including upstream `x`/`y`/`quat` keyword signatures; host NumPy only for PLY serialization |
 | current-main `trace` and `profile` | Implemented for JAX | `jax.profiler.TraceAnnotation`, synchronized timing with current-main dunder keywords/returns, environment-driven input capture, override parsing, and forward/gradient replay; capture payloads use pickle/NumPy and `load_capture` |
-| current-main distributed renderer helpers, root routing, `cli`, and sharded training | Renderer plus device-training slices implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with global overflow atomics, owner-correct visibility and signed densification statistics, current-main Gaussian gradient/Adam scaling, and owner-local refinement plans that are globally preflighted but never committed. Host data/topology-commit/checkpoint/eval and multi-process orchestration remain open |
+| current-main distributed renderer helpers, root routing, `cli`, and sharded training | Renderer plus device-training slices implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with global overflow atomics, owner-correct visibility and signed densification statistics, current-main Gaussian gradient/Adam scaling, and globally preflighted owner-local duplicate/split/prune/reset commits at fixed shard capacity. Host bucket growth, data sharding, checkpoint/eval, and multi-process orchestration remain open |
 | current-main capability queries | Implemented | Report pure-JAX subsystem availability rather than CUDA compile flags; `has_camera_wrappers()` and `has_losses()` are true for their completed facades |
 
 ## Deliberate behavioral boundaries and pending acceptance
@@ -126,13 +126,15 @@ status, and acceptance criteria.
   reduced by `sum/sum/max` into its Gaussian owner. Overflow or rank
   step/SH-degree mismatch atomically skips model, optimizer, and statistics on
   every shard. The optimizer is required to carry matching
-  batch/world/scene-scale/config metadata. A refinement schedule is accepted
-  but deliberately not committed: every rank plans duplicate/split/prune events
-  for the rows it owns against the step's scene scale, the scalar summaries are
-  reduced into global `refine_*` metrics, and a planned capacity overflow on
-  any single rank atomically skips the whole step on every rank. This slice
-  does not include a launcher, Gaussian leading batch, pose/appearance, a
-  committed topology transaction, host
+  batch/world/scene-scale/config metadata. A refinement schedule is planned
+  before the update and committed after it: every rank plans duplicate/split/
+  prune events for the rows it owns against the step's scene scale, the scalar
+  summaries are reduced into global `refine_*` metrics, a planned capacity
+  overflow on any single rank atomically skips the whole step on every rank,
+  and each owner then commits its own events and scheduled opacity reset from
+  the post-update state. This slice
+  does not include a launcher, Gaussian leading batch, pose/appearance,
+  device-side bucket growth, a Scene/Dynamic sidecar, host
   data sharding, checkpoint/eval, or complete multi-process orchestration.
   Rank-local photometric/active metrics remain local while
   overflow/intersection diagnostics are global. Startup belongs to
@@ -140,10 +142,11 @@ status, and acceptance criteria.
   `train()` still rejects `jax.process_count() != 1`.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
-  normalization are implemented. The 2026-07-29 distributed topology-plan
-  forced-CPU acceptance reported `847 passed, 1 skipped, 38 deselected`; five
+  normalization are implemented. The 2026-07-29 distributed
+  topology-transaction
+  forced-CPU acceptance reported `850 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  885 passing cases in total.
+  888 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -478,7 +481,8 @@ batch, world size, scene scale, and optimizer config, and the train and
 optimizer schedule horizons must agree. A two-virtual-CPU `nnx.pmap` smoke test
 covers the real collective boundary.
 
-Refinement is planned but not committed. On a scheduled refinement step each
+Refinement is planned before the update and committed after it. On a scheduled
+refinement step each
 rank runs the ordinary `DefaultStrategy` plan over the rows it owns, so
 inactive padding is ignored and a single parent can plan both a duplicate and a
 split exactly as it does single-process. Only the scalar summaries cross ranks:
@@ -488,8 +492,20 @@ optimizer, and statistics commit on every rank so a host can grow all shards
 and replay the step. The plan uses the train step's `scene_scale` — the value
 already validated against the optimizer — rather than `StrategyState`'s own
 per-rank copy. `max_new_per_refine` bounds events per shard, so a world of `W`
-ranks can plan up to `W` times that many events per refinement. Committing the
-transaction, pose/appearance, distributed checkpoints/eval, host input
+ranks can plan up to `W` times that many events per refinement.
+
+The commit then runs each owner's ordinary `DefaultStrategy.refine` plus its
+scheduled opacity reset, in current-main's post-optimizer callback order. It
+deliberately recomputes its own events from the post-update parameters and
+post-accumulation statistics instead of replaying the plan, which is what
+upstream decides on; the pre-update plan is a preflight, so the two can differ
+when this step's statistics change a threshold. An owner whose recomputed
+events no longer fit keeps its parameters and statistics unchanged, skips its
+opacity reset, and is reported through `refine_commit_overflow` while the other
+owners still commit — the same per-rank independence upstream has. Physical
+shard capacity never changes inside the step, and the step carries no
+Scene/Dynamic sidecar, so bucket growth, sidecar lineage, and resharding stay
+host work. Distributed checkpoints/eval, pose/appearance, host input
 sharding, launch, and performance specialization remain separate later slices;
 unified `train()` therefore remains single-process.
 

@@ -1719,6 +1719,16 @@ def _make_train_step(
             | distributed_state_mismatch
         )
 
+        # Committed topology counters leave both update branches so that their
+        # reporting collectives run after the branches rejoin, never inside a
+        # conditional.
+        uncommitted_refine = (
+            jnp.asarray(0, dtype=jnp.int32),
+            jnp.asarray(0, dtype=jnp.int32),
+            jnp.asarray(False),
+        )
+        uncommitted_topology = uncommitted_refine + (jnp.asarray(False),)
+
         def skip_update(
             current_model,
             current_optimizer,
@@ -1742,7 +1752,7 @@ def _make_train_step(
                     current_strategy_state.capacity_overflow[...]
                     | strategy_capacity_overflow
                 )
-            return jnp.asarray(0, dtype=jnp.int32)
+            return uncommitted_topology
 
         def apply_update(
             current_model,
@@ -1841,9 +1851,71 @@ def _make_train_step(
                         ),
                         current_strategy_state.max_radii[...],
                     )
-            return jnp.asarray(0, dtype=jnp.int32)
+            if distributed_plan_strategy is None:
+                return uncommitted_topology
+            # current-main refines after the optimizer step and after this
+            # step's statistics, so the owner-local commit recomputes its own
+            # events here instead of replaying the pre-update preflight.
+            with jax.named_scope("topology_commit"):
 
-        nnx.cond(
+                def commit_refine(_model, _optimizer, _state):
+                    assert distributed_plan_strategy is not None
+                    refine_result = distributed_plan_strategy.refine(
+                        _model,
+                        _state,
+                        _optimizer,
+                        refine_key,
+                        distributed_scene_scale,
+                        step=training_step,
+                    )
+                    return (
+                        refine_result["new_count"],
+                        refine_result["pruned_count"],
+                        refine_result["capacity_overflow"],
+                    )
+
+                def skip_commit_refine(_model, _optimizer, _state):
+                    del _model, _optimizer, _state
+                    return uncommitted_refine
+
+                new_count, pruned_count, commit_overflow = nnx.cond(
+                    refine_scheduled,
+                    commit_refine,
+                    skip_commit_refine,
+                    current_model,
+                    current_optimizer,
+                    current_strategy_state,
+                )
+
+                def commit_reset(_model, _optimizer):
+                    reset_opacities(
+                        _model,
+                        _optimizer,
+                        maximum_opacity=config.strategy.reset_opacity,
+                    )
+                    return jnp.asarray(True)
+
+                def skip_commit_reset(_model, _optimizer):
+                    del _model, _optimizer
+                    return jnp.asarray(False)
+
+                # An owner that could not grow keeps its statistics for the
+                # next refinement, so it must not reset opacities either.
+                opacity_reset = nnx.cond(
+                    reset_scheduled & ~commit_overflow,
+                    commit_reset,
+                    skip_commit_reset,
+                    current_model,
+                    current_optimizer,
+                )
+            return (new_count, pruned_count, commit_overflow, opacity_reset)
+
+        (
+            committed_new_count,
+            committed_pruned_count,
+            committed_overflow,
+            committed_opacity_reset,
+        ) = nnx.cond(
             has_overflow,
             skip_update,
             apply_update,
@@ -1853,6 +1925,31 @@ def _make_train_step(
             grads,
             visible,
         )
+        if distributed_plan_strategy is not None:
+            assert distributed_axis_name is not None
+            plan_metrics = {
+                **plan_metrics,
+                "refine_new_count": jax.lax.psum(
+                    committed_new_count, distributed_axis_name
+                ),
+                "refine_pruned_count": jax.lax.psum(
+                    committed_pruned_count, distributed_axis_name
+                ),
+                "refine_commit_overflow": (
+                    jax.lax.pmax(
+                        committed_overflow.astype(jnp.int32),
+                        distributed_axis_name,
+                    )
+                    > 0
+                ),
+                "opacity_reset": (
+                    jax.lax.pmax(
+                        committed_opacity_reset.astype(jnp.int32),
+                        distributed_axis_name,
+                    )
+                    > 0
+                ),
+            }
         if config.pose_opt:
             assert pose_adjust is not None
             assert pose_optimizer is not None
@@ -1971,12 +2068,16 @@ def make_distributed_train_step(
     Gaussian owner; current-main distributed rendering does not support
     AbsGrad.
 
-    A refinement schedule is now planned but never committed. Each rank plans
-    duplicate/split/prune events for the rows it owns, the scalar summaries
-    are reduced across ranks into ``refine_*`` metrics, and a capacity
-    overflow on any single rank atomically skips the whole step on every rank
-    so a host can grow all shards and replay. Topology therefore still does
-    not change; committing the transaction is the next slice.
+    Refinement is planned, preflighted, and committed inside the step. Before
+    the update every rank plans duplicate/split/prune events for the rows it
+    owns; a planned capacity overflow on any single rank atomically skips the
+    whole step on every rank so a host can grow all shards and replay. After
+    the update each owner commits its own duplicate/split/prune and scheduled
+    opacity reset with the ordinary :class:`DefaultStrategy`, matching
+    current-main's post-optimizer callback order. Physical shard capacity
+    never changes here, so growing a bucket, resharding, and distributed
+    checkpoints remain host work. All collectives stay outside conditionals:
+    plan summaries are reduced before the update and commit counters after it.
     """
 
     try:
