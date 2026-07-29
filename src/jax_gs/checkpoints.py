@@ -8,9 +8,11 @@ from typing import Any
 from flax import nnx
 import jax
 import jax.numpy as jnp
+import numpy as np
 import orbax.checkpoint as ocp
 
 from .config import TrainConfig
+from .data.normalize import _as_similarity_matrix
 from .model import GaussianModel
 from .strategy import StrategyState
 
@@ -128,6 +130,30 @@ def _load_metadata(checkpoint_path: str | Path) -> dict[str, Any]:
     return json.loads(metadata_path.read_text(encoding="utf-8"))
 
 
+def _validate_scene_values(
+    scene_transform: Any, scene_scale: Any
+) -> tuple[np.ndarray, float]:
+    try:
+        matrix = _as_similarity_matrix(jax.device_get(scene_transform))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"scene_transform is invalid: {exc}") from exc
+
+    try:
+        scale_array = np.asarray(jax.device_get(scene_scale))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "scene_scale must be a finite non-negative scalar"
+        ) from exc
+    if scale_array.shape != () or not np.issubdtype(
+        scale_array.dtype, np.number
+    ) or np.issubdtype(scale_array.dtype, np.complexfloating):
+        raise ValueError("scene_scale must be a finite non-negative scalar")
+    scale = float(scale_array)
+    if not np.isfinite(scale) or scale < 0.0:
+        raise ValueError("scene_scale must be a finite non-negative scalar")
+    return matrix, scale
+
+
 def save_checkpoint(
     directory: str | Path,
     model: GaussianModel,
@@ -143,6 +169,8 @@ def save_checkpoint(
     appearance_module: Any | None = None,
     appearance_optimizer: nnx.Optimizer | None = None,
     appearance_image_names: Sequence[str] | None = None,
+    scene_transform: Any | None = None,
+    scene_scale: Any | None = None,
     force: bool = True,
 ) -> Path:
     """Save model and optional training state with Orbax."""
@@ -151,6 +179,21 @@ def save_checkpoint(
         intersection_capacity = int(intersection_capacity)
         if intersection_capacity <= 0:
             raise ValueError("intersection_capacity must be positive")
+    has_scene_transform = scene_transform is not None
+    has_scene_scale = scene_scale is not None
+    if has_scene_transform != has_scene_scale:
+        raise ValueError(
+            "scene_transform and scene_scale must be provided together"
+        )
+    scene_metadata = None
+    if has_scene_transform:
+        matrix, validated_scene_scale = _validate_scene_values(
+            scene_transform, scene_scale
+        )
+        scene_metadata = {
+            "matrix": matrix.tolist(),
+            "scene_scale": validated_scene_scale,
+        }
     pose = _validate_pose_arguments(
         pose_module, pose_optimizer, pose_image_names
     )
@@ -211,8 +254,10 @@ def save_checkpoint(
         components.append("pose")
     if appearance_module is not None:
         components.append("appearance")
+    if scene_metadata is not None:
+        components.append("scene")
     metadata: dict[str, Any] = {
-        "format_version": 5,
+        "format_version": 6,
         "components": components,
         "model_color_mode": (
             "appearance" if model.has_appearance else "sh"
@@ -233,6 +278,8 @@ def save_checkpoint(
         names, camera_count = appearance
         metadata["appearance_camera_count"] = camera_count
         metadata["appearance_image_names"] = list(names)
+    if scene_metadata is not None:
+        metadata["scene"] = scene_metadata
     (checkpoint_path / _CHECKPOINT_METADATA).write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
@@ -427,6 +474,36 @@ def restore_checkpoint(
 def load_checkpoint_config(checkpoint_path: str | Path) -> TrainConfig:
     path = Path(checkpoint_path) / "jax_gs_config.json"
     return TrainConfig.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+
+def load_checkpoint_scene_transform(
+    checkpoint_path: str | Path,
+) -> tuple[np.ndarray, float] | None:
+    """Load the persisted world-to-training transform and scene scale."""
+
+    metadata = _load_metadata(checkpoint_path)
+    components = metadata.get("components")
+    if components is None:
+        return None
+    if not isinstance(components, list) or not all(
+        isinstance(component, str) for component in components
+    ):
+        raise ValueError("checkpoint components metadata is invalid")
+    if "scene" not in components:
+        return None
+
+    try:
+        format_version = int(metadata.get("format_version", 1))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("checkpoint format_version is invalid") from exc
+    if format_version < 6:
+        raise ValueError("scene metadata requires checkpoint format version 6")
+    scene = metadata.get("scene")
+    if not isinstance(scene, dict):
+        raise ValueError("checkpoint scene metadata is incomplete")
+    if not {"matrix", "scene_scale"}.issubset(scene):
+        raise ValueError("checkpoint scene metadata is incomplete")
+    return _validate_scene_values(scene["matrix"], scene["scene_scale"])
 
 
 def load_checkpoint_storage_capacity(checkpoint_path: str | Path) -> int:

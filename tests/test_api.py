@@ -1,8 +1,12 @@
+import jax_gs
+import jax_gs.data as data_api
+import jax_gs.data.normalize as normalize_implementation
 import jax
 import jax.numpy as jnp
 import pytest
 
 from jax_gs import PaddedProjection, fully_fused_projection
+from jax_gs.checkpoints import load_checkpoint_scene_transform
 from jax_gs.two_dgs import fully_fused_projection_2dgs
 
 
@@ -16,6 +20,25 @@ def _inputs():
         jnp.float32,
     )
     return means, quats, scales, viewmats, Ks
+
+
+def test_public_scene_normalization_and_checkpoint_exports():
+    assert (
+        jax_gs.load_checkpoint_scene_transform
+        is load_checkpoint_scene_transform
+    )
+    assert "load_checkpoint_scene_transform" in jax_gs.__all__
+
+    normalization_helpers = (
+        "align_principal_axes",
+        "normalize_scene",
+        "similarity_from_cameras",
+        "transform_cameras",
+        "transform_points",
+    )
+    for name in normalization_helpers:
+        assert getattr(data_api, name) is getattr(normalize_implementation, name)
+        assert name in data_api.__all__
 
 
 def test_public_fully_fused_projection_dense_signature():

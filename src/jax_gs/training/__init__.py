@@ -21,12 +21,19 @@ from ..checkpoints import (
     load_checkpoint_active_prefix,
     load_checkpoint_config,
     load_checkpoint_intersection_capacity,
+    load_checkpoint_scene_transform,
     load_checkpoint_storage_capacity,
     restore_checkpoint,
     save_checkpoint,
 )
 from ..config import RasterizationConfig, TrainConfig
 from ..data import ColmapScene, create_grain_dataset, load_colmap_scene
+from ..data.normalize import (
+    _as_similarity_matrix,
+    normalize_scene,
+    transform_cameras,
+    transform_points,
+)
 from ..losses import l1_loss, opacity_reg_loss, psnr, scale_reg_loss, ssim
 from ..model import GaussianModel
 from ..optimizers import (
@@ -56,19 +63,44 @@ from .schedulers import TwoStageScheduler
 
 @dataclass(frozen=True)
 class SceneTransform:
-    center: np.ndarray
-    scale: float
+    """Similarity mapping world coordinates into training coordinates."""
+
+    matrix: np.ndarray
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "matrix", _as_similarity_matrix(self.matrix))
 
     def points(self, points: np.ndarray) -> np.ndarray:
-        return (points - self.center[None, :]) / self.scale
+        points = np.asarray(points)
+        transformed = transform_points(self.matrix, points)
+        if np.issubdtype(points.dtype, np.floating):
+            transformed = transformed.astype(points.dtype, copy=False)
+        return transformed
+
+    def camera_to_world(self, camera_to_world: np.ndarray) -> np.ndarray:
+        cameras = np.asarray(camera_to_world)
+        if cameras.ndim < 2 or cameras.shape[-2:] != (4, 4):
+            raise ValueError(
+                "camera_to_world must have shape (..., 4, 4), "
+                f"got {cameras.shape}"
+            )
+        batched = cameras.reshape((-1, 4, 4))
+        transformed = transform_cameras(self.matrix, batched)
+        if np.issubdtype(cameras.dtype, np.floating):
+            transformed = transformed.astype(cameras.dtype, copy=False)
+        return transformed.reshape(cameras.shape)
 
     def world_to_camera(self, world_to_camera: np.ndarray) -> np.ndarray:
-        result = np.asarray(world_to_camera, dtype=np.float32).copy()
-        rotation = result[..., :3, :3]
-        translation = result[..., :3, 3]
-        result[..., :3, 3] = (
-            np.einsum("...ij,j->...i", rotation, self.center) + translation
-        ) / self.scale
+        cameras = np.asarray(world_to_camera)
+        if cameras.ndim < 2 or cameras.shape[-2:] != (4, 4):
+            raise ValueError(
+                "world_to_camera must have shape (..., 4, 4), "
+                f"got {cameras.shape}"
+            )
+        transformed = self.camera_to_world(np.linalg.inv(cameras))
+        result = np.linalg.inv(transformed)
+        if np.issubdtype(cameras.dtype, np.floating):
+            result = result.astype(cameras.dtype, copy=False)
         return result
 
 
@@ -568,6 +600,8 @@ def _save_compacted_training_checkpoint(
     step: int,
     config: TrainConfig,
     intersection_capacity: int,
+    scene_transform: SceneTransform,
+    scene_scale: float,
     pose_adjust: CameraOptModule | None = None,
     pose_optimizer: nnx.Optimizer | None = None,
     pose_image_names: tuple[str, ...] | None = None,
@@ -585,6 +619,8 @@ def _save_compacted_training_checkpoint(
         step=step,
         config=config,
         intersection_capacity=intersection_capacity,
+        scene_transform=scene_transform.matrix,
+        scene_scale=scene_scale,
         pose_module=pose_adjust,
         pose_optimizer=pose_optimizer,
         pose_image_names=pose_image_names,
@@ -594,26 +630,64 @@ def _save_compacted_training_checkpoint(
     )
 
 
-def compute_scene_transform(scene: ColmapScene) -> SceneTransform:
+def _legacy_scene_transform(scene: ColmapScene) -> SceneTransform:
+    """Return the mean/max transform used by checkpoints before format v6."""
+
     centers = scene.camtoworlds[:, :3, 3].astype(np.float32)
     center = np.mean(centers, axis=0)
     scale = float(np.max(np.linalg.norm(centers - center[None, :], axis=-1)))
-    return SceneTransform(center=center, scale=max(scale, 1.0e-6))
+    scale = max(scale, 1.0e-6)
+    matrix = np.eye(4, dtype=np.float64)
+    matrix[:3, :3] /= scale
+    matrix[:3, 3] = -center / scale
+    return SceneTransform(matrix)
+
+
+def _legacy_training_scene_scale(scene: ColmapScene) -> float:
+    """Reproduce the pre-v6 float32 scene-extent calculation exactly."""
+
+    centers = scene.camtoworlds[:, :3, 3].astype(np.float32)
+    center = np.mean(centers, axis=0)
+    normalization_scale = float(
+        np.max(np.linalg.norm(centers - center[None, :], axis=-1))
+    )
+    normalized = (centers - center[None, :]) / max(
+        normalization_scale, 1.0e-6
+    )
+    normalized_center = np.mean(normalized, axis=0)
+    extent = np.max(
+        np.linalg.norm(normalized - normalized_center[None, :], axis=-1)
+    )
+    return float(extent * 1.1)
+
+
+def compute_scene_transform(
+    scene: ColmapScene, *, normalize_world_space: bool = True
+) -> SceneTransform:
+    """Build current-main's focus/median and point-PCA world transform."""
+
+    if not normalize_world_space:
+        return SceneTransform(np.eye(4, dtype=np.float64))
+    _, _, matrix = normalize_scene(scene.camtoworlds, scene.points)
+    return SceneTransform(matrix)
 
 
 def _training_scene_scale(
-    scene: ColmapScene, transform: SceneTransform
+    scene: ColmapScene,
+    transform: SceneTransform,
+    *,
+    global_scale: float = 1.0,
 ) -> float:
     """Return current-main's 1.1-margin extent in training coordinates."""
 
     centers = transform.points(
-        scene.camtoworlds[:, :3, 3].astype(np.float32)
+        scene.camtoworlds[:, :3, 3].astype(np.float64)
     )
     center = np.mean(centers, axis=0)
     extent = np.max(
         np.linalg.norm(centers - center[None, :], axis=-1)
     )
-    return float(extent * 1.1)
+    return float(extent * 1.1 * global_scale)
 
 
 def _scene_training_render_size(
@@ -773,6 +847,14 @@ def _validate_camera_module_resume_config(
     """Reject resume changes that alter restored optimizer meaning."""
 
     saved = load_checkpoint_config(checkpoint_path)
+    for field in ("normalize_world_space", "global_scale"):
+        saved_value = getattr(saved, field)
+        current_value = getattr(config, field)
+        if saved_value != current_value:
+            raise ValueError(
+                f"resume requires {field} to match the checkpoint config "
+                f"({saved_value} saved, {current_value} requested)"
+            )
     if saved.data.batch_size != config.data.batch_size:
         raise ValueError(
             "resume requires data.batch_size to match the checkpoint because "
@@ -1954,8 +2036,25 @@ def train(
         load_points=resume_from is None,
     )
     training_height, training_width = _scene_training_render_size(scene, config)
-    transform = compute_scene_transform(scene)
-    scene_scale = _training_scene_scale(scene, transform)
+    saved_scene_transform = (
+        load_checkpoint_scene_transform(resume_from)
+        if resume_from is not None
+        else None
+    )
+    if saved_scene_transform is not None:
+        saved_matrix, scene_scale = saved_scene_transform
+        transform = SceneTransform(saved_matrix)
+    elif resume_from is not None:
+        transform = _legacy_scene_transform(scene)
+        scene_scale = _legacy_training_scene_scale(scene)
+    else:
+        transform = compute_scene_transform(
+            scene,
+            normalize_world_space=config.normalize_world_space,
+        )
+        scene_scale = _training_scene_scale(
+            scene, transform, global_scale=config.global_scale
+        )
     uses_camera_modules = (
         config.pose_opt or config.pose_noise > 0.0 or config.app_opt
     )
@@ -2506,6 +2605,8 @@ def train(
                 step=step,
                 config=config,
                 intersection_capacity=intersection_capacity,
+                scene_transform=transform,
+                scene_scale=scene_scale,
                 pose_adjust=pose_adjust,
                 pose_optimizer=pose_optimizer,
                 pose_image_names=(
@@ -2552,6 +2653,8 @@ def train(
             step=config.steps,
             config=config,
             intersection_capacity=intersection_capacity,
+            scene_transform=transform,
+            scene_scale=scene_scale,
             pose_adjust=pose_adjust,
             pose_optimizer=pose_optimizer,
             pose_image_names=(

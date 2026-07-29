@@ -13,6 +13,7 @@ import jax.numpy as jnp
 from .checkpoints import (
     load_checkpoint_appearance_image_names,
     load_checkpoint_config,
+    load_checkpoint_scene_transform,
     load_checkpoint_storage_capacity,
     restore_checkpoint,
 )
@@ -21,8 +22,9 @@ from .data import create_grain_dataset, load_colmap_scene
 from .exporter import export_splats
 from .model import GaussianModel
 from .training import (
+    SceneTransform,
+    _legacy_scene_transform,
     _save_render,
-    compute_scene_transform,
     estimate_rasterization_memory_bytes,
     estimate_training_memory_bytes,
     make_render_step,
@@ -89,6 +91,8 @@ def _train_command(args: argparse.Namespace) -> None:
         name: getattr(args, name)
         for name in (
             "model_type",
+            "global_scale",
+            "normalize_world_space",
             "opacity_reg",
             "scale_reg",
             "app_embed_dim",
@@ -298,7 +302,12 @@ def _render_command(args: argparse.Namespace) -> None:
         shuffle=False,
     )
     example = split[args.index]
-    transform = compute_scene_transform(scene)
+    saved_scene_transform = load_checkpoint_scene_transform(args.checkpoint)
+    if saved_scene_transform is None:
+        transform = _legacy_scene_transform(scene)
+    else:
+        matrix, _ = saved_scene_transform
+        transform = SceneTransform(matrix)
     viewmat = transform.world_to_camera(example["w2c"])
     height, width = example["image"].shape[:2]
     workspace_estimate = estimate_rasterization_memory_bytes(
@@ -488,6 +497,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument("--data", type=str)
     train_parser.add_argument("--image-dir", type=str)
+    train_parser.add_argument("--global-scale", type=float)
+    train_parser.add_argument(
+        "--normalize-world-space",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     train_parser.add_argument(
         "--capacity",
         type=int,

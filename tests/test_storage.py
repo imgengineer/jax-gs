@@ -1,10 +1,15 @@
+import json
 from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_gs.checkpoints import restore_checkpoint, save_checkpoint
+from jax_gs.checkpoints import (
+    load_checkpoint_scene_transform,
+    restore_checkpoint,
+    save_checkpoint,
+)
 from jax_gs.compression import PngCompression
 from jax_gs.compression.png_compression import PngCompression as CurrentPngCompression
 from jax_gs.compression.sort import sort_splats
@@ -51,6 +56,169 @@ def test_orbax_checkpoint_round_trip(tmp_path: Path):
     assert step == 3
     assert int(model.active_count) == 2
     assert jnp.allclose(model.means[:2], jnp.array([[1, 2, 3], [4, 5, 6]]))
+    assert load_checkpoint_scene_transform(checkpoint) is None
+
+
+@pytest.mark.parametrize("scene_scale", [2.75, 0.0])
+def test_checkpoint_scene_metadata_round_trip(tmp_path: Path, scene_scale: float):
+    model_config = ModelConfig(
+        capacity=2, bucket_min_capacity=2, sh_degree=0
+    )
+    model = GaussianModel.empty(model_config)
+    matrix = np.asarray(
+        [
+            [0.0, -0.5, 0.0, 1.25],
+            [0.5, 0.0, 0.0, -2.5],
+            [0.0, 0.0, 0.5, 3.75],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+
+    checkpoint = save_checkpoint(
+        tmp_path,
+        model,
+        step=4,
+        scene_transform=matrix,
+        scene_scale=jnp.asarray(scene_scale, jnp.float32),
+    )
+
+    restored = load_checkpoint_scene_transform(checkpoint)
+    assert restored is not None
+    restored_matrix, restored_scale = restored
+    np.testing.assert_array_equal(restored_matrix, matrix.astype(np.float64))
+    assert restored_scale == scene_scale
+    metadata = json.loads(
+        (checkpoint / "jax_gs_checkpoint.json").read_text(encoding="utf-8")
+    )
+    assert metadata["format_version"] == 6
+    assert "scene" in metadata["components"]
+    assert set(metadata["scene"]) == {"matrix", "scene_scale"}
+
+
+@pytest.mark.parametrize(
+    ("scene_transform", "scene_scale", "match"),
+    [
+        (np.eye(4), None, "provided together"),
+        (None, 1.0, "provided together"),
+        (np.zeros((3, 4)), 1.0, "shape"),
+        (np.eye(4) * np.nan, 1.0, "finite"),
+        (np.diag([1.0, 1.0, 1.0, 2.0]), 1.0, "homogeneous"),
+        (np.diag([1.0, 2.0, 1.0, 1.0]), 1.0, "similarity"),
+        (np.eye(4), -1.0, "finite non-negative scalar"),
+        (np.eye(4), np.inf, "finite non-negative scalar"),
+        (np.eye(4), np.ones(1), "finite non-negative scalar"),
+    ],
+)
+def test_save_checkpoint_rejects_invalid_scene_metadata(
+    tmp_path: Path,
+    scene_transform,
+    scene_scale,
+    match: str,
+):
+    model_config = ModelConfig(
+        capacity=2, bucket_min_capacity=2, sh_degree=0
+    )
+    model = GaussianModel.empty(model_config)
+
+    with pytest.raises(ValueError, match=match):
+        save_checkpoint(
+            tmp_path,
+            model,
+            step=1,
+            scene_transform=scene_transform,
+            scene_scale=scene_scale,
+        )
+
+
+@pytest.mark.parametrize("format_version", range(1, 7))
+def test_checkpoint_without_scene_component_returns_none(
+    tmp_path: Path, format_version: int
+):
+    checkpoint = tmp_path / f"v{format_version}"
+    checkpoint.mkdir()
+    (checkpoint / "jax_gs_checkpoint.json").write_text(
+        json.dumps(
+            {"format_version": format_version, "components": ["model"]}
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_checkpoint_scene_transform(checkpoint) is None
+
+
+@pytest.mark.parametrize(
+    ("format_version", "scene", "match"),
+    [
+        (
+            5,
+            {
+                "matrix": np.eye(4).tolist(),
+                "scene_scale": 1.0,
+            },
+            "version 6",
+        ),
+        (6, {"matrix": np.eye(4).tolist()}, "incomplete"),
+        (
+            6,
+            {
+                "matrix": np.zeros((3, 4)).tolist(),
+                "scene_scale": 1.0,
+            },
+            "shape",
+        ),
+        (
+            6,
+            {
+                "matrix": (np.eye(4) * np.nan).tolist(),
+                "scene_scale": 1.0,
+            },
+            "finite",
+        ),
+        (
+            6,
+            {
+                "matrix": np.eye(4).tolist(),
+                "scene_scale": -1.0,
+            },
+            "finite non-negative scalar",
+        ),
+        (
+            6,
+            {
+                "matrix": np.diag([1.0, 1.0, 1.0, 2.0]).tolist(),
+                "scene_scale": 1.0,
+            },
+            "homogeneous",
+        ),
+        (
+            6,
+            {
+                "matrix": np.diag([1.0, 2.0, 1.0, 1.0]).tolist(),
+                "scene_scale": 1.0,
+            },
+            "similarity",
+        ),
+    ],
+)
+def test_load_checkpoint_scene_transform_rejects_invalid_metadata(
+    tmp_path: Path, format_version: int, scene: dict, match: str
+):
+    checkpoint = tmp_path / "invalid"
+    checkpoint.mkdir()
+    (checkpoint / "jax_gs_checkpoint.json").write_text(
+        json.dumps(
+            {
+                "format_version": format_version,
+                "components": ["model", "scene"],
+                "scene": scene,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=match):
+        load_checkpoint_scene_transform(checkpoint)
 
 
 def test_png_compression_is_lossless_and_exports_have_expected_size(tmp_path: Path):

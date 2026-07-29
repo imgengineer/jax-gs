@@ -1058,10 +1058,36 @@ def test_training_scene_scale_matches_normalized_camera_extent_margin():
     )
     scene.camtoworlds[0, 0, 3] = -2.0
     scene.camtoworlds[1, 0, 3] = 2.0
-    transform = training_module.compute_scene_transform(scene)
+    transform = training_module._legacy_scene_transform(scene)
 
     np.testing.assert_allclose(
         training_module._training_scene_scale(scene, transform), 1.1
+    )
+    np.testing.assert_allclose(
+        training_module._training_scene_scale(
+            scene, transform, global_scale=2.5
+        ),
+        2.75,
+    )
+
+
+def test_legacy_scene_scale_reproduces_pre_v6_float32_arithmetic():
+    centers = np.asarray(
+        [
+            [-9.922983624080612, -0.8564410165427665, 5.142267808834161],
+            [-9.921047947620284, -0.8569505800387824, 5.142476286631663],
+        ],
+        dtype=np.float64,
+    )
+    cameras = np.broadcast_to(np.eye(4), (2, 4, 4)).copy()
+    cameras[:, :3, 3] = centers
+    scene = SimpleNamespace(camtoworlds=cameras)
+
+    np.testing.assert_allclose(
+        training_module._legacy_training_scene_scale(scene),
+        1.0995174646377563,
+        rtol=0.0,
+        atol=0.0,
     )
 
 
@@ -2380,10 +2406,25 @@ def test_train_rejects_multi_process_before_writing(monkeypatch, tmp_path):
 
 
 def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
+    camtoworlds = np.broadcast_to(
+        np.eye(4, dtype=np.float32), (3, 4, 4)
+    ).copy()
+    camtoworlds[:, :3, 3] = np.asarray(
+        [[-2.0, 1.0, 0.0], [0.0, 1.0, 1.0], [3.0, 1.0, 0.0]],
+        np.float32,
+    )
     scene = SimpleNamespace(
-        points=np.array([[0.0, 0.0, 3.0]], np.float32),
-        points_rgb=np.array([[128, 128, 128]], np.uint8),
-        camtoworlds=np.eye(4, dtype=np.float32)[None],
+        points=np.asarray(
+            [
+                [-2.0, 0.0, 0.0],
+                [2.0, 0.0, 0.0],
+                [0.0, -1.0, -0.25],
+                [0.0, 1.0, 1.0],
+            ],
+            np.float32,
+        ),
+        points_rgb=np.full((4, 3), 128, np.uint8),
+        camtoworlds=camtoworlds,
     )
     batch = {
         "image": np.zeros((4, 4, 3), np.float32),
@@ -2408,7 +2449,11 @@ def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
         def fake_train_step(model, _optimizer, _strategy_state, safety_state, *_args):
             nonlocal calls
             calls += 1
-            if calls == 3:
+            if calls == 1:
+                model.active_mask[...] = jnp.array(
+                    [True, False, False, False]
+                )
+            elif calls == 3:
                 model.active_mask[...] = jnp.array(
                     [False, True, False, False]
                 )
@@ -2438,9 +2483,17 @@ def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
         model.active_mask[...] = jnp.arange(model.capacity) < active_count
         return jnp.asarray(active_count)
 
-    def fake_save(directory, model, *, step, **_kwargs):
+    def fake_save(directory, model, *, step, **kwargs):
         mask = np.asarray(model.active_mask[...]).copy()
         events.append(("save", step, mask))
+        expected_transform = training_module.compute_scene_transform(scene)
+        expected_scale = training_module._training_scene_scale(
+            scene, expected_transform
+        )
+        np.testing.assert_allclose(
+            kwargs["scene_transform"], expected_transform.matrix
+        )
+        np.testing.assert_allclose(kwargs["scene_scale"], expected_scale)
         return directory / f"step_{step:08d}"
 
     monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
@@ -2498,6 +2551,8 @@ def test_train_wires_dataset_index_pose_state_and_checkpoint_manifest(
         "image_id": np.asarray([1234], np.int64),
     }
     config = TrainConfig(
+        normalize_world_space=False,
+        global_scale=2.5,
         pose_opt=True,
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
@@ -2556,7 +2611,7 @@ def test_train_wires_dataset_index_pose_state_and_checkpoint_manifest(
 
     np.testing.assert_array_equal(dispatched["image_ids"], [1])
     expected_camtoworld = np.eye(4, dtype=np.float32)[None]
-    expected_camtoworld[0, 0, 3] = 1.0
+    expected_camtoworld[0, 0, 3] = 4.0
     np.testing.assert_allclose(
         dispatched["camtoworlds"], expected_camtoworld
     )
@@ -2565,6 +2620,8 @@ def test_train_wires_dataset_index_pose_state_and_checkpoint_manifest(
     assert dispatched["pose_perturb"] is None
     assert saved["pose_adjust"] is result.pose_adjust
     assert saved["pose_image_names"] == ("a.png", "b.png")
+    np.testing.assert_array_equal(saved["scene_transform"].matrix, np.eye(4))
+    np.testing.assert_allclose(saved["scene_scale"], 2.75)
 
     dispatched.clear()
     saved.clear()
@@ -2608,6 +2665,7 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
         "dataset_index": np.asarray([1], np.int32),
     }
     config = TrainConfig(
+        normalize_world_space=False,
         app_opt=True,
         app_embed_dim=4,
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=1),
@@ -2718,6 +2776,16 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
             TrainConfig(data=DataConfig(batch_size=2)),
             "batch_size",
         ),
+        (
+            TrainConfig(normalize_world_space=True),
+            TrainConfig(normalize_world_space=False),
+            "normalize_world_space",
+        ),
+        (
+            TrainConfig(global_scale=1.0),
+            TrainConfig(global_scale=2.0),
+            "global_scale",
+        ),
     ],
 )
 def test_camera_module_resume_rejects_structural_config_changes(
@@ -2741,12 +2809,14 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
             assert split == "train"
             return np.asarray([0, 1], dtype=np.int64)
 
+    scene_camtoworlds = np.repeat(
+        np.eye(4, dtype=np.float32)[None], 2, axis=0
+    )
+    scene_camtoworlds[:, 0, 3] = np.asarray([-1.0, 1.0])
     scene = PoseScene(
         points=np.asarray([[0.0, 0.0, 3.0]], np.float32),
         points_rgb=np.asarray([[128, 128, 128]], np.uint8),
-        camtoworlds=np.repeat(
-            np.eye(4, dtype=np.float32)[None], 2, axis=0
-        ),
+        camtoworlds=scene_camtoworlds,
         images=(SimpleNamespace(name="a.png"), SimpleNamespace(name="b.png")),
     )
     batch = {
@@ -2755,10 +2825,11 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
             [[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]],
             np.float32,
         ),
-        "w2c": np.eye(4, dtype=np.float32)[None],
+        "w2c": np.linalg.inv(scene_camtoworlds[1])[None].astype(np.float32),
         "dataset_index": np.asarray([1], np.int32),
     }
     config = TrainConfig(
+        normalize_world_space=False,
         app_opt=True,
         app_embed_dim=4,
         pose_opt=True,
@@ -2915,8 +2986,9 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
             np.testing.assert_array_equal(resumed_leaf, uninterrupted_leaf)
 
 
+@pytest.mark.parametrize("has_scene_metadata", [True, False])
 def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, has_scene_metadata: bool
 ):
     scene = SimpleNamespace(
         camtoworlds=np.eye(4, dtype=np.float32)[None],
@@ -2939,12 +3011,17 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
         output_dir=str(tmp_path),
     )
     dispatched = {}
+    scene_matrix = np.eye(4, dtype=np.float64)
+    scene_matrix[:3, :3] *= 0.5
+    scene_matrix[0, 3] = 1.0
+    saved_scene_metadata = []
 
     def fake_make_train_step(_config):
         def fake_train_step(
             model, _optimizer, _strategy, safety_state, images, *_args
         ):
             dispatched["image"] = np.asarray(images).copy()
+            dispatched["viewmats"] = np.asarray(_args[1]).copy()
             dispatched["key"] = np.asarray(
                 jax.random.key_data(_args[2])
             ).copy()
@@ -2978,6 +3055,11 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
     monkeypatch.setattr(
         training_module, "load_checkpoint_intersection_capacity", lambda _path: None
     )
+    monkeypatch.setattr(
+        training_module,
+        "load_checkpoint_scene_transform",
+        lambda _path: (scene_matrix, 3.25) if has_scene_metadata else None,
+    )
     monkeypatch.setattr(training_module, "restore_checkpoint", lambda *_a, **_k: 2)
     monkeypatch.setattr(
         training_module, "load_checkpoint_active_prefix", lambda _path: True
@@ -2997,15 +3079,36 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
     )
     monkeypatch.setattr(training_module, "make_train_step", fake_make_train_step)
     monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
+
+    def fake_save(directory, *_args, step, **kwargs):
+        saved_scene_metadata.append(
+            (kwargs["scene_transform"].matrix.copy(), kwargs["scene_scale"])
+        )
+        return directory / f"step_{step:08d}"
+
     monkeypatch.setattr(
-        training_module,
-        "_save_compacted_training_checkpoint",
-        lambda directory, *_a, step, **_k: directory / f"step_{step:08d}",
+        training_module, "_save_compacted_training_checkpoint", fake_save
     )
 
     training_module.train(config, resume_from=tmp_path / "checkpoint")
 
     np.testing.assert_array_equal(dispatched["image"], batches[2]["image"])
+    expected_transform = (
+        training_module.SceneTransform(scene_matrix)
+        if has_scene_metadata
+        else training_module._legacy_scene_transform(scene)
+    )
+    expected_viewmats = expected_transform.world_to_camera(batches[2]["w2c"])
+    np.testing.assert_allclose(dispatched["viewmats"], expected_viewmats)
+    np.testing.assert_array_equal(
+        saved_scene_metadata[0][0], expected_transform.matrix
+    )
+    expected_scale = (
+        3.25
+        if has_scene_metadata
+        else training_module._legacy_training_scene_scale(scene)
+    )
+    assert saved_scene_metadata[0][1] == expected_scale
     expected_key = jax.random.split(
         jax.random.fold_in(jax.random.key(config.seed), 3), 2
     )[0]
@@ -3036,6 +3139,7 @@ def test_train_checks_sticky_overflow_before_final_checkpoint(
         "w2c": np.eye(4, dtype=np.float32),
     }
     config = TrainConfig(
+        normalize_world_space=False,
         model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
         data=DataConfig(
@@ -3118,6 +3222,7 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
         "dataset_index": np.asarray(0, np.int32),
     }
     config = TrainConfig(
+        normalize_world_space=False,
         app_opt=True,
         pose_opt=True,
         model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
@@ -3284,6 +3389,7 @@ def test_scheduled_mcmc_grows_before_forward_and_skips_host_refine(
         "w2c": np.eye(4, dtype=np.float32),
     }
     config = TrainConfig(
+        normalize_world_space=False,
         model=ModelConfig(capacity=40, bucket_min_capacity=20, sh_degree=0),
         optimizer=OptimizerConfig(max_steps=1),
         strategy=StrategyConfig(

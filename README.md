@@ -21,8 +21,9 @@
 - 2DGS dense/static-packed 投影与渲染，包括 leading-batch packed metadata、normals、surface normals、distortion、median/expected depth；`info["gradient_2dgs"]` 保持 current-main 的 forward-zero 语义，显式 JAX probe 在反向中产生 ray-transform 定义的 signed densify VJP，独立 AbsGrad probe 在逐像素取绝对值后累加。统一训练器支持 `model_type="2dgs"`、packed sparse training 及 normal/distortion 正则。
 - 3DGUT 七 sigma 点 UT 投影、FTheta/OpenCV distortion、rolling shutter 和固定分块；`with_eval3d` 用 UT 构建候选，并以纯 JAX 按世界射线到 Gaussian 的距离精确计算响应，已支持自定义 rays、hit distance、累积 normals、extra signals/SH extra signals 和 eval3d debug outputs。
 - COLMAP binary 完整解析与 Grain 数据管线，训练流按 `shuffle → repeat → batch` 组织，连续 epoch 会覆盖尾部图像，小场景不会因 `drop_remainder` 停滞，resume fast-forward 也保持确定性；已覆盖本机 Mip-NeRF 360 数据。
+- COLMAP trainer 默认使用 current-main 的相机 up 对齐、focus 中位数居中、camera-distance 中位数缩放、点云 PCA 主轴对齐与 upside-down 修正；`normalize_world_space=False` 保留 identity 坐标，`global_scale` 只缩放 scene-size 相关训练参数。归一化是训练前的确定性 host NumPy 预处理，渲染和反向仍走 pure JAX。
 - 默认 full-image 训练和显式静态 square-patch 训练、L1+SSIM、PSNR、SH degree schedule、评估渲染；非方形 full-image 的独立 `height`/`width` 会贯穿 renderer、densification stats、intersection capacity 和训练/扩桶 memory preflight。
-- Orbax checkpoint format v5，保存 Gaussian 颜色模式，并可包含 camera-pose 与 appearance 模块及各自的独立 optimizer state；两者的 manifest 分别记录训练相机数量与精确 image-name 顺序，appearance 还记录 feature 维度，strict resume 校验后精确恢复。兼容 gsplat 的 PLY 读写、`.splat`、Supersplat compressed PLY 字节导出与有损 PNG/SH-codebook compression；`GaussianModel` 另保留无损 PNG array transport。
+- Orbax checkpoint format v6 在 v5 的 Gaussian 颜色模式、camera-pose/appearance 模块及独立 optimizer state 基础上，增加可选的 scene component。统一 trainer 生成的 checkpoint 会保存训练时的 4×4 world-to-training transform 与最终 `scene_scale`；resume 和 CLI render 直接复用该矩阵，不重新运行 PCA。v1–v5 以及 generic v6 checkpoint 仍可读取；任何缺少 scene component 的 checkpoint 都保持旧版 camera-center mean/max-extent 坐标。兼容 gsplat 的 PLY 读写、`.splat`、Supersplat compressed PLY 字节导出与有损 PNG/SH-codebook compression；`GaussianModel` 另保留无损 PNG array transport。
 - 静态 padding 的低层 intersection/indices API；运行时长度通过 `valid_count` 与 `overflow` 表达。
 - current-main sparse tile layout/intersection/pixel compositing，以及 dense/sparse contributor count、all-ID/weight、top-contributor 查询；低层 dense 与 sparse pixel API 都支持显式零 probe 的 true AbsGrad；默认构造完整静态容量，显式压低容量时通过 `required_count`/`overflow` 报告截断。
 - current-main `geometry.functional`：独立 `xyzw` 四元数、SE(3) 变换/矩阵互转、packed pose-track 插值、单/双 pose trajectory 与 frame transform，均为纯 JAX 并覆盖 JIT/梯度。
@@ -40,13 +41,12 @@
 
 ## 当前验收与明确边界
 
-- 2026-07-28 分布式固定拓扑切片后的 forced-CPU 验收为常规 `796 passed, 1 skipped, 38 deselected`，随后五个 fresh-process resource-heavy 分组通过 `19+5+9+3+2=38` 项；合计 834 项通过。唯一 skip 是本机缺少可选的 Mip-NeRF360 stump 数据集，4 条 warning 为既有 Orbax sharding 恢复提示。同日此前的 GPU 安全脚本 preflight 因外部 `/home/lzc/Documents/gsplat-study` 仍有 `ninja/nvcc/ptxas` 编译进程而按设计拒绝继续；本切片未重新宣称 GPU pass。旧的阶段性通过数不作为本轮最终计数。
+- 2026-07-28 场景归一化/checkpoint-v6 切片的 forced-CPU 验收为常规 `838 passed, 1 skipped, 38 deselected`，随后五个 fresh-process resource-heavy 分组通过 `19+5+9+3+2=38` 项；合计 876 项通过。唯一 skip 是本机缺少可选的 Mip-NeRF360 stump 数据集，4 条 warning 为既有 Orbax sharding 恢复提示。GPU 安全脚本两次尝试分别通过 21 和 32 个独立 CUDA case 后，因瞬态 `libuv-worker`/内核 journal D-state 按设计停止；未设置风险豁免，也不宣称完整 GPU pass。
 - JAX 数组不能承载 PyTorch backward 后写入的 mutable `.absgrad`。低层 dense/sparse pixel API 和高层 3DGS/2DGS reference/intersections 路径改用独立的显式零值 probe，probe 对 forward 严格无影响；3D 使用 projected-means VJP，2DGS 使用其独立的 ray-transform densify VJP。训练器和 strategy hook 已接入该路径。3D eval3d 与 distributed AbsGrad 不在当前支持组合内。
 - `sparse_grad=True` 要求 unbatched `packed=True`；3DGS 还拒绝 distributed、显式 UT、eval3d，以及隐式走 UT 的 `camera_model="ftheta"`。renderer 参数梯度、模型与 Adam moment 仍是 fixed-bucket dense arrays；`sparse_grad`/SparseAdam-compatible 路径使用 bias-corrected Adam，`visible_adam` 使用 uncorrected SelectiveAdam，二者都不宣称 COO/稀疏内存收益。JAX 兼容类以 `update(model, grads, visible_mask)` 和只读 `.step` counter 取代 PyTorch/source 的 autograd 后 `step(visibility)` 调用面。
 - 2DGS 支持 packed sparse training，但 `backend="reference"` 的 packed 训练缺少跨 projection/intersection metadata，因此在配置边界明确拒绝；3DGS 的 `visible_adam` 不要求 packed，2DGS 不支持 `visible_adam`。
 - MCMC 3DGS 训练支持 UT 和 Eval3D，因为它不依赖 Default 的 screen densification stats；Default+Eval3D 仍明确拒绝。Default full-image 训练已实现，且保留显式 patch；full-image 模式要求训练图像共享同一 `(height, width)`，混合分辨率数据需指定 patch。Camera pose 与 appearance 的 config/CLI、3DGS/2DGS train-step、独立 optimizer、overflow replay 与 checkpoint/resume 已接入统一单进程训练流程；分布式第一切片尚未包含 pose/appearance、动态 topology、host 数据分片或 checkpoint/eval orchestration。
 - 根级 distributed renderer 支持 single-rank 和绑定 named axis 的等长 padded multi-shard；固定拓扑 `make_distributed_train_step()` 已在 named `nnx.vmap` 与双虚拟 CPU `nnx.pmap` 上验证，但项目仍不内置多进程 launcher，也不支持 distributed Gaussian leading batch 或完整 host 训练编排。其 `loss/l1/ssim/psnr/active_count/visible_count` metrics 保持 rank-local，overflow/intersection diagnostics 为 global；distributed strategy stats 暂不累计，不能作为后续 densification resume 起点。多进程/多主机仍由 `jax.distributed`、MPI、Slurm 等在入口外启动；在数据、拓扑与 checkpoint 同步接入前，统一 `train()` 对 `jax.process_count() != 1` 明确拒绝。
-- Means optimizer 已消费当前训练坐标的 scene scale，但 host COLMAP 归一化仍采用本仓库既有的 camera-center mean/max-extent 变换；上游 current-main 的 focus/median camera normalization、principal-axis alignment 与相应 scene extent 尚未迁移。因此当前 scene-scale 公式在本地坐标系内自洽，但还不是严格的端到端空间归一化 parity。
 - 当前迁移以 API、数值语义和工程可读性为优先目标；appearance 与其余训练路径尚未做专用 kernel、分布式 state sharding 或正式吞吐/显存对标，因此不宣称与 upstream gsplat 性能等价。GPU 最终验收也仍待安全串行重跑。
 
 ## 环境
@@ -123,6 +123,8 @@ uv run jax-gs train --config stump.json
 ```
 
 训练命令会从 COLMAP scene 自动取得真实 `height`/`width`；上面的 480×640 只演示 `estimate-memory` 的显式参数，请替换为数据集尺寸。full-image 支持非方形图像，但训练 split 中的图像必须共享同一尺寸。需要随机 square patch 或处理混合分辨率数据时显式传 `--patch-size N`。
+
+COLMAP 训练默认启用 current-main world normalization。可用 `--no-normalize-world-space` 保留输入坐标，`--global-scale X` 只调整 means 学习率与 densification 策略所消费的 scene scale；resume 要求这两个值与 checkpoint config 一致。Trainer-generated v6 checkpoint 会复用保存的矩阵与尺度，不重新依赖点云 PCA。
 
 `--capacity` 的允许范围是 1–10,000,000。需要百万级增密时可通过 JSON 或 CLI 调整 `--max-new-per-refine`、`--refine-every` 和 `--refine-stop`；默认每次 refine 上限已提高到 8192。
 

@@ -42,7 +42,7 @@ A subsystem is complete only when all of the following hold:
 | 5a | Losses and regularization | current loss surface, fused Gaussian losses, color correction, and occlusion regularizers | Complete |
 | 5b | Compression and export | PNG/NPZ/K-means compression, spatial sorting, PLY/splat import and export | Complete |
 | 5c | Experimental inference | packed-scene functional rendering and reusable inference renderer | Complete |
-| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH fixed-topology Gaussian-sharded device step are implemented; host-distributed data/topology/checkpoint/eval orchestration, performance work, and final GPU acceptance remain open |
+| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, current-main scene normalization, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH fixed-topology Gaussian-sharded device step are implemented; host-distributed data/topology/checkpoint/eval orchestration, performance work, and final GPU acceptance remain open |
 
 Phases describe dependency order, not monolithic patches. Each phase is split
 into independently reviewable slices, and unsupported combinations raise at
@@ -399,6 +399,14 @@ stream as `shuffle → repeat → batch`, so epoch tails remain visible, small
 scenes do not stall under `drop_remainder`, and resume fast-forward stays
 deterministic.
 
+Fresh COLMAP training now follows the pinned example's complete spatial
+normalization: average camera-up alignment, focus-point median centering,
+median camera-distance scaling, point-cloud principal-axis alignment, and the
+final upside-down correction. `normalize_world_space=False` selects identity;
+`global_scale` affects the derived `1.1`-margin scene scale rather than the
+coordinate transform. These dataset operations are deterministic host NumPy
+preprocessing; projection, optimization, and gradients remain pure JAX.
+
 For 2DGS the densification path is the forward-zero ray-transform VJP, not a
 projected-means proxy. The branch implements packed sparse training plus
 upstream normal-consistency and distortion losses with their strict
@@ -471,12 +479,16 @@ Default duplicate/split and MCMC relocate/birth copy the active appearance
 representation from the same parent snapshot. Bucket resize and active-prefix
 compaction keep features, colors, and their Gaussian optimizer moments aligned;
 atomic commit/replay also preserves the separate appearance module and optimizer
-state. Orbax checkpoint format v5 stores the model color mode and the appearance
-module plus optimizer; its manifest records feature dimension,
-training-camera count, and exact image-name ordering. Strict resume validates
-those fields together with appearance config, SH degree, and batch size before
-an exact restore. Older v1-v4 checkpoints default to SH mode and remain
-readable, including v4 pose state.
+state. Orbax checkpoint format v6 retains v5's model color mode, appearance
+module/optimizer, feature dimension, training-camera count, and exact image-name
+ordering, and supports an optional scene component. Trainer-generated saves add
+the exact world-to-training matrix plus final scene scale.
+Strict resume validates those fields together with appearance config, SH
+degree, batch size, normalization mode, and global scale before an exact
+restore. Resume and CLI rendering reuse the stored matrix instead of rerunning
+PCA. When the scene component is absent, including in v1-v5 and generic v6
+checkpoints, the legacy camera-center mean/max-extent transform is intentionally
+retained so existing Gaussian coordinates are not reinterpreted.
 
 This intentionally closes the pinned upstream example's incomplete appearance
 restore path instead of reproducing its lost module/optimizer state.
@@ -534,12 +546,11 @@ dynamic topology, host data sharding, checkpoint/eval, launch, and performance
 specialization remain later slices. Unified `train()` consequently continues
 to reject multiple JAX processes.
 
-The means optimizer now receives scene scale, but spatial normalization remains
-an explicit trainer-parity item: the host currently uses camera-center
-mean/max-extent normalization, whereas pinned current main uses focus/median
-camera normalization followed by point-cloud principal-axis alignment. The
-local 1.1-margin scene scale is correct in the local training coordinates but
-does not yet make those coordinate systems identical.
+The means optimizer receives the scene scale derived after current-main spatial
+normalization. The 4x4 transform and the final `1.1 * global_scale` camera
+extent are persisted by trainer-generated checkpoint format v6 saves, making
+fresh training, resume, scheduled evaluation, and CLI rendering share one
+coordinate system. Generic v6 saves may omit that optional scene component.
 
 The pinned-tree inventory covers the backend-independent production public
 Python modules, symbols, import paths, defaults, and validation boundaries. It
@@ -570,7 +581,8 @@ rectangular H/W propagation, the current-main 2DGS/MCMC profiles, and active-onl
 3DGS/2DGS train-step integration, independent Adam, atomic overflow replay, and
 manifest-validated checkpoint/resume are complete. Appearance config/CLI,
 mutually exclusive Gaussian features/colors, real 3DGS/2DGS training,
-independent parameter groups, topology transactions, v5 exact resume,
+independent parameter groups, topology transactions, trainer-generated v6
+scene-aware exact resume,
 zero-embedding evaluation, and canonical export bake are also complete. Phase
 6 also has a tested dense-SH fixed-topology Gaussian-sharded device train step;
 it still requires host-distributed data/topology/checkpoint/eval orchestration,
@@ -590,20 +602,20 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The post-distributed-first-slice 2026-07-28 forced-CPU non-resource acceptance
-reported `796 passed, 1 skipped, 38 deselected`; the warnings were known Orbax
-restore sharding warnings and the only skip was the unavailable optional local
-Mip-NeRF360 stump dataset. Its five fresh-process resource-heavy selections
-passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
-3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-834 passing CPU cases in total.
-The 2026-07-28 GPU run was
-requested through
-`RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh`; its
-preflight found active `ninja/nvcc/ptxas` compilation in external
-`/home/lzc/Documents/gsplat-study` and refused to continue, as intended.
-No current-slice GPU pass is claimed until that external build exits and the
-safe script is rerun.
+The scene-normalization/checkpoint-v6 2026-07-28 forced-CPU non-resource
+acceptance reported `838 passed, 1 skipped, 38 deselected`; the warnings were
+four known Orbax restore sharding warnings and the only skip was the unavailable
+optional local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy
+selections passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS,
+9 Eval3D, 3 sparse rasterization, and 2 visibility cases. The current slice
+therefore has 876 passing CPU cases in total.
+
+Two full-script attempts invoked through
+`RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all
+CPU preflight groups and then 21 and 32 isolated CUDA cases respectively. The
+per-case safety checks stopped the attempts when transient `libuv-worker` and
+kernel-journal D-state threads appeared. No `ALLOW_D_STATE_GPU_TESTS` override
+was used, and no complete current-slice GPU pass is claimed.
 
 On 2026-07-26, a follow-up signature audit checked 188 backend-independent
 upstream public function definitions. Public parameter names and ordering now

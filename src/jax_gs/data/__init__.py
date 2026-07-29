@@ -29,6 +29,13 @@ from .dataset import (
     load_colmap_scene,
     mipnerf360_split_indices,
 )
+from .normalize import (
+    align_principal_axes,
+    normalize_scene,
+    similarity_from_cameras,
+    transform_cameras,
+    transform_points,
+)
 
 __all__ = [
     "CAMERA_MODELS",
@@ -43,12 +50,14 @@ __all__ = [
     "Image",
     "Point3D",
     "SceneImage",
+    "align_principal_axes",
     "create_dataset",
     "create_grain_dataset",
     "find_colmap_model_dir",
     "image_size",
     "load_colmap_scene",
     "mipnerf360_split_indices",
+    "normalize_scene",
     "qvec_to_rotation_matrix",
     "read_cameras_binary",
     "read_colmap_model",
@@ -56,4 +65,7 @@ __all__ = [
     "read_model",
     "read_points3D_binary",
     "read_points3d_binary",
+    "similarity_from_cameras",
+    "transform_cameras",
+    "transform_points",
 ]

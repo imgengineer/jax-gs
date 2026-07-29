@@ -161,6 +161,16 @@ def test_current_main_point_cloud_scale_multiplier_defaults_to_one():
     assert ModelConfig().initial_scale == 1.0
 
 
+def test_current_main_scene_normalization_defaults_and_validation():
+    config = TrainConfig()
+
+    assert config.normalize_world_space
+    assert config.global_scale == 1.0
+    for invalid_scale in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="global_scale"):
+            TrainConfig(global_scale=invalid_scale)
+
+
 def test_2dgs_training_preset_matches_current_main_example_profile():
     config = TrainConfig.for_model_type("2dgs")
 

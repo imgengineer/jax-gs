@@ -469,7 +469,7 @@ def test_checkpoint_round_trip_restores_pose_module_optimizer_and_manifest(
     metadata = json.loads(
         (checkpoint / "jax_gs_checkpoint.json").read_text(encoding="utf-8")
     )
-    assert metadata["format_version"] == 5
+    assert metadata["format_version"] == 6
     assert metadata["components"] == [
         "model",
         "optimizer",
@@ -529,7 +529,7 @@ def test_checkpoint_round_trip_restores_pose_module_optimizer_and_manifest(
         np.testing.assert_array_equal(actual_pose_optimizer[path], expected)
 
 
-def test_v5_checkpoint_restores_appearance_module_optimizer_and_manifest(
+def test_v6_checkpoint_restores_appearance_module_optimizer_and_manifest(
     tmp_path: Path,
 ) -> None:
     model_config = ModelConfig(capacity=8, bucket_min_capacity=4, sh_degree=2)
@@ -569,7 +569,7 @@ def test_v5_checkpoint_restores_appearance_module_optimizer_and_manifest(
     metadata = json.loads(
         (checkpoint / "jax_gs_checkpoint.json").read_text(encoding="utf-8")
     )
-    assert metadata["format_version"] == 5
+    assert metadata["format_version"] == 6
     assert metadata["model_color_mode"] == "appearance"
     assert metadata["appearance_feature_dim"] == 32
     assert metadata["appearance_camera_count"] == 3
@@ -634,7 +634,7 @@ def test_v5_checkpoint_restores_appearance_module_optimizer_and_manifest(
         )
 
 
-def test_v5_pose_checkpoint_supports_model_only_restore_and_rejects_reordered_names(
+def test_v6_pose_checkpoint_supports_model_only_restore_and_rejects_reordered_names(
     tmp_path: Path,
 ) -> None:
     model_config = ModelConfig(

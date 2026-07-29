@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Literal, Mapping
@@ -225,6 +226,8 @@ class TrainConfig:
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     data: DataConfig = field(default_factory=DataConfig)
+    global_scale: float = 1.0
+    normalize_world_space: bool = True
     model_type: Literal["3dgs", "2dgs"] = "3dgs"
     packed: bool = False
     sparse_grad: bool = False
@@ -259,6 +262,8 @@ class TrainConfig:
     output_dir: str = "outputs/default"
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.global_scale) or self.global_scale <= 0.0:
+            raise ValueError("global_scale must be finite and positive")
         if self.model_type not in {"3dgs", "2dgs"}:
             raise ValueError("model_type must be '3dgs' or '2dgs'")
         if self.sparse_grad and not self.packed:

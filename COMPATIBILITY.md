@@ -62,6 +62,7 @@ status, and acceptance criteria.
 | current-main `optimizers` package and `SelectiveAdam` | Implemented with a JAX call-surface adaptation | Gaussian groups use current-main global-batch LR/epsilon/beta scaling and means-only scene-scale multiplication; sparse-gradient row selection uses bias-corrected Optax Adam, while `visible_adam`/`SelectiveAdam` uses current-main's uncorrected moments; the wrapper exposes `update(model, grads, visible_mask)` plus a step counter instead of PyTorch's post-autograd `step(visibility)` |
 | current-main `init_utils` and point-cloud scale initialization | Implemented in pure JAX | Multi-frame depth unprojection plus chunked KNN; `ModelConfig.initial_scale` defaults to 1.0 and active point-cloud scales are RMS distance to up to three nearest neighbours times that multiplier |
 | current-main trainer P0/P1 profiles and scalar regularization | Implemented trainer slice | Full-image is the default and carries rectangular H/W through rendering, stats, capacities, and memory checks; explicit square patches remain supported; Grain training uses `shuffle → repeat → batch`; 2DGS/MCMC profiles and active-only 3D opacity/scale regularizers are wired through config, CLI, and metrics |
+| current-main COLMAP trainer world normalization | Implemented as deterministic host preprocessing | Camera up alignment, focus/median centering and scaling, point-cloud PCA, and the upside-down correction match the pinned example; trainer-generated format-v6 checkpoints persist the exact 4×4 transform and scene scale for resume/render, while the differentiable runtime remains pure JAX |
 | `training.pose.CameraOptModule` and `training.appearance.AppearanceOptModule` | Integrated in the single-process trainer | Both have config/CLI ownership, independent NNX/Optax state, real 3DGS/2DGS train-step wiring, shared atomic overflow replay, and exact checkpoint/resume; appearance replaces SH parameters with per-Gaussian 32D features plus base color logits and emits direct RGB |
 | current-main `TwoStageScheduler` | Implemented | Pure-Python/Optax-compatible two-stage factor and step object with upstream boundary/default behavior |
 | current-main `PngCompression` and `sort_splats` import hierarchy | Implemented | `compress_dir=` and the `compress() -> None` contract match upstream; the `meta.json`/PNG/SH-codebook schema uses deterministic host xyz sorting and K-means; PLAS optimization is not reproduced; `GaussianModel` and explicit `image_width` retain the byte-exact transport form |
@@ -107,12 +108,14 @@ status, and acceptance criteria.
   integrated in the single-process trainer. Appearance evaluation without a
   training image id uses the zero embedding and the configured full direction
   basis degree.
-- Gaussian means LR now consumes scene scale in training coordinates. The host
-  coordinate transform itself still uses the repository's camera-center
-  mean/max-extent normalization, not current-main's focus/median camera
-  normalization plus principal-axis alignment. Scene-scale behavior is thus
-  internally consistent but strict end-to-end spatial-normalization parity
-  remains open.
+- Gaussian means LR consumes the final training-coordinate scene scale. Fresh
+  training uses current-main's focus/median camera normalization, point-cloud
+  principal-axis alignment, upside-down correction, and `1.1 * global_scale`
+  extent. Trainer-generated format-v6 checkpoints persist the exact transform
+  and scale, so resume and CLI rendering do not recompute PCA. Any checkpoint
+  without a scene component, including v1-v5 and generic v6 saves, deliberately
+  retains the legacy camera-center mean/max-extent transform that produced its
+  Gaussian coordinates.
 - Root distributed rendering supports single rank and a bound named axis with
   equal padded shards. The separate `make_distributed_train_step()` now covers
   a fixed-topology, dense-SH, pinhole 3DGS device step inside `nnx.pmap`: each
@@ -128,15 +131,14 @@ status, and acceptance criteria.
   `jax.distributed`, MPI, Slurm, or another external launcher, and unified
   `train()` still rejects `jax.process_count() != 1`.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
-  hooks, and Scene/Dynamic fixed-slot topology are implemented. The
-  post-distributed-first-slice 2026-07-28 forced-CPU acceptance reported
-  `796 passed, 1 skipped, 38 deselected`; five fresh-process resource-heavy
-  groups then passed `19+5+9+3+2=38` cases, for 834 passing cases in total.
+  hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
+  normalization are implemented. The 2026-07-28 forced-CPU acceptance reported
+  `838 passed, 1 skipped, 38 deselected`; five fresh-process resource-heavy
+  groups then passed `19+5+9+3+2=38` cases, for 876 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
-  The 2026-07-28 GPU safe preflight then deliberately refused to continue
-  because external `/home/lzc/Documents/gsplat-study` still had active
-  `ninja/nvcc/ptxas` compilation. No current-slice GPU pass is claimed, and
-  historical green checkpoints below are not a final result for this slice.
+  Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
+  transient `libuv-worker` and kernel-journal D-state preflights stopped them.
+  No risk override was used and no complete current-slice GPU pass is claimed.
 
 ## Rasterizer backend contract
 
@@ -396,16 +398,18 @@ appearance module optimizer retains its separate scaling described above.
 
 Duplicate, split, MCMC relocate/birth, bucket resize, and active-prefix compact
 copy or reorder appearance rows and their Gaussian optimizer moments exactly as
-they do the SH representation. Checkpoint format v5 records the model color
-mode, appearance feature dimension, camera count, and exact training image-name
-ordering, and stores both module and optimizer state. Strict resume validates
-that manifest plus the appearance config, SH degree, and batch size before
-restoring; model-only restore retains the Gaussian features/colors while
-intentionally omitting the optional appearance module state. Formats v1-v4
-remain readable as SH checkpoints, including v4 pose state.
+they do the SH representation. Checkpoint format v6 retains v5's model color
+mode, appearance feature dimension, camera count, exact training image-name
+ordering, module, and optimizer state, and supports an optional scene component;
+trainer-generated saves include the exact transform and scene scale. Strict
+resume validates that manifest plus the appearance config,
+SH degree, batch size, normalization mode, and global scale before restoring;
+model-only restore retains the Gaussian features/colors while intentionally
+omitting the optional appearance module state. Formats v1-v5 remain readable,
+including v4 pose state and v5 appearance state.
 
 Unlike the pinned upstream example's incomplete appearance restore path, the
-local v5 contract deliberately restores both appearance module and optimizer
+local v5/v6 contract deliberately restores both appearance module and optimizer
 state so uninterrupted and resumed training share the same state trajectory.
 
 Held-out evaluation, CLI rendering, and other calls without a training image id
