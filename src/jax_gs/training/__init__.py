@@ -1083,6 +1083,13 @@ def _make_train_step(
         if config.strategy.kind == "mcmc"
         else None
     )
+    # Distributed refinement has no host callback, so the owner-local default
+    # strategy must plan inside the step to preflight every shard together.
+    distributed_plan_strategy = (
+        DefaultStrategy(config.strategy)
+        if distributed and config.strategy.kind == "default"
+        else None
+    )
 
     donated_nodes = (
         "model",
@@ -1630,6 +1637,7 @@ def _make_train_step(
         safety_state.intersection_overflow_seen[...] = intersection_overflow_seen
         strategy_capacity_overflow = jnp.asarray(False)
         mcmc_should_refine = jnp.asarray(False)
+        plan_metrics: dict[str, jax.Array] = {}
         if config.strategy.kind == "mcmc":
             mcmc_should_refine = (
                 (training_step > config.strategy.refine_start)
@@ -1646,6 +1654,64 @@ def _make_train_step(
             strategy_capacity_overflow = (
                 mcmc_should_refine & refine_plan["capacity_overflow"]
             )
+        elif distributed_plan_strategy is not None:
+            assert distributed_axis_name is not None
+            refine_scheduled = (
+                (training_step > config.strategy.refine_start)
+                & (training_step < config.strategy.refine_stop)
+                & (training_step % config.strategy.refine_every == 0)
+                & (
+                    training_step % config.strategy.reset_every
+                    >= config.strategy.pause_refine_after_reset
+                )
+            )
+            reset_scheduled = (training_step > 0) & (
+                training_step % config.strategy.reset_every == 0
+            )
+            # Every shard decides on its own rows. The step's scene scale is
+            # the value already checked against the optimizer, so no rank can
+            # score growth or pruning against a different threshold.
+            owner_plan = distributed_plan_strategy.plan_refine(
+                model,
+                strategy_state,
+                distributed_scene_scale,
+                step=training_step,
+            )
+            # Only the plan's scalar summaries cross ranks; the owner-local
+            # [L] decision arrays must never be reduced.
+            planned_new_count = jax.lax.psum(
+                owner_plan["planned_new_count"], distributed_axis_name
+            )
+            planned_pruned_count = jax.lax.psum(
+                owner_plan["pruned_count"], distributed_axis_name
+            )
+            planned_required_capacity = jax.lax.pmax(
+                owner_plan["required_capacity"], distributed_axis_name
+            )
+            any_rank_capacity_overflow = (
+                jax.lax.pmax(
+                    owner_plan["capacity_overflow"].astype(jnp.int32),
+                    distributed_axis_name,
+                )
+                > 0
+            )
+            strategy_capacity_overflow = (
+                refine_scheduled & any_rank_capacity_overflow
+            )
+            plan_metrics = {
+                "refine_scheduled": refine_scheduled,
+                "reset_scheduled": reset_scheduled,
+                "refine_planned_new_count": jnp.where(
+                    refine_scheduled, planned_new_count, 0
+                ),
+                "refine_planned_pruned_count": jnp.where(
+                    refine_scheduled, planned_pruned_count, 0
+                ),
+                "refine_required_capacity": jnp.where(
+                    refine_scheduled, planned_required_capacity, 0
+                ),
+                "refine_capacity_overflow": strategy_capacity_overflow,
+            }
         has_overflow = (
             intersection_overflow_seen
             | (max_overflow_tiles > 0)
@@ -1871,6 +1937,7 @@ def _make_train_step(
             "intersection_count": intersection_count,
             "intersection_required_count": intersection_required_count,
             "distributed_state_mismatch": distributed_state_mismatch,
+            **plan_metrics,
         }
 
     return train_step
@@ -1894,15 +1961,22 @@ def make_distributed_train_step(
     """Create the first current-main Gaussian-sharded training slice.
 
     The returned stateful step must run inside ``nnx.pmap`` (or ``nnx.vmap``
-    for tests) with ``axis_name`` bound. This initial slice deliberately keeps
-    topology fixed and supports only dense, pinhole 3DGS with SH colors. Host
-    data sharding, topology changes, and distributed checkpoints remain
-    separate orchestration work, so :func:`train` continues to fail fast for
-    multiple JAX processes. ``scene_scale`` must match the value passed to the
-    Gaussian optimizer. A rank mismatch in optimizer step or SH degree returns
-    ``distributed_state_mismatch=True`` and atomically skips the update. Signed
-    screen-space statistics are reduced into each Gaussian owner; current-main
-    distributed rendering does not support AbsGrad.
+    for tests) with ``axis_name`` bound. This slice supports only dense,
+    pinhole 3DGS with SH colors. Host data sharding and distributed
+    checkpoints remain separate orchestration work, so :func:`train` continues
+    to fail fast for multiple JAX processes. ``scene_scale`` must match the
+    value passed to the Gaussian optimizer. A rank mismatch in optimizer step
+    or SH degree returns ``distributed_state_mismatch=True`` and atomically
+    skips the update. Signed screen-space statistics are reduced into each
+    Gaussian owner; current-main distributed rendering does not support
+    AbsGrad.
+
+    A refinement schedule is now planned but never committed. Each rank plans
+    duplicate/split/prune events for the rows it owns, the scalar summaries
+    are reduced across ranks into ``refine_*`` metrics, and a capacity
+    overflow on any single rank atomically skips the whole step on every rank
+    so a host can grow all shards and replay. Topology therefore still does
+    not change; committing the transaction is the next slice.
     """
 
     try:
@@ -1957,13 +2031,6 @@ def make_distributed_train_step(
         raise NotImplementedError(
             "the first distributed training slice supports standard pinhole "
             "EWA rasterization only"
-        )
-    if (
-        config.strategy.refine_start < config.steps
-        or config.strategy.reset_every <= config.steps
-    ):
-        raise NotImplementedError(
-            "the first distributed training slice requires fixed topology"
         )
     return _make_train_step(
         config,

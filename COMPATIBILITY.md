@@ -69,7 +69,7 @@ status, and acceptance criteria.
 | `export_splats` and `load_ply_to_splats` | Implemented | Upstream bytes-returning `ply`, `splat`, and Supersplat `ply_compressed` formats plus float32 JAX PLY loading; CLI export canonically bakes appearance with zero camera embedding/direction and the configured full direction-basis degree into degree-zero SH before using these formats; raw features/colors are rejected by the generic exporter |
 | `utils` geometry/transforms/deprecated PLY helper | Implemented | Pure JAX for differentiable math, including upstream `x`/`y`/`quat` keyword signatures; host NumPy only for PLY serialization |
 | current-main `trace` and `profile` | Implemented for JAX | `jax.profiler.TraceAnnotation`, synchronized timing with current-main dunder keywords/returns, environment-driven input capture, override parsing, and forward/gradient replay; capture payloads use pickle/NumPy and `load_capture` |
-| current-main distributed renderer helpers, root routing, `cli`, and fixed-topology training | Renderer plus first device-training slice implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with fixed topology, global overflow atomics, owner-correct visibility and signed densification statistics, and current-main Gaussian gradient/Adam scaling. Host data/topology/checkpoint/eval and multi-process orchestration remain open |
+| current-main distributed renderer helpers, root routing, `cli`, and sharded training | Renderer plus device-training slices implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with global overflow atomics, owner-correct visibility and signed densification statistics, current-main Gaussian gradient/Adam scaling, and owner-local refinement plans that are globally preflighted but never committed. Host data/topology-commit/checkpoint/eval and multi-process orchestration remain open |
 | current-main capability queries | Implemented | Report pure-JAX subsystem availability rather than CUDA compile flags; `has_camera_wrappers()` and `has_losses()` are true for their completed facades |
 
 ## Deliberate behavioral boundaries and pending acceptance
@@ -118,7 +118,7 @@ status, and acceptance criteria.
   Gaussian coordinates.
 - Root distributed rendering supports single rank and a bound named axis with
   equal padded shards. The separate `make_distributed_train_step()` now covers
-  a fixed-topology, dense-SH, pinhole 3DGS device step inside `nnx.pmap`: each
+  a dense-SH, pinhole 3DGS device step inside `nnx.pmap`: each
   rank owns a Gaussian shard and local camera batch, gather transpose sums the
   rank-local photometric gradients, visibility is reduced in global Gaussian
   coordinates before owner slicing, and signed screen statistics preserve the
@@ -126,8 +126,13 @@ status, and acceptance criteria.
   reduced by `sum/sum/max` into its Gaussian owner. Overflow or rank
   step/SH-degree mismatch atomically skips model, optimizer, and statistics on
   every shard. The optimizer is required to carry matching
-  batch/world/scene-scale/config metadata. This slice does not include a
-  launcher, Gaussian leading batch, pose/appearance, dynamic topology, host
+  batch/world/scene-scale/config metadata. A refinement schedule is accepted
+  but deliberately not committed: every rank plans duplicate/split/prune events
+  for the rows it owns against the step's scene scale, the scalar summaries are
+  reduced into global `refine_*` metrics, and a planned capacity overflow on
+  any single rank atomically skips the whole step on every rank. This slice
+  does not include a launcher, Gaussian leading batch, pose/appearance, a
+  committed topology transaction, host
   data sharding, checkpoint/eval, or complete multi-process orchestration.
   Rank-local photometric/active metrics remain local while
   overflow/intersection diagnostics are global. Startup belongs to
@@ -135,10 +140,10 @@ status, and acceptance criteria.
   `train()` still rejects `jax.process_count() != 1`.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
-  normalization are implemented. The 2026-07-29 distributed signed-statistics
-  forced-CPU acceptance reported `839 passed, 1 skipped, 38 deselected`; five
+  normalization are implemented. The 2026-07-29 distributed topology-plan
+  forced-CPU acceptance reported `847 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  877 passing cases in total.
+  885 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -461,17 +466,30 @@ before entry through `jax.distributed`, MPI, Slurm, or another process manager,
 and local multi-device mapping belongs inside `pmap`/`shard_map`.
 
 `training.make_distributed_train_step()` builds on that renderer contract for
-the first readable device-side training slice. It supports dense SH pinhole
-3DGS with fixed topology and equal physical shard capacities. Gaussian
+the readable device-side training slices. It supports dense SH pinhole
+3DGS with equal physical shard capacities. Gaussian
 photometric gradients are the sum of rank-local mean losses, matching current
-main; local Gaussian regularizers remain owner-local. Global visibility is
-reduced before owner slicing, and both new and sticky overflow state are
+main; local Gaussian regularizers remain owner-local. Global visibility and
+signed densification statistics are reduced before owner slicing, and both new
+and sticky overflow state are
 collectively synchronized. An optimizer step or SH-degree mismatch also makes
 the whole mapped update a no-op. Optimizers must be built with matching local
 batch, world size, scene scale, and optimizer config, and the train and
 optimizer schedule horizons must agree. A two-virtual-CPU `nnx.pmap` smoke test
-covers the real collective boundary. Pose/appearance, screen densification
-statistics, topology changes, distributed checkpoints/eval, host input
+covers the real collective boundary.
+
+Refinement is planned but not committed. On a scheduled refinement step each
+rank runs the ordinary `DefaultStrategy` plan over the rows it owns, so
+inactive padding is ignored and a single parent can plan both a duplicate and a
+split exactly as it does single-process. Only the scalar summaries cross ranks:
+new and pruned event counts are summed, the per-shard required capacity is a
+`pmax`, and a planned capacity overflow on any rank atomically skips the model,
+optimizer, and statistics commit on every rank so a host can grow all shards
+and replay the step. The plan uses the train step's `scene_scale` — the value
+already validated against the optimizer — rather than `StrategyState`'s own
+per-rank copy. `max_new_per_refine` bounds events per shard, so a world of `W`
+ranks can plan up to `W` times that many events per refinement. Committing the
+transaction, pose/appearance, distributed checkpoints/eval, host input
 sharding, launch, and performance specialization remain separate later slices;
 unified `train()` therefore remains single-process.
 

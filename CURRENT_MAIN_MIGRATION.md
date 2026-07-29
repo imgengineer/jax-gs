@@ -42,7 +42,7 @@ A subsystem is complete only when all of the following hold:
 | 5a | Losses and regularization | current loss surface, fused Gaussian losses, color correction, and occlusion regularizers | Complete |
 | 5b | Compression and export | PNG/NPZ/K-means compression, spatial sorting, PLY/splat import and export | Complete |
 | 5c | Experimental inference | packed-scene functional rendering and reusable inference renderer | Complete |
-| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, current-main scene normalization, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH fixed-topology Gaussian-sharded device step are implemented; host-distributed data/topology/checkpoint/eval orchestration, performance work, and final GPU acceptance remain open |
+| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, current-main scene normalization, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH Gaussian-sharded device step with globally preflighted but uncommitted refinement plans are implemented; the topology commit, host-distributed data/checkpoint/eval orchestration, performance work, and final GPU acceptance remain open |
 
 Phases describe dependency order, not monolithic patches. Each phase is split
 into independently reviewable slices, and unsupported combinations raise at
@@ -542,13 +542,36 @@ strategy statistics, a no-op. Tests cover the sum-vs-mean Adam moment,
 opposite-direction signed screen gradients, asymmetric visibility/radii and
 overflow, named vmap, and a real two-virtual-CPU `nnx.pmap` call.
 
-This first slice is intentionally dense SH pinhole 3DGS with fixed topology.
-Its photometric and active/visible metrics are rank-local, whereas overflow and
-intersection diagnostics are global. Its owner-local signed densification
-statistics now include all rank-local camera batches and are ready for a later
-topology slice, but device-side duplicate/split is still disabled. Upstream
-current-main itself rejects distributed AbsGrad. Pose/appearance,
-packed/sparse/visible Adam, UT/Eval3D, 2DGS, dynamic topology, host data
+The next slice turns those statistics into an owner-local refinement plan and a
+global preflight, without committing any topology change. A refinement schedule
+is now accepted. On every step the shard runs the ordinary `DefaultStrategy`
+plan over its own `[L]` rows, using the train step's `scene_scale` rather than
+`StrategyState`'s per-rank copy so no rank can score growth or pruning against
+a different threshold. Owner-local decision arrays are never reduced; only the
+plan's scalars cross ranks, as `psum` on the planned new and pruned counts,
+`pmax` on the per-shard required capacity, and `pmax` on the capacity-overflow
+flag. The reduced results are reported as `refine_scheduled`,
+`reset_scheduled`, `refine_planned_new_count`,
+`refine_planned_pruned_count`, `refine_required_capacity`, and
+`refine_capacity_overflow`; the counts are zero on steps with no scheduled
+refinement. A planned overflow on any single rank joins the existing overflow
+atomics, so the model, optimizer, and statistics commit is skipped on every
+rank and the step is replayable once a host grows all shards. Because upstream
+runs its post-backward strategy callback on rank-local parameters, this
+owner-local plan is the faithful decomposition; the fixed-capacity
+`max_new_per_refine` bound, however, applies per shard rather than globally.
+Tests cover an owner-only duplicate, a same-parent duplicate plus split,
+prune counts summed across ranks, inactive padding, a scheduled opacity reset
+that is not committed, the scene-scale source, single-rank overflow atomics,
+and named `nnx.vmap` versus two-virtual-CPU `nnx.pmap` agreement.
+
+These slices are intentionally dense SH pinhole 3DGS. Their photometric and
+active/visible metrics are rank-local, whereas overflow, intersection, and
+refinement-plan diagnostics are global. Device-side duplicate/split/prune/reset
+are planned but never applied, so the topology is still fixed in practice.
+Upstream current-main itself rejects distributed AbsGrad. Pose/appearance,
+packed/sparse/visible Adam, UT/Eval3D, 2DGS, the committed topology
+transaction, host data
 sharding, checkpoint/eval, launch, and performance specialization remain later
 slices. Unified `train()` consequently continues to reject multiple JAX
 processes.
@@ -591,14 +614,17 @@ mutually exclusive Gaussian features/colors, real 3DGS/2DGS training,
 independent parameter groups, topology transactions, trainer-generated v6
 scene-aware exact resume,
 zero-embedding evaluation, and canonical export bake are also complete. Phase
-6 also has a tested dense-SH fixed-topology Gaussian-sharded device train step;
-it still requires host-distributed data/topology/checkpoint/eval orchestration,
+6 also has a tested dense-SH Gaussian-sharded device train step whose
+refinement schedule is planned and globally preflighted but never committed;
+it still requires the committed topology transaction plus host-distributed
+data/checkpoint/eval orchestration,
 performance work, and the full serial GPU acceptance rerun.
 Deliberate boundaries also include dense storage underneath sparse-gradient
 semantics, the JAX-specific `SelectiveAdam.update(...)` call surface, explicit
 zero probes instead of mutable `.absgrad`, FTheta sparse rejection, external
 process launch/equal padded renderer shards, no distributed Gaussian leading
-batch, fixed-topology-only distributed training, and rejection of 2DGS
+batch, plan-only distributed refinement with a per-shard
+`max_new_per_refine` bound, and rejection of 2DGS
 reference+packed training where cross metadata is unavailable.
 
 On 2026-07-27, the merged Phase-6 trainer P0/P1 focused selection reports 118
@@ -609,13 +635,13 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The distributed signed-statistics 2026-07-29 forced-CPU non-resource acceptance
-reported `839 passed, 1 skipped, 38 deselected`; the warnings were four known
+The distributed topology-plan 2026-07-29 forced-CPU non-resource acceptance
+reported `847 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-877 passing CPU cases in total.
+885 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all

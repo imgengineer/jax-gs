@@ -58,6 +58,43 @@ def _fixed_topology_config(**overrides) -> TrainConfig:
     return TrainConfig(**values)
 
 
+def _topology_plan_config(
+    *, capacity: int = 2, **strategy_overrides
+) -> TrainConfig:
+    """Config whose refinement schedule fires on the first training step."""
+
+    strategy = dict(
+        refine_start=0,
+        refine_stop=4,
+        refine_every=1,
+        reset_every=4,
+        max_new_per_refine=2,
+        grow_grad2d=0.5,
+        grow_scale3d=1.0,
+    )
+    strategy.update(strategy_overrides)
+    return _fixed_topology_config(
+        model=ModelConfig(
+            capacity=capacity,
+            bucket_min_capacity=capacity,
+            sh_degree=0,
+            initial_scale=0.2,
+        ),
+        strategy=StrategyConfig(**strategy),
+    )
+
+
+def _set_owner_statistics(strategy_state, grad_accum, max_radii):
+    """Assign per-rank owner-local densification statistics."""
+
+    grad_accum = np.asarray(grad_accum, np.float32)
+    strategy_state.grad_accum[...] = jnp.asarray(grad_accum)
+    strategy_state.visible_count[...] = jnp.asarray(
+        (grad_accum > 0.0).astype(np.float32)
+    )
+    strategy_state.max_radii[...] = jnp.asarray(max_radii, jnp.float32)
+
+
 def _stack_graphs(*graphs):
     graphdef, first_state = nnx.split(graphs[0])
     states = [first_state]
@@ -280,17 +317,6 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
             ),
             world_size=2,
         )
-    with pytest.raises(NotImplementedError, match="fixed topology"):
-        make_distributed_train_step(
-            _fixed_topology_config(
-                strategy=StrategyConfig(
-                    refine_start=1,
-                    reset_every=4,
-                    max_new_per_refine=1,
-                )
-            ),
-            world_size=2,
-        )
     with pytest.raises(ValueError, match="optimizer.max_steps.*steps"):
         make_distributed_train_step(
             _fixed_topology_config(
@@ -303,6 +329,8 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
 def _run_two_rank_update(
     map_transform,
     *,
+    config: TrainConfig | None = None,
+    prepare=None,
     optimizer_world_size: int = 2,
     optimizer_scene_scale: float = 1.0,
     train_scene_scale: float = 1.0,
@@ -310,7 +338,7 @@ def _run_two_rank_update(
     sh_degrees=(0, 0),
     expect_update: bool = True,
 ):
-    config = _fixed_topology_config()
+    config = _fixed_topology_config() if config is None else config
     bundles = _stack_graphs(
         _rank_bundle(
             config,
@@ -329,6 +357,8 @@ def _run_two_rank_update(
     optimizer.step[...] = jnp.asarray(
         initial_optimizer_steps, dtype=optimizer.step[...].dtype
     )
+    if prepare is not None:
+        prepare(model, optimizer, strategy_state)
     train_step = make_distributed_train_step(
         config,
         world_size=2,
@@ -427,6 +457,216 @@ def test_named_two_rank_screen_statistics_reduce_before_owner_slice():
     _run_two_rank_screen_stats(nnx.vmap)
 
 
+def test_distributed_train_step_plans_a_refinement_schedule():
+    make_distributed_train_step(_topology_plan_config(), world_size=2)
+
+
+def test_owner_local_duplicate_plan_reduces_across_ranks():
+    config = _topology_plan_config()
+
+    def prepare(model, optimizer, strategy_state):
+        del model, optimizer
+        _set_owner_statistics(
+            strategy_state, [[1.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]
+        )
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        model, _, _, _, metrics = _run_two_rank_update(
+            nnx.vmap, config=config, prepare=prepare
+        )
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
+    np.testing.assert_array_equal(metrics["reset_scheduled"], [False, False])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
+    np.testing.assert_array_equal(
+        metrics["refine_planned_pruned_count"], [0, 0]
+    )
+    np.testing.assert_array_equal(metrics["refine_required_capacity"], [2, 2])
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(
+        model.active_mask[...], [[True, False], [True, False]]
+    )
+
+
+def _run_two_rank_growth_plan(map_transform):
+    """Plan a duplicate and a split for the same rank-0 parent."""
+
+    config = _topology_plan_config(
+        capacity=4, refine_scale2d_stop_iter=100, grow_scale2d=0.05
+    )
+
+    def prepare(model, optimizer, strategy_state):
+        del model, optimizer
+        _set_owner_statistics(
+            strategy_state,
+            [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+            [[0.5, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+        )
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        model, _, _, _, metrics = _run_two_rank_update(
+            map_transform, config=config, prepare=prepare
+        )
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [2, 2])
+    np.testing.assert_array_equal(
+        metrics["refine_planned_pruned_count"], [0, 0]
+    )
+    np.testing.assert_array_equal(metrics["refine_required_capacity"], [3, 3])
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(
+        np.asarray(model.active_mask[...]).sum(axis=1), [1, 1]
+    )
+
+
+def test_named_two_rank_plan_duplicates_and_splits_one_parent():
+    _run_two_rank_growth_plan(nnx.vmap)
+
+
+def test_plan_uses_the_train_step_scene_scale():
+    # StrategyState keeps its default scene scale of 1.0, which would make the
+    # 0.2-scaled parent small enough to duplicate as well as split.
+    config = _topology_plan_config(
+        capacity=4, refine_scale2d_stop_iter=100, grow_scale2d=0.05
+    )
+
+    def prepare(model, optimizer, strategy_state):
+        del model, optimizer
+        _set_owner_statistics(
+            strategy_state,
+            [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+            [[0.5, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]],
+        )
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        _, _, strategy_state, _, metrics = _run_two_rank_update(
+            nnx.vmap,
+            config=config,
+            prepare=prepare,
+            optimizer_scene_scale=0.1,
+            train_scene_scale=0.1,
+        )
+
+    np.testing.assert_array_equal(strategy_state.scene_scale[...], [1.0, 1.0])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
+
+
+def test_inactive_padding_rows_are_never_planned():
+    config = _topology_plan_config(
+        capacity=4, refine_scale2d_stop_iter=100, grow_scale2d=0.05
+    )
+
+    def prepare(model, optimizer, strategy_state):
+        del model, optimizer
+        _set_owner_statistics(
+            strategy_state,
+            [[0.0, 5.0, 5.0, 5.0], [0.0, 0.0, 0.0, 0.0]],
+            [[0.0, 9.0, 9.0, 9.0], [0.0, 0.0, 0.0, 0.0]],
+        )
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        _, _, _, _, metrics = _run_two_rank_update(
+            nnx.vmap, config=config, prepare=prepare
+        )
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [0, 0])
+    np.testing.assert_array_equal(
+        metrics["refine_planned_pruned_count"], [0, 0]
+    )
+    np.testing.assert_array_equal(metrics["refine_required_capacity"], [1, 1])
+
+
+def test_owner_local_prune_plan_reduces_across_ranks():
+    config = _topology_plan_config(prune_opacity=0.5)
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        model, _, _, _, metrics = _run_two_rank_update(nnx.vmap, config=config)
+
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [0, 0])
+    np.testing.assert_array_equal(
+        metrics["refine_planned_pruned_count"], [2, 2]
+    )
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(
+        model.active_mask[...], [[True, False], [True, False]]
+    )
+
+
+def test_scheduled_opacity_reset_is_planned_but_not_committed():
+    config = _topology_plan_config(reset_every=1)
+    opacity_before = {}
+
+    def prepare(model, optimizer, strategy_state):
+        del optimizer, strategy_state
+        opacity_before["value"] = np.asarray(model.opacity_logits[...]).copy()
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        model, _, _, _, metrics = _run_two_rank_update(
+            nnx.vmap, config=config, prepare=prepare
+        )
+
+    np.testing.assert_array_equal(metrics["reset_scheduled"], [True, True])
+    np.testing.assert_array_equal(
+        model.opacity_logits[...], opacity_before["value"]
+    )
+
+
+def test_single_rank_plan_overflow_atomically_skips_every_rank():
+    config = _topology_plan_config(
+        refine_scale2d_stop_iter=100, grow_scale2d=0.05
+    )
+    before = {}
+
+    def prepare(model, optimizer, strategy_state):
+        _set_owner_statistics(
+            strategy_state, [[1.0, 0.0], [0.0, 0.0]], [[0.5, 0.0], [0.0, 0.0]]
+        )
+        before["model"] = _snapshot_graph_arrays(model)
+        before["optimizer"] = _snapshot_graph_arrays(optimizer)
+        before["strategy_state"] = _snapshot_graph_arrays(strategy_state)
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_overflow_rasterization
+    ):
+        model, optimizer, strategy_state, _, metrics = _run_two_rank_update(
+            nnx.vmap, config=config, prepare=prepare, expect_update=False
+        )
+
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [2, 2])
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [True, True]
+    )
+    for graph, name in (
+        (model, "model"),
+        (optimizer, "optimizer"),
+        (strategy_state, "strategy_state"),
+    ):
+        for old, new in zip(
+            before[name], _snapshot_graph_arrays(graph), strict=True
+        ):
+            np.testing.assert_array_equal(new, old)
+
+
 def test_distributed_train_step_rejects_wrong_optimizer_world_size():
     with pytest.raises(ValueError, match="optimizer.*world_size=2"):
         _run_two_rank_update(nnx.vmap, optimizer_world_size=1)
@@ -519,8 +759,9 @@ def test_two_virtual_cpu_nnx_pmap_smoke():
             "assert jax.local_device_count() == 2",
             "_run_two_rank_update(nnx.pmap)",
             "from tests.test_training_distributed import "
-            "_run_two_rank_screen_stats",
+            "_run_two_rank_screen_stats, _run_two_rank_growth_plan",
             "_run_two_rank_screen_stats(nnx.pmap)",
+            "_run_two_rank_growth_plan(nnx.pmap)",
         )
     )
     environment = os.environ.copy()
