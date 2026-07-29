@@ -7,18 +7,19 @@
 本仓库正在以 **pure JAX + Flax NNX** 逐子系统迁移
 [`nerfstudio-project/gsplat`](https://github.com/nerfstudio-project/gsplat)。当前兼容基线固定在
 upstream `main@2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c`；单进程训练和大部分
-backend-independent API 已完成，最新完成的是 fixed-topology 分布式训练中的 owner-correct
-signed densification statistics。下一阶段应继续做分布式 topology planning/transaction，而不是
-提前优化 kernel 性能。
+backend-independent API 已完成，最新完成的是分布式训练的 owner-local topology plan 与全 rank
+preflight——只计划、不提交。下一阶段应提交 device-side topology transaction，而不是提前优化
+kernel 性能。
 
 ## 2. 仓库与版本状态
 
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`f74efbdcf19176daa407e0cc6f0e65f701e64f28`
-  (`feat(training): add distributed densification stats`)
-- 前一提交：`716760e` (`feat(training): match current-main scene normalization`)
+- 已推送代码基线：`40c57e9`
+  (`feat(training): plan distributed topology without committing`)
+- 前一提交：`6e8227d` (`docs: add project handoff guide`)、
+  `f74efbd` (`feat(training): add distributed densification stats`)
 - upstream `main` 在 2026-07-29 再次确认仍为 `2b902ff`
 
 检查状态：
@@ -106,20 +107,27 @@ git push origin main
 
 ### 5.4 分布式训练当前切片
 
-`make_distributed_train_step()` 已支持绑定 `nnx.pmap`/named axis 的第一阶段设备训练：
+`make_distributed_train_step()` 已支持绑定 `nnx.pmap`/named axis 的设备训练：
 
 - 每 rank 持有等物理 capacity 的 Gaussian/Adam shard 和本地 camera batch。
-- dense、SH、pinhole 3DGS；固定 topology。
+- dense、SH、pinhole 3DGS。
 - Gaussian photometric gradient 等于各 rank local mean-loss 梯度之和，不做 `pmean`。
 - global visibility 在全局 Gaussian 坐标中归约后切回 owner shard。
 - optimizer batch/world/scene-scale/config 契约和 rank step/SH-degree 一致性检查。
 - 当前或 sticky overflow、以及 state mismatch，会使所有 rank 的 model、optimizer 和 strategy stats
   原子 no-op；safety diagnostics 仍会更新。
 - owner-local signed densification statistics 已包含所有 rank 的 camera contribution。
+- refinement schedule 已被接受：每 rank 生成 owner-local duplicate/split/prune plan，标量摘要全局
+  归约成 `refine_*` metrics，任一 rank 的计划 capacity overflow 使全体原子 no-op；但**不提交**
+  任何拓扑变更。
 
-## 6. 最新 distributed statistics 的关键语义
+## 6. 分布式 statistics 与 topology plan 的关键语义
 
-这是最容易被后续“简化”破坏的部分。设：
+这是最容易被后续“简化”破坏的部分。
+
+### 6.1 densification statistics
+
+设：
 
 - `W = world_size`
 - `C = rank-local camera batch size`
@@ -168,11 +176,42 @@ dynamic_slice(axis_index * L, L)
 Pinned upstream 明确拒绝 `distributed=True && absgrad=True`，所以本阶段继续拒绝 distributed
 AbsGrad；这不是用 signed gradient 的绝对值可以补上的缺口。
 
+### 6.2 owner-local topology plan
+
+数据流是：
+
+```text
+plan_refine(owner-local model[L] / StrategyState[L], scene_scale, step)
+  -> planned_new_count / pruned_count / required_capacity / capacity_overflow
+
+psum(planned_new_count)          -> refine_planned_new_count
+psum(pruned_count)               -> refine_planned_pruned_count
+pmax(required_capacity)          -> refine_required_capacity（每 shard 需要的容量）
+pmax(capacity_overflow)          -> 任一 rank 溢出
+& refine_scheduled               -> strategy_capacity_overflow -> has_overflow
+```
+
+必须保持的约束：
+
+1. 计划在 owner-local `[L]` 上做，只有标量摘要跨 rank；`[L]` 决策数组永远不做 collective。
+2. plan 使用 train step 的 `scene_scale`（已与 optimizer 校验过的那个），不使用
+   `StrategyState.scene_scale`；后者是 per-rank 设备状态，会让不同 rank 用不同阈值打分。
+3. `refine_scheduled` 与 `reset_scheduled` 是 `optimizer.step` 的确定性函数，而 step 已有
+   pmin/pmax 一致性检查，所以不需要再为 schedule 增加 collective。
+4. plan 必须在 optimizer update 之前算（它要 gate `has_overflow`），而 upstream 的
+   `step_post_backward` 是在 optimizer step 之后决策的。因此当前 plan 是**preflight 估计**，
+   不是 Slice B 提交时会重算的那份 event 列表。
+5. `max_new_per_refine` 是每 shard 的上界，`W` 个 rank 的全局上界是 `W * max_new_per_refine`。
+   这是 fixed-capacity 的取舍，不是 upstream 语义。
+6. host 看到 `refine_capacity_overflow=True` 后必须扩容所有 shard 再重放该 step；否则 step 被
+   原子跳过、`optimizer.step` 不前进，同一步会无限重复。
+
 ## 7. 当前明确未完成的内容
 
 不要在 README 或提交说明中声称完整分布式/性能 parity。当前仍缺少：
 
-1. 分布式 device-side duplicate/split/prune/reset topology transaction。
+1. 分布式 device-side duplicate/split/prune/reset topology transaction 的**提交**（plan 与
+   preflight 已完成，见 6.2）。
 2. 分布式 checkpoint/resume、shard manifest、world-size 校验与重分片。
 3. host camera-data sharding、multi-process/multi-host trainer orchestration、distributed eval。
 4. distributed pose/appearance、packed/sparse/visible Adam、UT/Eval3D、2DGS。
@@ -185,28 +224,25 @@ AbsGrad；这不是用 signed gradient 的绝对值可以补上的缺口。
 
 建议继续按最小可验收切片推进 distributed topology，而不是一次实现完整 host trainer。
 
-### Slice A：owner-local topology plan 与全局 preflight
+### Slice A：owner-local topology plan 与全局 preflight（已完成）
 
-1. 放宽 `make_distributed_train_step()` 的 fixed-topology gate，但先不提交 mutation。
-2. 使用现有 owner-local `StrategyState` 生成 duplicate/split/prune/reset plan。
-3. 对 capacity overflow、事件数量和 schedule/state mismatch 做全 rank 一致的 preflight。
-4. 任一 rank 失败时保持所有 model/optimizer/stats 不变。
+实现见 `_make_train_step()` 中 `distributed_plan_strategy` 分支，语义见 6.2，验收见
+`tests/test_training_distributed.py` 的 8 个 plan 测试（owner-only duplicate、同父
+duplicate+split、跨 rank prune 求和、inactive padding、未提交的 opacity reset、scene-scale
+来源、单 rank overflow 原子性，以及 named `nnx.vmap` 与双虚拟 CPU `nnx.pmap` 一致）。
 
-验收至少覆盖：
-
-- 两 rank 只有一个 owner 触发 duplicate/split。
-- 同一父 Gaussian 同时 duplicate + split。
-- inactive padding 不参与决策。
-- 单 rank capacity overflow 导致全局原子 no-op。
-- named `nnx.vmap` 和双虚拟 CPU `nnx.pmap` 数值一致。
-
-### Slice B：提交 topology transaction
+### Slice B：提交 topology transaction（下一步）
 
 1. owner-local apply duplicate/split/prune/reset。
 2. 同步 Gaussian 参数、Adam moments、strategy statistics 和 Scene/Dynamic sidecar。
 3. 所有 collectives 必须在每个 rank 上以相同静态顺序执行；不要把 collective 首次放入
    data-dependent `nnx.cond` 分支。
 4. overflow replay 前后 schedule/optimizer step 必须保持对齐。
+5. 先决定并写清楚一个语义问题：preflight 在 optimizer update 之前算，而 upstream 的 refine 决策
+   在 optimizer step 之后。提交时是
+   (a) 按 upstream 用 post-update 状态重算 events，再依赖 `_default_refine` 内部的 overflow
+   自保护；还是 (b) 严格提交 preflight 过的那批 events。(a) 更贴 upstream，(b) 更容易证明
+   原子性。不要在没做决定的情况下混用两者。
 
 ### Slice C：分布式 checkpoint
 
@@ -242,9 +278,9 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`839 passed, 1 skipped, 38 deselected`
+- 常规：`847 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`877`
+- CPU 总通过数：`885`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
@@ -263,6 +299,8 @@ GPU 安全脚本此前两次分别通过 21 和 32 个独立 CUDA case，随后�
 - `dynamic_slice_in_dim` 的 slice size 必须保持静态；动态量只应是 owner start。
 - 不要在 `nnx.cond` 分支里首次创建/rebind `nnx.Variable`。
 - stats collective 可以在 overflow 判断前执行，但 mutation 必须只在统一 apply 分支提交。
+- `refine_*`/`reset_scheduled` metrics 只在 distributed + DefaultStrategy 下出现；单进程 metrics
+  字典不含这些 key，host 侧读取前要按 key 存在性判断。
 - checkpoint 格式已有 v6；不要因为 owner-local stats 已可保存就宣称 distributed checkpoint
   完成。rank 0 单独保存只包含 owner-0 shard。
 - 技术结论优先对照 pinned upstream 的 production code 和官方测试，不依据旧 release 或二手
