@@ -10,6 +10,13 @@ import numpy as np
 import pytest
 
 import jax_gs.training as training_module
+from jax_gs.checkpoints import (
+    load_distributed_checkpoint_manifest,
+    restore_checkpoint,
+    restore_distributed_checkpoint,
+    save_checkpoint,
+    save_distributed_checkpoint,
+)
 from jax_gs.config import (
     DataConfig,
     ModelConfig,
@@ -358,20 +365,13 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
         )
 
 
-def _run_two_rank_update(
-    map_transform,
+def _two_rank_bundles(
+    config: TrainConfig,
     *,
-    config: TrainConfig | None = None,
-    prepare=None,
     optimizer_world_size: int = 2,
     optimizer_scene_scale: float = 1.0,
-    train_scene_scale: float = 1.0,
-    initial_optimizer_steps=(0, 0),
-    sh_degrees=(0, 0),
-    expect_update: bool = True,
 ):
-    config = _fixed_topology_config() if config is None else config
-    bundles = _stack_graphs(
+    return _stack_graphs(
         _rank_bundle(
             config,
             -0.08,
@@ -385,6 +385,28 @@ def _run_two_rank_update(
             optimizer_scene_scale=optimizer_scene_scale,
         ),
     )
+
+
+def _run_two_rank_update(
+    map_transform,
+    *,
+    config: TrainConfig | None = None,
+    bundles=None,
+    prepare=None,
+    optimizer_world_size: int = 2,
+    optimizer_scene_scale: float = 1.0,
+    train_scene_scale: float = 1.0,
+    initial_optimizer_steps=(0, 0),
+    sh_degrees=(0, 0),
+    expect_update: bool = True,
+):
+    config = _fixed_topology_config() if config is None else config
+    if bundles is None:
+        bundles = _two_rank_bundles(
+            config,
+            optimizer_world_size=optimizer_world_size,
+            optimizer_scene_scale=optimizer_scene_scale,
+        )
     model, optimizer, strategy_state, safety_state = bundles
     optimizer.step[...] = jnp.asarray(
         initial_optimizer_steps, dtype=optimizer.step[...].dtype
@@ -1111,3 +1133,159 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
         strategy_before, _snapshot_graph_arrays(strategy_state), strict=True
     ):
         np.testing.assert_array_equal(after, before)
+
+
+def test_distributed_checkpoint_round_trip(tmp_path):
+    config = _topology_plan_config()
+    saved = _two_rank_bundles(config)
+    model, optimizer, strategy_state, safety_state = saved
+    optimizer.step[...] = jnp.asarray([3, 3], optimizer.step[...].dtype)
+    model.active_mask[...] = jnp.asarray([[True, True], [True, False]])
+    strategy_state.grad_accum[...] = jnp.asarray([[1.5, 0.25], [0.5, 0.0]])
+    safety_state.max_overflow_tiles[...] = jnp.asarray([4, 0])
+    safety_state.intersection_overflow_seen[...] = jnp.asarray([True, False])
+
+    path = save_distributed_checkpoint(
+        tmp_path, *saved, step=3, config=config
+    )
+
+    manifest = load_distributed_checkpoint_manifest(path)
+    assert manifest["world_size"] == 2
+    assert manifest["local_capacity"] == 2
+    assert manifest["global_capacity"] == 4
+    assert manifest["active_counts"] == [2, 1]
+    assert manifest["active_prefix"] == [True, True]
+    assert manifest["components"] == [
+        "model",
+        "optimizer",
+        "strategy",
+        "safety",
+    ]
+
+    restored = _two_rank_bundles(config)
+    assert restore_distributed_checkpoint(path, *restored, config=config) == 3
+    for original, target in zip(saved, restored, strict=True):
+        for before, after in zip(
+            _snapshot_graph_arrays(original),
+            _snapshot_graph_arrays(target),
+            strict=True,
+        ):
+            np.testing.assert_array_equal(after, before)
+
+
+def test_distributed_restore_rejects_resharding(tmp_path):
+    config = _topology_plan_config()
+    path = save_distributed_checkpoint(
+        tmp_path, *_two_rank_bundles(config), step=0
+    )
+    three_ranks = _stack_graphs(
+        _rank_bundle(config, -0.08),
+        _rank_bundle(config, 0.0),
+        _rank_bundle(config, 0.08),
+    )
+
+    with pytest.raises(ValueError, match="resharding is not supported"):
+        restore_distributed_checkpoint(path, *three_ranks)
+
+
+def test_distributed_restore_rejects_a_different_shard_capacity(tmp_path):
+    path = save_distributed_checkpoint(
+        tmp_path,
+        *_two_rank_bundles(_topology_plan_config(capacity=2)),
+        step=0,
+    )
+
+    with pytest.raises(ValueError, match="shard capacity"):
+        restore_distributed_checkpoint(
+            path, *_two_rank_bundles(_topology_plan_config(capacity=4))
+        )
+
+
+def test_distributed_restore_rejects_a_different_config(tmp_path):
+    config = _topology_plan_config()
+    path = save_distributed_checkpoint(
+        tmp_path, *_two_rank_bundles(config), step=0, config=config
+    )
+
+    with pytest.raises(ValueError, match="different training config"):
+        restore_distributed_checkpoint(
+            path,
+            *_two_rank_bundles(config),
+            config=_topology_plan_config(reset_every=3),
+        )
+
+
+def test_distributed_and_single_checkpoints_reject_each_other(tmp_path):
+    config = _topology_plan_config()
+    distributed_path = save_distributed_checkpoint(
+        tmp_path / "distributed", *_two_rank_bundles(config), step=0
+    )
+    single_model, single_optimizer, single_state, _ = _rank_bundle(config, 0.0)
+
+    with pytest.raises(ValueError, match="distributed shards"):
+        restore_checkpoint(
+            distributed_path,
+            single_model,
+            optimizer=single_optimizer,
+            strategy_state=single_state,
+        )
+
+    single_path = save_checkpoint(
+        tmp_path / "single",
+        single_model,
+        step=0,
+        optimizer=single_optimizer,
+        strategy_state=single_state,
+    )
+    with pytest.raises(ValueError, match="not a distributed shard set"):
+        restore_distributed_checkpoint(
+            single_path, *_two_rank_bundles(config)
+        )
+
+
+def test_distributed_save_rejects_unsharded_state(tmp_path):
+    config = _topology_plan_config()
+
+    with pytest.raises(ValueError, match="unsharded leaf"):
+        save_distributed_checkpoint(
+            tmp_path, *_rank_bundle(config, 0.0), step=0
+        )
+
+
+def test_distributed_save_rejects_shards_at_different_steps(tmp_path):
+    config = _topology_plan_config()
+    bundles = _two_rank_bundles(config)
+    bundles[1].step[...] = jnp.asarray([1, 2], bundles[1].step[...].dtype)
+
+    with pytest.raises(ValueError, match="disagree on the optimizer step"):
+        save_distributed_checkpoint(tmp_path, *bundles, step=1)
+
+
+def test_restored_shards_continue_distributed_training(tmp_path):
+    config = _topology_plan_config()
+    trained = _duplicate_only_run(nnx.vmap)[:4]
+    path = save_distributed_checkpoint(
+        tmp_path, *trained, step=1, config=config
+    )
+
+    restored = _two_rank_bundles(config)
+    assert restore_distributed_checkpoint(path, *restored, config=config) == 1
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_statistics_rasterization
+    ):
+        model, optimizer, _, _, metrics = _run_two_rank_update(
+            nnx.vmap,
+            config=config,
+            bundles=restored,
+            initial_optimizer_steps=(1, 1),
+        )
+
+    np.testing.assert_array_equal(
+        metrics["distributed_state_mismatch"], [False, False]
+    )
+    np.testing.assert_array_equal(optimizer.step[...], [2, 2])
+    # The restored duplicate keeps training as an ordinary owner-local row.
+    np.testing.assert_array_equal(
+        model.active_mask[...], [[True, True], [True, False]]
+    )

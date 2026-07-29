@@ -69,7 +69,7 @@ status, and acceptance criteria.
 | `export_splats` and `load_ply_to_splats` | Implemented | Upstream bytes-returning `ply`, `splat`, and Supersplat `ply_compressed` formats plus float32 JAX PLY loading; CLI export canonically bakes appearance with zero camera embedding/direction and the configured full direction-basis degree into degree-zero SH before using these formats; raw features/colors are rejected by the generic exporter |
 | `utils` geometry/transforms/deprecated PLY helper | Implemented | Pure JAX for differentiable math, including upstream `x`/`y`/`quat` keyword signatures; host NumPy only for PLY serialization |
 | current-main `trace` and `profile` | Implemented for JAX | `jax.profiler.TraceAnnotation`, synchronized timing with current-main dunder keywords/returns, environment-driven input capture, override parsing, and forward/gradient replay; capture payloads use pickle/NumPy and `load_capture` |
-| current-main distributed renderer helpers, root routing, `cli`, and sharded training | Renderer plus device-training slices implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with global overflow atomics, owner-correct visibility and signed densification statistics, current-main Gaussian gradient/Adam scaling, and globally preflighted owner-local duplicate/split/prune/reset commits at fixed shard capacity. Host bucket growth, data sharding, checkpoint/eval, and multi-process orchestration remain open |
+| current-main distributed renderer helpers, root routing, `cli`, and sharded training | Renderer plus device-training slices implemented | `rasterization(distributed=True)` supports an exact single-rank path and named-axis equal-capacity padded multi-shard gather; `make_distributed_train_step()` supports dense SH pinhole 3DGS with global overflow atomics, owner-correct visibility and signed densification statistics, current-main Gaussian gradient/Adam scaling, globally preflighted owner-local duplicate/split/prune/reset commits at fixed shard capacity, and indivisible same-world-size shard checkpoints. Host bucket growth, data sharding, eval, resharding, and multi-process orchestration remain open |
 | current-main capability queries | Implemented | Report pure-JAX subsystem availability rather than CUDA compile flags; `has_camera_wrappers()` and `has_losses()` are true for their completed facades |
 
 ## Deliberate behavioral boundaries and pending acceptance
@@ -132,10 +132,11 @@ status, and acceptance criteria.
   summaries are reduced into global `refine_*` metrics, a planned capacity
   overflow on any single rank atomically skips the whole step on every rank,
   and each owner then commits its own events and scheduled opacity reset from
-  the post-update state. This slice
+  the post-update state. The whole world can be checkpointed as one indivisible
+  shard set and resumed at the same world size and shard capacity. This slice
   does not include a launcher, Gaussian leading batch, pose/appearance,
-  device-side bucket growth, a Scene/Dynamic sidecar, host
-  data sharding, checkpoint/eval, or complete multi-process orchestration.
+  device-side bucket growth, a Scene/Dynamic sidecar, resharding, host
+  data sharding, eval, or complete multi-process orchestration.
   Rank-local photometric/active metrics remain local while
   overflow/intersection diagnostics are global. Startup belongs to
   `jax.distributed`, MPI, Slurm, or another external launcher, and unified
@@ -143,10 +144,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  topology-transaction
-  forced-CPU acceptance reported `850 passed, 1 skipped, 38 deselected`; five
+  shard-checkpoint
+  forced-CPU acceptance reported `858 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  888 passing cases in total.
+  896 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -505,7 +506,21 @@ opacity reset, and is reported through `refine_commit_overflow` while the other
 owners still commit — the same per-rank independence upstream has. Physical
 shard capacity never changes inside the step, and the step carries no
 Scene/Dynamic sidecar, so bucket growth, sidecar lineage, and resharding stay
-host work. Distributed checkpoints/eval, pose/appearance, host input
+host work.
+
+`save_distributed_checkpoint` and `restore_distributed_checkpoint` persist that
+world. The stacked model, optimizer, `StrategyState`, and `TrainingSafetyState`
+are written as one indivisible shard set because a shard's parameters, Adam
+moments, statistics, and sticky overflow state are only consistent together;
+saving shards that disagree on the optimizer step is rejected outright. The
+manifest records the world size, per-shard and global capacity, per-shard
+active counts and prefix layout, and a configuration fingerprint, and
+`load_distributed_checkpoint_manifest` exposes it so a host can allocate
+matching targets before restoring. Only an exact same-world-size,
+same-shard-capacity resume is supported: resharding needs model, optimizer, and
+statistics to move together and is rejected rather than approximated. A
+distributed artifact and a single-process artifact refuse each other's restore
+entry point. Distributed eval, pose/appearance, host input
 sharding, launch, and performance specialization remain separate later slices;
 unified `train()` therefore remains single-process.
 

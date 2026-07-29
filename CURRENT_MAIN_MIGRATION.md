@@ -42,7 +42,7 @@ A subsystem is complete only when all of the following hold:
 | 5a | Losses and regularization | current loss surface, fused Gaussian losses, color correction, and occlusion regularizers | Complete |
 | 5b | Compression and export | PNG/NPZ/K-means compression, spatial sorting, PLY/splat import and export | Complete |
 | 5c | Experimental inference | packed-scene functional rendering and reusable inference renderer | Complete |
-| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, current-main scene normalization, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH Gaussian-sharded device step with globally preflighted owner-local refinement commits are implemented; host-distributed bucket growth, data/checkpoint/eval orchestration, performance work, and final GPU acceptance remain open |
+| 6 | Distributed and training integration | distributed renderer validation/collectives, schedulers, strategies, implemented trainer slices, and final compatibility audit | In progress: trainer P0/P1, current-main scene normalization, camera-pose/appearance integration, exact checkpoint/resume, and a dense-SH Gaussian-sharded device step with globally preflighted owner-local refinement commits and indivisible shard checkpoints are implemented; host-distributed bucket growth, data/eval orchestration, resharding, performance work, and final GPU acceptance remain open |
 
 Phases describe dependency order, not monolithic patches. Each phase is split
 into independently reviewable slices, and unsupported combinations raise at
@@ -587,6 +587,25 @@ divergence, single-owner commit overflow with a diverging reset, equality with
 a single-process `DefaultStrategy.refine` on the same shard, and `nnx.pmap`
 agreement.
 
+The third slice persists that world. `save_distributed_checkpoint` writes the
+stacked model, optimizer, `StrategyState`, and `TrainingSafetyState` as one
+indivisible shard set, because a shard's parameters, Adam moments, statistics,
+and sticky overflow state are only consistent together. Saving is refused when
+the nodes are not stacked over one common world axis or when the shards
+disagree on the optimizer step, so an inconsistent world cannot be written. The
+manifest records world size, per-shard and global capacity, per-shard active
+counts and prefix layout, and a configuration fingerprint;
+`load_distributed_checkpoint_manifest` exposes it because a host must allocate
+matching stacked targets before it can restore. `restore_distributed_checkpoint`
+accepts only an exact same-world-size, same-shard-capacity resume and validates
+the color mode and, when given a config, the fingerprint. Resharding a saved
+world across a different rank count needs model, optimizer, and statistics to
+move together and is deliberately rejected. The distributed and single-process
+entry points refuse each other's artifacts. Tests cover the round trip through
+fresh shards, manifest contents, resharding and capacity rejection, config
+mismatch, cross-kind rejection, unsharded and step-divergent saves, and a
+restored world that keeps training with an aligned schedule.
+
 These slices are intentionally dense SH pinhole 3DGS. Their photometric and
 active/visible metrics are rank-local, whereas overflow, intersection, and
 refinement diagnostics are global. Physical shard capacity never changes inside
@@ -594,7 +613,7 @@ the step and no Scene/Dynamic sidecar is carried, so bucket growth, sidecar
 lineage, and resharding stay host work.
 Upstream current-main itself rejects distributed AbsGrad. Pose/appearance,
 packed/sparse/visible Adam, UT/Eval3D, 2DGS, host data
-sharding, checkpoint/eval, launch, and performance specialization remain later
+sharding, eval, launch, and performance specialization remain later
 slices. Unified `train()` consequently continues to reject multiple JAX
 processes.
 
@@ -638,8 +657,9 @@ scene-aware exact resume,
 zero-embedding evaluation, and canonical export bake are also complete. Phase
 6 also has a tested dense-SH Gaussian-sharded device train step whose
 refinement schedule is globally preflighted and committed owner-locally at
-fixed shard capacity; it still requires host-distributed bucket growth and
-data/checkpoint/eval orchestration,
+fixed shard capacity, plus indivisible same-world-size shard checkpoints; it
+still requires host-distributed bucket growth and data/eval orchestration,
+resharding,
 performance work, and the full serial GPU acceptance rerun.
 Deliberate boundaries also include dense storage underneath sparse-gradient
 semantics, the JAX-specific `SelectiveAdam.update(...)` call surface, explicit
@@ -657,14 +677,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The distributed topology-transaction 2026-07-29 forced-CPU non-resource
+The distributed shard-checkpoint 2026-07-29 forced-CPU non-resource
 acceptance
-reported `850 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `858 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-888 passing CPU cases in total.
+896 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all

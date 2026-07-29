@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from .strategy import StrategyState
 
 
 _CHECKPOINT_METADATA = "jax_gs_checkpoint.json"
+_DISTRIBUTED_KIND = "distributed"
 
 
 def _pure_state(node: Any) -> Any:
@@ -152,6 +154,235 @@ def _validate_scene_values(
     if not np.isfinite(scale) or scale < 0.0:
         raise ValueError("scene_scale must be a finite non-negative scalar")
     return matrix, scale
+
+
+def _distributed_world_size(*nodes: Any) -> int:
+    """Return the shared leading world axis of a stacked shard set."""
+
+    leading = set()
+    for node in nodes:
+        for leaf in jax.tree.leaves(_pure_state(node)):
+            if not isinstance(leaf, jax.Array) or leaf.ndim == 0:
+                raise ValueError(
+                    "distributed shards must be stacked over a leading world "
+                    "axis; found an unsharded leaf"
+                )
+            leading.add(int(leaf.shape[0]))
+    if len(leading) != 1:
+        raise ValueError(
+            "distributed shards must share one leading world axis, got "
+            f"{sorted(leading)}"
+        )
+    return leading.pop()
+
+
+def _distributed_local_capacity(model: GaussianModel, world_size: int) -> int:
+    means = model.means[...]
+    if means.ndim != 3 or means.shape[0] != world_size or means.shape[2] != 3:
+        raise ValueError(
+            "distributed model means must have shape [world, capacity, 3], "
+            f"got {means.shape}"
+        )
+    return int(means.shape[1])
+
+
+def _config_fingerprint(config: TrainConfig) -> str:
+    payload = json.dumps(
+        config.to_dict(), sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def save_distributed_checkpoint(
+    directory: str | Path,
+    model: GaussianModel,
+    optimizer: nnx.Optimizer,
+    strategy_state: StrategyState,
+    safety_state: Any,
+    *,
+    step: int,
+    config: TrainConfig | None = None,
+    force: bool = True,
+) -> Path:
+    """Save one indivisible set of Gaussian-sharded training shards.
+
+    All four nodes must be the stacked ``[world, ...]`` objects a bound
+    ``nnx.pmap`` maps over. They are written together because a shard's
+    parameters, Adam moments, densification statistics, and sticky overflow
+    state are only consistent as a set. The manifest records the world size,
+    per-shard and global capacity, per-shard slot layout, and a configuration
+    fingerprint so a resume cannot silently change the sharded contract.
+    """
+
+    world_size = _distributed_world_size(
+        model, optimizer, strategy_state, safety_state
+    )
+    local_capacity = _distributed_local_capacity(model, world_size)
+    optimizer_steps = np.asarray(jax.device_get(optimizer.step[...]))
+    if optimizer_steps.shape != (world_size,):
+        raise ValueError(
+            "distributed optimizer must hold one step counter per shard"
+        )
+    if not np.all(optimizer_steps == optimizer_steps[0]):
+        raise ValueError(
+            "distributed shards disagree on the optimizer step: "
+            f"{optimizer_steps.tolist()}"
+        )
+    active_counts = np.asarray(
+        jax.device_get(jnp.count_nonzero(model.active_mask[...], axis=1))
+    )
+    active_prefix = np.asarray(
+        jax.device_get(
+            jnp.all(
+                model.active_mask[...]
+                == (
+                    jnp.arange(local_capacity)[None, :]
+                    < active_counts[:, None]
+                ),
+                axis=1,
+            )
+        )
+    )
+    directory = Path(directory).absolute()
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "model": _encode_empty_arrays(_pure_state(model)),
+        "optimizer": _encode_empty_arrays(_pure_state(optimizer)),
+        "strategy": _encode_empty_arrays(_pure_state(strategy_state)),
+        "safety": _encode_empty_arrays(_pure_state(safety_state)),
+        "step": jnp.asarray(step, dtype=jnp.int32),
+    }
+    checkpoint_path = directory / f"step_{step:08d}"
+    checkpointer = ocp.StandardCheckpointer()
+    try:
+        checkpointer.save(checkpoint_path, payload, force=force)
+        if hasattr(checkpointer, "wait_until_finished"):
+            checkpointer.wait_until_finished()
+    finally:
+        checkpointer.close()
+    if config is not None:
+        (checkpoint_path / "jax_gs_config.json").write_text(
+            json.dumps(config.to_dict(), indent=2), encoding="utf-8"
+        )
+    metadata = {
+        "format_version": 6,
+        "kind": _DISTRIBUTED_KIND,
+        "components": ["model", "optimizer", "strategy", "safety"],
+        "model_color_mode": "appearance" if model.has_appearance else "sh",
+        "world_size": world_size,
+        "local_capacity": local_capacity,
+        "global_capacity": world_size * local_capacity,
+        "max_capacity": model.max_capacity,
+        "active_counts": [int(count) for count in active_counts],
+        "active_prefix": [bool(value) for value in active_prefix],
+        "config_fingerprint": (
+            None if config is None else _config_fingerprint(config)
+        ),
+    }
+    (checkpoint_path / _CHECKPOINT_METADATA).write_text(
+        json.dumps(metadata, indent=2), encoding="utf-8"
+    )
+    return checkpoint_path
+
+
+def restore_distributed_checkpoint(
+    checkpoint_path: str | Path,
+    model: GaussianModel,
+    optimizer: nnx.Optimizer,
+    strategy_state: StrategyState,
+    safety_state: Any,
+    *,
+    config: TrainConfig | None = None,
+) -> int:
+    """Restore an indivisible shard set into equally shaped stacked nodes.
+
+    Only an exact same-world-size, same-per-shard-capacity resume is
+    supported. Resharding a saved world across a different rank count needs
+    model, optimizer, and statistics to move together and is deliberately
+    rejected here rather than approximated.
+    """
+
+    metadata = _load_metadata(checkpoint_path)
+    if metadata.get("kind") != _DISTRIBUTED_KIND:
+        raise ValueError(
+            "checkpoint is not a distributed shard set; use restore_checkpoint"
+        )
+    world_size = _distributed_world_size(
+        model, optimizer, strategy_state, safety_state
+    )
+    local_capacity = _distributed_local_capacity(model, world_size)
+    saved_world_size = int(metadata["world_size"])
+    if saved_world_size != world_size:
+        raise ValueError(
+            f"checkpoint holds {saved_world_size} shards, target world size "
+            f"is {world_size}; resharding is not supported"
+        )
+    saved_local_capacity = int(metadata["local_capacity"])
+    if saved_local_capacity != local_capacity:
+        raise ValueError(
+            f"checkpoint shard capacity is {saved_local_capacity}, target "
+            f"shards have capacity {local_capacity}"
+        )
+    saved_color_mode = metadata.get("model_color_mode", "sh")
+    target_color_mode = "appearance" if model.has_appearance else "sh"
+    if saved_color_mode != target_color_mode:
+        raise ValueError(
+            f"checkpoint model color mode is {saved_color_mode!r}, target is "
+            f"{target_color_mode!r}"
+        )
+    if config is not None:
+        saved_fingerprint = metadata.get("config_fingerprint")
+        if saved_fingerprint is None:
+            raise ValueError("checkpoint does not record a config fingerprint")
+        if saved_fingerprint != _config_fingerprint(config):
+            raise ValueError(
+                "checkpoint was written with a different training config"
+            )
+
+    targets = {
+        "model": _pure_state(model),
+        "optimizer": _pure_state(optimizer),
+        "strategy": _pure_state(strategy_state),
+        "safety": _pure_state(safety_state),
+    }
+    target = {
+        name: _encode_empty_arrays(state) for name, state in targets.items()
+    }
+    target["step"] = jnp.asarray(0, dtype=jnp.int32)
+    checkpointer = ocp.StandardCheckpointer()
+    try:
+        restored = checkpointer.restore(
+            Path(checkpoint_path).absolute(), target=target
+        )
+        if hasattr(checkpointer, "wait_until_finished"):
+            checkpointer.wait_until_finished()
+    finally:
+        checkpointer.close()
+    for node, name in (
+        (model, "model"),
+        (optimizer, "optimizer"),
+        (strategy_state, "strategy"),
+        (safety_state, "safety"),
+    ):
+        nnx.update(
+            node, _restore_empty_arrays(restored[name], targets[name])
+        )
+    return int(restored["step"])
+
+
+def load_distributed_checkpoint_manifest(
+    checkpoint_path: str | Path,
+) -> dict[str, Any]:
+    """Return the shard manifest needed to rebuild matching target nodes.
+
+    Hosts need ``world_size`` and ``local_capacity`` before they can allocate
+    the stacked objects that :func:`restore_distributed_checkpoint` fills.
+    """
+
+    metadata = _load_metadata(checkpoint_path)
+    if metadata.get("kind") != _DISTRIBUTED_KIND:
+        raise ValueError("checkpoint is not a distributed shard set")
+    return dict(metadata)
 
 
 def save_checkpoint(
@@ -310,6 +541,11 @@ def restore_checkpoint(
         appearance_image_names,
     )
     metadata = _load_metadata(checkpoint_path)
+    if metadata.get("kind") == _DISTRIBUTED_KIND:
+        raise ValueError(
+            "checkpoint holds distributed shards; use "
+            "restore_distributed_checkpoint"
+        )
     format_version = int(metadata.get("format_version", 1))
     components = metadata.get("components", ())
     has_pose_state = format_version >= 4 and "pose" in components

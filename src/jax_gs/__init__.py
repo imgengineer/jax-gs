@@ -39,8 +39,11 @@ from .checkpoints import (
     load_checkpoint_intersection_capacity,
     load_checkpoint_scene_transform,
     load_checkpoint_storage_capacity,
+    load_distributed_checkpoint_manifest,
     restore_checkpoint,
+    restore_distributed_checkpoint,
     save_checkpoint,
+    save_distributed_checkpoint,
 )
 from .camera_wrappers import RootCameraModel, create_camera_model
 from .color_correct import color_correct_affine, color_correct_quadratic
@@ -240,6 +243,7 @@ __all__ = [
     "load_checkpoint_intersection_capacity",
     "load_checkpoint_scene_transform",
     "load_checkpoint_storage_capacity",
+    "load_distributed_checkpoint_manifest",
     "out_of_bound_loss",
     "proj",
     "quat_scale_to_covar_preci",
@@ -261,7 +265,9 @@ __all__ = [
     "rasterize_top_contributing_gaussian_ids",
     "rasterize_top_contributing_gaussian_ids_sparse",
     "restore_checkpoint",
+    "restore_distributed_checkpoint",
     "save_checkpoint",
+    "save_distributed_checkpoint",
     "spherical_harmonics",
     "world_to_cam",
     "__version__",
