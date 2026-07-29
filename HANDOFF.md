@@ -7,20 +7,25 @@
 本仓库正在以 **pure JAX + Flax NNX** 逐子系统迁移
 [`nerfstudio-project/gsplat`](https://github.com/nerfstudio-project/gsplat)。当前兼容基线固定在
 upstream `main@2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c`；单进程训练和大部分
-backend-independent API 已完成，最新完成的是分布式 owner-local topology transaction、不可分割的
-shard checkpoint 和统一 shard 扩容原语。下一阶段应做 host 编排（驱动扩容/重放循环、相机数据
-分片、distributed eval），而不是提前优化 kernel 性能。
+backend-independent API 已完成；2026-07-29 的结构审计确认**库面已对上游 HEAD 完整**（见 §2）。
+最新完成的是分布式 camera-pose 优化（DDP 语义）。剩下的是 host 编排（驱动扩容/重放循环、相机
+数据分片、distributed eval），以及 packed/`visible_adam`/MCMC 的分布式 step，而不是提前优化
+kernel 性能。
 
 ## 2. 仓库与版本状态
 
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`b9e51b1` (`fix(strategy): stop opacity resets at refine_stop`)
-- 前一提交：`24c88b0` (`feat(capacity): grow every distributed shard together`)、
-  `a09114a` (`feat(checkpoints): persist distributed shard sets`)、
-  `e8ea88b` (`feat(training): commit distributed topology transactions`)
+- 已推送代码基线：`2ffb0a8`
+  (`feat(training): support distributed camera-pose optimization`)
+- 前一提交：`b9e51b1` (`fix(strategy): stop opacity resets at refine_stop`)、
+  `24c88b0` (`feat(capacity): grow every distributed shard together`)、
+  `a09114a` (`feat(checkpoints): persist distributed shard sets`)
 - upstream `main` 在 2026-07-29 再次确认仍为 `2b902ff`
+- 同日做过一次结构审计（脚本可重写，未入库）：上游全部非 CUDA 模块路径都能在同名 `jax_gs`
+  路径解析，134 个共有 callable 的参数名一致，唯一差异是已记录的 `SelectiveAdam` 调用面适配；
+  根级 65 个公开符号全部齐备。库面对上游 HEAD 已完整，剩下的是 trainer 编排与上表第 4/5/6 项。
 
 检查状态：
 
@@ -112,7 +117,8 @@ git push origin main
 `make_distributed_train_step()` 已支持绑定 `nnx.pmap`/named axis 的设备训练：
 
 - 每 rank 持有等物理 capacity 的 Gaussian/Adam shard 和本地 camera batch。
-- dense、SH、pinhole 3DGS。
+- dense、SH、pinhole 3DGS；支持 camera-pose 优化与 pose noise（pose 模块复制、梯度 `pmean`，
+  对齐上游 DDP）。
 - Gaussian photometric gradient 等于各 rank local mean-loss 梯度之和，不做 `pmean`。
 - global visibility 在全局 Gaussian 坐标中归约后切回 owner shard。
 - optimizer batch/world/scene-scale/config 契约和 rank step/SH-degree 一致性检查。
@@ -242,15 +248,21 @@ psum(new_count) / psum(pruned_count) / pmax(commit_overflow) / pmax(opacity_rese
 
 1. 分布式 host 编排：camera-data sharding、multi-process/multi-host trainer、distributed eval，
    以及驱动扩容/重放的循环。设备侧 topology transaction、shard checkpoint 和扩容原语都已完成，
-   但没有任何 host 会消费 `refine_*` metrics 或调用这些 API。
+   但没有任何 host 会消费 `refine_*` metrics 或调用这些 API。对应上游的
+   `examples/simple_trainer.py`，不是 `gsplat` 包 API。
 2. world-size 变更的重分片；当前 restore 明确拒绝。分布式 checkpoint 也不保存 scene
    transform/scene scale，resume 方必须自己带这两个值（optimizer 与 train step 都需要）。
 3. 分布式 Scene/Dynamic sidecar lineage；device 提交会丢弃 `_slot_copy_*` transaction。
-4. distributed pose/appearance、packed/sparse/visible Adam、UT/Eval3D、2DGS。
-5. Gaussian leading-batch distributed renderer。
-6. 大规模显存/吞吐优化；当前 compatibility renderer 会在每 rank gather/replicate global
+4. distributed packed projection、`visible_adam`、MCMC strategy——上游允许，这里还没接。
+5. 大规模显存/吞吐优化；当前 compatibility renderer 会在每 rank gather/replicate global
    Gaussian scene，内存约有 `W` 倍开销。
-7. 完整、安全结束的 current-slice GPU acceptance。
+6. 完整、安全结束的 current-slice GPU acceptance。
+
+**不要再把下列项当成缺口**（2026-07-29 对照上游 `gsplat/cuda/csrc/Rendering.cpp` 的
+`distributed` 校验确认）：upstream 自己就拒绝 `distributed=True` 与 Gaussian batch 维、
+`sparse_grad`、AbsGrad、UT、eval3d、return_normals、custom rays、非 pinhole、rolling shutter、
+camera distortion、LiDAR 系数、以及 per-view `[C, N, D]` colors（即 appearance）；
+`rasterization_2dgs` 根本没有 `distributed` 参数。这些拒绝是 parity。
 
 ## 8. 建议的下一阶段
 
@@ -318,9 +330,9 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`863 passed, 1 skipped, 38 deselected`
+- 常规：`865 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`901`
+- CPU 总通过数：`903`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
