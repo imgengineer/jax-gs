@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 import math
 from typing import Any
 
@@ -11,6 +12,51 @@ from .config import ModelConfig, OptimizerConfig
 from .model import GaussianModel
 from .optimizers import reorder_optimizer_slots
 from .strategy import StrategyState
+
+
+def _distributed_world_size(*nodes: Any) -> int:
+    """Return the shared leading world axis of a stacked shard set."""
+
+    leading = set()
+    for node in nodes:
+        for leaf in jax.tree.leaves(nnx.as_pure(nnx.state(node))):
+            if not isinstance(leaf, jax.Array) or leaf.ndim == 0:
+                raise ValueError(
+                    "distributed shards must be stacked over a leading world "
+                    "axis; found an unsharded leaf"
+                )
+            leading.add(int(leaf.shape[0]))
+    if len(leading) != 1:
+        raise ValueError(
+            "distributed shards must share one leading world axis, got "
+            f"{sorted(leading)}"
+        )
+    return leading.pop()
+
+
+def _distributed_local_capacity(model: GaussianModel, world_size: int) -> int:
+    means = model.means[...]
+    if means.ndim != 3 or means.shape[0] != world_size or means.shape[2] != 3:
+        raise ValueError(
+            "distributed model means must have shape [world, capacity, 3], "
+            f"got {means.shape}"
+        )
+    return int(means.shape[1])
+
+
+def _unstack_graph(graph: Any, index: int) -> Any:
+    graphdef, state = nnx.split(graph)
+    return nnx.merge(
+        graphdef, jax.tree.map(lambda value: value[index], state)
+    )
+
+
+def _stack_graphs(graphs: Sequence[Any]) -> Any:
+    graphdef, first_state = nnx.split(graphs[0])
+    states = [first_state] + [nnx.split(graph)[1] for graph in graphs[1:]]
+    return nnx.merge(
+        graphdef, jax.tree.map(lambda *values: jnp.stack(values), *states)
+    )
 
 
 def _validate_scene_capacity_operation(
@@ -140,6 +186,48 @@ def resize_training_state(
     if scene is not None:
         scene.resize_slot_capacity(new_capacity)
     return new_model, optimizer, strategy_state
+
+
+def resize_distributed_training_state(
+    model: GaussianModel,
+    optimizer: nnx.Optimizer,
+    strategy_state: StrategyState,
+    new_capacity: int,
+    model_config: ModelConfig,
+    optimizer_config: OptimizerConfig,
+) -> tuple[GaussianModel, nnx.Optimizer, StrategyState]:
+    """Grow every shard of a stacked training world to one common capacity.
+
+    The three nodes must be the stacked ``[world, ...]`` objects a bound
+    ``nnx.pmap`` maps over. Every shard is resized with the ordinary
+    single-process rules and the world is restacked, so all ranks keep one
+    identical physical capacity and the mapped step stays compilable. A
+    distributed capacity overflow is reported for the whole world, so hosts
+    must grow all shards together and replay the skipped step rather than
+    resizing one rank. Shards are materialized individually, so the transition
+    transiently needs roughly one extra copy of the world.
+    """
+
+    world_size = _distributed_world_size(model, optimizer, strategy_state)
+    # Reject a model that is not a [world, capacity, 3] shard set before any
+    # shard is resized.
+    _distributed_local_capacity(model, world_size)
+    shards = [
+        resize_training_state(
+            _unstack_graph(model, rank),
+            _unstack_graph(optimizer, rank),
+            _unstack_graph(strategy_state, rank),
+            new_capacity,
+            model_config,
+            optimizer_config,
+        )
+        for rank in range(world_size)
+    ]
+    return (
+        _stack_graphs([shard[0] for shard in shards]),
+        _stack_graphs([shard[1] for shard in shards]),
+        _stack_graphs([shard[2] for shard in shards]),
+    )
 
 
 @nnx.jit(donate_argnames=("model", "optimizer", "strategy_state"))

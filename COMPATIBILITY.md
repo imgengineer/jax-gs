@@ -144,10 +144,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  shard-checkpoint
-  forced-CPU acceptance reported `858 passed, 1 skipped, 38 deselected`; five
+  shard-growth
+  forced-CPU acceptance reported `861 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  896 passing cases in total.
+  899 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -507,6 +507,16 @@ owners still commit — the same per-rank independence upstream has. Physical
 shard capacity never changes inside the step, and the step carries no
 Scene/Dynamic sidecar, so bucket growth, sidecar lineage, and resharding stay
 host work.
+
+`resize_distributed_training_state` is the matching growth primitive. It
+resizes every shard with the ordinary single-process rules and restacks the
+world, so all ranks keep one identical physical capacity and the mapped step
+stays compilable. Because a planned capacity overflow is reported for the whole
+world and skips the step atomically, a host grows every shard together and
+replays the skipped step; growing one rank alone is not a supported state. The
+call materializes shards individually, so the transition transiently needs
+about one extra copy of the world, and the memory budget check for that
+transition remains the host's.
 
 `save_distributed_checkpoint` and `restore_distributed_checkpoint` persist that
 world. The stacked model, optimizer, `StrategyState`, and `TrainingSafetyState`

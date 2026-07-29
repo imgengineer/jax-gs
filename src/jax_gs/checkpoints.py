@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
 
+from .capacity import _distributed_local_capacity, _distributed_world_size
 from .config import TrainConfig
 from .data.normalize import _as_similarity_matrix
 from .model import GaussianModel
@@ -154,36 +155,6 @@ def _validate_scene_values(
     if not np.isfinite(scale) or scale < 0.0:
         raise ValueError("scene_scale must be a finite non-negative scalar")
     return matrix, scale
-
-
-def _distributed_world_size(*nodes: Any) -> int:
-    """Return the shared leading world axis of a stacked shard set."""
-
-    leading = set()
-    for node in nodes:
-        for leaf in jax.tree.leaves(_pure_state(node)):
-            if not isinstance(leaf, jax.Array) or leaf.ndim == 0:
-                raise ValueError(
-                    "distributed shards must be stacked over a leading world "
-                    "axis; found an unsharded leaf"
-                )
-            leading.add(int(leaf.shape[0]))
-    if len(leading) != 1:
-        raise ValueError(
-            "distributed shards must share one leading world axis, got "
-            f"{sorted(leading)}"
-        )
-    return leading.pop()
-
-
-def _distributed_local_capacity(model: GaussianModel, world_size: int) -> int:
-    means = model.means[...]
-    if means.ndim != 3 or means.shape[0] != world_size or means.shape[2] != 3:
-        raise ValueError(
-            "distributed model means must have shape [world, capacity, 3], "
-            f"got {means.shape}"
-        )
-    return int(means.shape[1])
 
 
 def _config_fingerprint(config: TrainConfig) -> str:

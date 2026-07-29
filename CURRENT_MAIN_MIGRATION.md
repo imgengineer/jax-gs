@@ -587,6 +587,17 @@ divergence, single-owner commit overflow with a diverging reset, equality with
 a single-process `DefaultStrategy.refine` on the same shard, and `nnx.pmap`
 agreement.
 
+`resize_distributed_training_state` completes the overflow loop's device-side
+half. A planned capacity overflow skips the step on every rank without
+advancing any optimizer step, so the world stays exactly replayable; the
+primitive then grows every shard to one common capacity by resizing each shard
+with the single-process rules and restacking. A test drives the whole loop:
+the first mapped call reports `refine_capacity_overflow`, commits nothing, and
+leaves the schedule at zero; after growing all shards the identical call
+replays, fits both planned events, and commits them. Choosing the target
+bucket, budgeting the transition, and looping until the world stops
+overflowing remain host work.
+
 The third slice persists that world. `save_distributed_checkpoint` writes the
 stacked model, optimizer, `StrategyState`, and `TrainingSafetyState` as one
 indivisible shard set, because a shard's parameters, Adam moments, statistics,
@@ -677,14 +688,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The distributed shard-checkpoint 2026-07-29 forced-CPU non-resource
+The distributed shard-growth 2026-07-29 forced-CPU non-resource
 acceptance
-reported `858 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `861 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-896 passing CPU cases in total.
+899 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all

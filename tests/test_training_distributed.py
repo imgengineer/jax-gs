@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 import jax_gs.training as training_module
+from jax_gs.capacity import resize_distributed_training_state
 from jax_gs.checkpoints import (
     load_distributed_checkpoint_manifest,
     restore_checkpoint,
@@ -66,7 +67,7 @@ def _fixed_topology_config(**overrides) -> TrainConfig:
 
 
 def _topology_plan_config(
-    *, capacity: int = 2, **strategy_overrides
+    *, capacity: int = 2, bucket: int | None = None, **strategy_overrides
 ) -> TrainConfig:
     """Config whose refinement schedule fires on the first training step."""
 
@@ -83,7 +84,7 @@ def _topology_plan_config(
     return _fixed_topology_config(
         model=ModelConfig(
             capacity=capacity,
-            bucket_min_capacity=capacity,
+            bucket_min_capacity=capacity if bucket is None else bucket,
             sh_degree=0,
             initial_scale=0.2,
         ),
@@ -1288,4 +1289,139 @@ def test_restored_shards_continue_distributed_training(tmp_path):
     # The restored duplicate keeps training as an ordinary owner-local row.
     np.testing.assert_array_equal(
         model.active_mask[...], [[True, True], [True, False]]
+    )
+
+
+def _resize_world(config, bundles, new_capacity):
+    model, optimizer, strategy_state = resize_distributed_training_state(
+        bundles[0],
+        bundles[1],
+        bundles[2],
+        new_capacity,
+        config.model,
+        config.optimizer,
+    )
+    return model, optimizer, strategy_state, bundles[3]
+
+
+def test_growing_shards_preserves_every_owner():
+    config = _topology_plan_config(capacity=4, bucket=2)
+    bundles = _two_rank_bundles(config)
+    model, optimizer, strategy_state, _ = bundles
+    model.active_mask[...] = jnp.asarray([[True, True], [True, False]])
+    _set_owner_statistics(
+        strategy_state, [[1.0, 2.0], [3.0, 0.0]], [[0.25, 0.5], [0.75, 0.0]]
+    )
+    optimizer.step[...] = jnp.asarray([5, 5], optimizer.step[...].dtype)
+    means_before = np.asarray(model.means[...]).copy()
+    log_scales_before = np.asarray(model.log_scales[...]).copy()
+
+    grown, grown_optimizer, grown_state, _ = _resize_world(
+        config, bundles, 4
+    )
+
+    assert grown.means[...].shape == (2, 4, 3)
+    assert grown.max_capacity == 4
+    np.testing.assert_array_equal(grown.means[:, :2], means_before)
+    np.testing.assert_array_equal(grown.means[:, 2:], 0.0)
+    np.testing.assert_array_equal(grown.log_scales[:, :2], log_scales_before)
+    np.testing.assert_allclose(
+        grown.log_scales[:, 2:],
+        np.full((2, 2, 3), np.log(config.model.initial_scale), np.float32),
+        rtol=1e-6,
+    )
+    np.testing.assert_array_equal(
+        grown.active_mask[...],
+        [[True, True, False, False], [True, False, False, False]],
+    )
+    np.testing.assert_array_equal(
+        grown_state.grad_accum[...],
+        [[1.0, 2.0, 0.0, 0.0], [3.0, 0.0, 0.0, 0.0]],
+    )
+    np.testing.assert_array_equal(
+        grown_state.max_radii[...],
+        [[0.25, 0.5, 0.0, 0.0], [0.75, 0.0, 0.0, 0.0]],
+    )
+    # The schedule and the optimizer contract survive the transition.
+    np.testing.assert_array_equal(grown_optimizer.step[...], [5, 5])
+    assert _adam_means_moments(grown_optimizer).shape == (2, 4, 3)
+    assert getattr(grown_optimizer, "_jax_gs_world_size") == 2
+    assert getattr(grown_optimizer, "_jax_gs_scene_scale") == 1.0
+
+
+def test_growing_shards_rejects_bad_targets():
+    config = _topology_plan_config(capacity=4, bucket=2)
+
+    with pytest.raises(ValueError, match="larger than the current capacity"):
+        _resize_world(config, _two_rank_bundles(config), 2)
+    with pytest.raises(ValueError, match="logical maximum"):
+        _resize_world(config, _two_rank_bundles(config), 8)
+    with pytest.raises(ValueError, match="unsharded leaf"):
+        resize_distributed_training_state(
+            *_rank_bundle(config, 0.0)[:3],
+            4,
+            config.model,
+            config.optimizer,
+        )
+
+
+def test_growing_all_shards_lets_the_skipped_step_replay():
+    config = _topology_plan_config(
+        capacity=4,
+        bucket=2,
+        refine_scale2d_stop_iter=100,
+        grow_scale2d=0.05,
+    )
+    bundles = _two_rank_bundles(config)
+    _set_owner_statistics(
+        bundles[2], [[1.0, 0.0], [0.0, 0.0]], [[0.5, 0.0], [0.0, 0.0]]
+    )
+    train_step = make_distributed_train_step(config, world_size=2)
+
+    @nnx.vmap(
+        in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank"
+    )
+    def mapped_step(*args):
+        return train_step(*args)
+
+    images = jnp.zeros((2, 1, 4, 4, 3), jnp.float32)
+    intrinsics = jnp.broadcast_to(
+        jnp.asarray(
+            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
+        )[None, None],
+        (2, 1, 3, 3),
+    )
+    viewmats = jnp.broadcast_to(
+        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
+    )
+    keys = jax.random.split(jax.random.key(0), 2)
+    sh_degrees = jnp.zeros((2,), jnp.int32)
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_statistics_rasterization
+    ):
+        skipped = mapped_step(
+            *bundles, images, intrinsics, viewmats, keys, sh_degrees
+        )
+
+        np.testing.assert_array_equal(
+            skipped["refine_capacity_overflow"], [True, True]
+        )
+        np.testing.assert_array_equal(skipped["refine_new_count"], [0, 0])
+        np.testing.assert_array_equal(bundles[1].step[...], [0, 0])
+
+        grown = _resize_world(config, bundles, 4)
+        replayed = mapped_step(
+            *grown, images, intrinsics, viewmats, keys, sh_degrees
+        )
+
+    # The replay sees the same schedule and now fits both planned events.
+    np.testing.assert_array_equal(
+        replayed["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(replayed["refine_planned_new_count"], [2, 2])
+    np.testing.assert_array_equal(replayed["refine_new_count"], [2, 2])
+    np.testing.assert_array_equal(grown[1].step[...], [1, 1])
+    np.testing.assert_array_equal(
+        np.asarray(grown[0].active_mask[...]).sum(axis=1), [3, 1]
     )
