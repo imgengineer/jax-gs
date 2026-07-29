@@ -16,10 +16,10 @@ shard checkpoint 和统一 shard 扩容原语。下一阶段应做 host 编排�
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`24c88b0` (`feat(capacity): grow every distributed shard together`)
-- 前一提交：`a09114a` (`feat(checkpoints): persist distributed shard sets`)、
-  `e8ea88b` (`feat(training): commit distributed topology transactions`)、
-  `40c57e9` (`feat(training): plan distributed topology without committing`)
+- 已推送代码基线：`b9e51b1` (`fix(strategy): stop opacity resets at refine_stop`)
+- 前一提交：`24c88b0` (`feat(capacity): grow every distributed shard together`)、
+  `a09114a` (`feat(checkpoints): persist distributed shard sets`)、
+  `e8ea88b` (`feat(training): commit distributed topology transactions`)
 - upstream `main` 在 2026-07-29 再次确认仍为 `2b902ff`
 
 检查状态：
@@ -96,6 +96,8 @@ git push origin main
 - current-main global-batch Adam 超参数缩放、means scene-scale、sparse row selection 和
   uncorrected SelectiveAdam。
 - overflow 时 model、optimizer、strategy stats、camera/appearance state 和 MCMC noise 原子跳过。
+- 与 upstream `step_post_backward` 的提前返回一致：`refine_stop` 之后统计累加、refine 和
+  opacity reset 全部停止；判定集中在 `DefaultStrategy.should_refine`/`should_reset`。
 
 ### 5.3 单进程训练
 
@@ -216,7 +218,9 @@ psum(new_count) / psum(pruned_count) / pmax(commit_overflow) / pmax(opacity_rese
 2. plan 与 commit 都使用 train step 的 `scene_scale`（已与 optimizer 校验过的那个），不使用
    `StrategyState.scene_scale`；后者是 per-rank 设备状态，会让不同 rank 用不同阈值打分。
 3. `refine_scheduled` 与 `reset_scheduled` 是 `optimizer.step` 的确定性函数，而 step 已有
-   pmin/pmax 一致性检查，所以不需要再为 schedule 增加 collective。
+   pmin/pmax 一致性检查，所以不需要再为 schedule 增加 collective。两者都以
+   `refine_stop` 为上界，和 upstream `step_post_backward` 的提前返回一致，也和
+   `DefaultStrategy.should_refine`/`should_reset`、单进程 host 循环保持同一套判定。
 4. plan 在 optimizer update 之前算（它要 gate `has_overflow`），commit 在 update 与统计累加之后
    按 upstream 顺序**重算** events。两者可以合理地不同，这是刻意的；不要为了让二者一致而把
    commit 改成重放 plan，也不要把 plan 挪到 update 之后（那就无法 gate 整步）。
@@ -314,9 +318,9 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`861 passed, 1 skipped, 38 deselected`
+- 常规：`863 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`899`
+- CPU 总通过数：`901`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
