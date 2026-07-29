@@ -28,7 +28,7 @@ from jax_gs.config import (
 )
 from jax_gs.model import GaussianModel, inverse_sigmoid
 from jax_gs.optimizers import create_optimizer
-from jax_gs.strategy import DefaultStrategy
+from jax_gs.strategy import DefaultStrategy, MCMCStrategy
 from jax_gs.training import (
     TrainingSafetyState,
     make_distributed_train_step,
@@ -1589,3 +1589,172 @@ def test_distributed_train_step_still_rejects_appearance_and_2dgs():
             ),
             world_size=2,
         )
+
+
+def test_visible_adam_updates_rows_seen_only_by_another_rank(monkeypatch):
+    monkeypatch.setattr(
+        training_module,
+        "rasterization",
+        _cross_rank_visibility_rasterization,
+    )
+    config = _fixed_topology_config(visible_adam=True)
+
+    _, _, _, _, metrics = _run_two_rank_update(nnx.vmap, config=config)
+
+    # Each owner's row is projected only by the other rank's camera, so the
+    # row-selective update depends on the globally reduced visibility.
+    np.testing.assert_array_equal(metrics["visible_count"], [1, 1])
+
+
+def _packed_rasterization(
+    means,
+    _quats,
+    _scales,
+    _opacities,
+    _colors,
+    viewmats,
+    _intrinsics,
+    width,
+    height,
+    **kwargs,
+):
+    axis_name = kwargs["distributed_axis_name"]
+    gathered_means = jax.lax.all_gather(means, axis_name, axis=0, tiled=True)
+    global_capacity = gathered_means.shape[0]
+    camera_count = viewmats.shape[0]
+    screen_probe = kwargs["_means2d_offset"]
+    assert screen_probe.shape == (camera_count, global_capacity, 2)
+    signal = (
+        jnp.asarray(0.25, means.dtype)
+        + 1.0e-3 * jnp.sum(gathered_means)
+        + jnp.sum(screen_probe)
+    )
+    renders = jnp.broadcast_to(signal, (camera_count, height, width, 3))
+    alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
+    info = {
+        # One packed entry per global Gaussian, addressed by gathered index.
+        "camera_ids": jnp.zeros((global_capacity,), jnp.int32),
+        "gaussian_ids": jnp.arange(global_capacity, dtype=jnp.int32),
+        "radii": jnp.ones((global_capacity, 2), dtype=means.dtype),
+        "valid": jnp.ones((global_capacity,), jnp.bool_),
+        "projection_valid_count": jnp.asarray(global_capacity, jnp.int32),
+        "tile_overflow": jnp.zeros((camera_count, 1, 1), jnp.bool_),
+        "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), jnp.bool_),
+        "intersection_overflow": jnp.zeros((camera_count,), jnp.bool_),
+        "intersection_count": jnp.ones((camera_count,), jnp.int32),
+        "intersection_required_count": jnp.ones((camera_count,), jnp.int32),
+    }
+    return renders, alphas, info
+
+
+def test_packed_metadata_unpacks_against_the_gathered_scene(monkeypatch):
+    monkeypatch.setattr(
+        training_module, "rasterization", _packed_rasterization
+    )
+    config = _fixed_topology_config(packed=True)
+
+    _, _, strategy_state, _, metrics = _run_two_rank_update(
+        nnx.vmap, config=config
+    )
+
+    np.testing.assert_array_equal(metrics["visible_count"], [1, 1])
+    # Both ranks' cameras see every owner, so each owner counts two views.
+    np.testing.assert_array_equal(
+        strategy_state.visible_count[...], [[2.0], [2.0]]
+    )
+    assert np.all(np.asarray(strategy_state.grad_accum[...]) > 0.0)
+
+
+def _mcmc_config(capacity: int) -> TrainConfig:
+    return _fixed_topology_config(
+        model=ModelConfig(
+            capacity=capacity,
+            bucket_min_capacity=capacity,
+            sh_degree=0,
+            initial_scale=0.2,
+        ),
+        strategy=StrategyConfig(
+            kind="mcmc",
+            refine_start=0,
+            refine_stop=4,
+            refine_every=1,
+            reset_every=4,
+            max_new_per_refine=2,
+            cap_max=1000,
+        ),
+    )
+
+
+def _mcmc_rank_bundle(config: TrainConfig, point_count: int):
+    points = np.stack(
+        [
+            np.linspace(-0.1, 0.1, point_count, dtype=np.float32),
+            np.zeros(point_count, np.float32),
+            np.full(point_count, 3.0, np.float32),
+        ],
+        axis=1,
+    )
+    model = GaussianModel.from_point_cloud(
+        points,
+        np.full((point_count, 3), 128, np.uint8),
+        config.model,
+        physical_capacity=config.model.capacity,
+    )
+    optimizer = create_optimizer(
+        model,
+        config.optimizer,
+        batch_size=config.data.batch_size,
+        world_size=2,
+        scene_scale=1.0,
+    )
+    strategy_state = MCMCStrategy(config.strategy).initialize_state(
+        model.capacity
+    )
+    return model, optimizer, strategy_state, TrainingSafetyState()
+
+
+def test_mcmc_capacity_overflow_is_reduced_across_ranks(monkeypatch):
+    monkeypatch.setattr(
+        training_module, "rasterization", _no_overflow_rasterization
+    )
+    config = _mcmc_config(20)
+    # A full rank-0 shard cannot allocate its planned birth; the half-filled
+    # rank-1 shard plans nothing and would otherwise advance alone.
+    bundles = _stack_graphs(
+        _mcmc_rank_bundle(config, 20), _mcmc_rank_bundle(config, 10)
+    )
+
+    _, optimizer, _, _, metrics = _run_two_rank_update(
+        nnx.vmap, config=config, bundles=bundles, expect_update=False
+    )
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [True, True]
+    )
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
+    np.testing.assert_array_equal(optimizer.step[...], [0, 0])
+
+
+def test_mcmc_shards_train_and_grow_owner_locally(monkeypatch):
+    monkeypatch.setattr(
+        training_module, "rasterization", _no_overflow_rasterization
+    )
+    config = _mcmc_config(24)
+    bundles = _stack_graphs(
+        _mcmc_rank_bundle(config, 20), _mcmc_rank_bundle(config, 20)
+    )
+
+    model, optimizer, _, _, metrics = _run_two_rank_update(
+        nnx.vmap, config=config, bundles=bundles
+    )
+
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(optimizer.step[...], [1, 1])
+    # Every shard applies its own five-percent birth budget, as an independent
+    # upstream rank does.
+    np.testing.assert_array_equal(
+        np.asarray(model.active_mask[...]).sum(axis=1), [21, 21]
+    )

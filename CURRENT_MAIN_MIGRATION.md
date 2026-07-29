@@ -640,8 +640,20 @@ rejects `distributed=True` together with Gaussian batch dimensions,
 `sparse_grad`, AbsGrad, UT, eval3d, returned normals, custom rays, non-pinhole
 cameras, rolling shutter, camera distortion, LiDAR coefficients, and per-view
 `[C, N, D]` colors, and its 2DGS entry point takes no `distributed` argument at
-all. Those rejections here are parity, not missing work. Packed projection,
-`visible_adam`, and MCMC remain genuinely unwired for the distributed step.
+all. Those rejections here are parity, not missing work.
+
+Packed projection, `visible_adam`, and MCMC then close the three gaps the same
+audit did leave open. Packed ids address the gathered scene, so the metadata
+unpacks against the global active mask before the statistics reduce into each
+owner; a stale local unpack would drop every id past the shard and mismatch the
+global screen probe. `visible_adam` reuses the visibility that is already
+reduced across ranks, so a Gaussian projected only by another rank's camera
+still updates on its owner. MCMC keeps its per-shard cap and five-percent birth
+budget, which is what an independent upstream rank applies, but its scheduled
+capacity overflow is now reduced across ranks: without that reduction one shard
+skips its update while the others step, the optimizer counters diverge, and
+every later step trips the rank-mismatch guard. A test pins exactly that
+divergence.
 
 These slices are intentionally dense SH pinhole 3DGS. Their photometric and
 active/visible metrics are rank-local, whereas overflow, intersection, and
@@ -650,8 +662,7 @@ the step and no Scene/Dynamic sidecar is carried, so bucket growth, sidecar
 lineage, and resharding stay host work.
 Upstream current-main itself rejects distributed AbsGrad, UT/eval3d,
 non-pinhole cameras, `sparse_grad`, Gaussian batch dimensions, and the
-per-view colors appearance optimization produces. Packed projection,
-`visible_adam`, MCMC, host data
+per-view colors appearance optimization produces. Host data
 sharding, eval, launch, and performance specialization remain later
 slices. Unified `train()` consequently continues to reject multiple JAX
 processes.
@@ -716,14 +727,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The distributed pose 2026-07-29 forced-CPU non-resource
+The distributed packed/visible_adam/MCMC 2026-07-29 forced-CPU non-resource
 acceptance
-reported `865 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `869 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-903 passing CPU cases in total.
+907 passing CPU cases in total.
 
 Two full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all

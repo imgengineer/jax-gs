@@ -1505,17 +1505,49 @@ def _make_train_step(
                 ),
                 grads,
             )
+        owner_start = None
+        if distributed:
+            assert distributed_axis_name is not None
+            owner_start = (
+                jax.lax.axis_index(distributed_axis_name) * model.capacity
+            )
         if config.packed:
+            packed_active_mask = active_mask
+            if distributed:
+                assert distributed_axis_name is not None
+                # Packed ids index the gathered scene, so the metadata unpacks
+                # against the global active mask and is sliced afterwards.
+                packed_active_mask = jax.lax.all_gather(
+                    active_mask,
+                    distributed_axis_name,
+                    axis=0,
+                    tiled=True,
+                )
             projection_radii, projection_valid, visible = (
                 _unpack_training_projection_metadata(
                     info,
-                    active_mask,
+                    packed_active_mask,
                     camera_count=viewmats.shape[0],
                 )
             )
             stats_projection_radii = projection_radii
             stats_projection_valid = projection_valid
-            stats_active_mask = active_mask
+            stats_active_mask = packed_active_mask
+            if distributed:
+                assert distributed_axis_name is not None
+                visible = (
+                    jax.lax.pmax(
+                        visible.astype(jnp.int32), distributed_axis_name
+                    )
+                    > 0
+                )
+                visible = jax.lax.dynamic_slice_in_dim(
+                    visible,
+                    owner_start,
+                    model.capacity,
+                    axis=0,
+                )
+                visible = visible & active_mask
         else:
             projection_radii = info["radii"]
             projection_valid = info["valid"]
@@ -1535,10 +1567,6 @@ def _make_train_step(
                         distributed_axis_name,
                     )
                     > 0
-                )
-                owner_start = (
-                    jax.lax.axis_index(distributed_axis_name)
-                    * model.capacity
                 )
                 stats_active_mask = jax.lax.all_gather(
                     active_mask,
@@ -1661,6 +1689,38 @@ def _make_train_step(
             strategy_capacity_overflow = (
                 mcmc_should_refine & refine_plan["capacity_overflow"]
             )
+            if distributed:
+                assert distributed_axis_name is not None
+                # Every shard caps and grows its own rows exactly as an
+                # independent upstream rank does, but one shard that cannot
+                # allocate must not advance its schedule alone.
+                strategy_capacity_overflow = (
+                    jax.lax.pmax(
+                        strategy_capacity_overflow.astype(jnp.int32),
+                        distributed_axis_name,
+                    )
+                    > 0
+                )
+                plan_metrics = {
+                    "refine_scheduled": mcmc_should_refine,
+                    "refine_planned_new_count": jnp.where(
+                        mcmc_should_refine,
+                        jax.lax.psum(
+                            refine_plan["planned_new_count"],
+                            distributed_axis_name,
+                        ),
+                        0,
+                    ),
+                    "refine_required_capacity": jnp.where(
+                        mcmc_should_refine,
+                        jax.lax.pmax(
+                            refine_plan["required_capacity"],
+                            distributed_axis_name,
+                        ),
+                        0,
+                    ),
+                    "refine_capacity_overflow": strategy_capacity_overflow,
+                }
         elif distributed_plan_strategy is not None:
             assert distributed_axis_name is not None
             refine_scheduled = (
@@ -2078,8 +2138,12 @@ def make_distributed_train_step(
     AbsGrad. Camera-pose optimization and pose noise are supported: the
     replicated module's gradient is averaged across ranks, matching the DDP
     wrapper current-main puts around it, while Gaussians keep their sharded
-    sum. Appearance stays rejected because its per-view colors have no
-    distributed route upstream either.
+    sum. Packed projection, ``visible_adam``, and MCMC are supported too;
+    packed metadata indexes the gathered scene, so it unpacks globally before
+    the owner slice, and every MCMC shard caps and grows its own rows the way
+    an independent upstream rank does. Appearance stays rejected because its
+    per-view colors have no distributed route upstream either, and
+    ``sparse_grad`` because upstream rejects it under ``distributed=True``.
 
     Refinement is planned, preflighted, and committed inside the step. Before
     the update every rank plans duplicate/split/prune events for the rows it
@@ -2121,17 +2185,13 @@ def make_distributed_train_step(
             "distributed appearance training requires gather-before-MLP "
             "camera colors and is not part of the first slice"
         )
-    if config.packed or config.sparse_grad or config.visible_adam:
+    if config.sparse_grad:
         raise NotImplementedError(
-            "the first distributed training slice supports dense Adam only"
+            "current-main distributed rendering does not support sparse_grad"
         )
     if config.strategy.absgrad:
         raise NotImplementedError(
             "current-main distributed rendering does not support AbsGrad"
-        )
-    if config.strategy.kind != "default":
-        raise NotImplementedError(
-            "the first distributed training slice supports DefaultStrategy"
         )
     if (
         config.with_ut
