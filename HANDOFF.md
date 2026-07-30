@@ -17,7 +17,8 @@ backend-independent API 已完成；2026-07-29 的结构审计确认**库面已�
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`7bc7291` (`perf(sparse): rematerialize the per-pixel compositor`)
+- 已推送代码基线：`26f9b35` (`perf(rasterization): gate the chunk loop by the busiest tile`)
+- 前置：`7bc7291` (`perf(sparse): rematerialize the per-pixel compositor`)
 - 前置：`45715a4`
   (`perf(rasterization): rematerialize chunks and widen the tile batch`)
 - 前一提交：`fad8ea0` (`perf(rasterization): rematerialize per-tile compositing in reverse mode`)、
@@ -297,14 +298,22 @@ camera distortion、LiDAR 系数、以及 per-view `[C, N, D]` colors（即 appe
 events（贴 upstream），preflight 保留为 host 扩容信号。验收见
 `tests/test_training_distributed.py` 的 12 个 topology 测试。
 
-### Slice E：动态候选遍历的 compositor（下一步，已定方案 A）
+### Slice E：动态候选遍历的 compositor（已完成一半）
 
-**动机（已测）**：`low_level.py` 的 `chunk_count = ceil(input_capacity / max_gaussians_per_tile)`
-是全局量，所以每个 tile 都按**全局 intersection 容量**迭代，与自己的占用无关。前向 wall-clock
-与桶大小线性相关（60 tiles、CPU 实测：桶 4,096/16,384/65,536 → 95.0/379.4/1501.6 ms，
-即 1.00/3.99/15.80×）。640×360 默认桶下 920 个 tile 各跑 128 chunk，合计 1.5e10 次
-candidate×pixel 求值，而真实交集只有 65,536×256≈1.7e7——约 900× 空转。compositing 目前占前向
-99.95%（其余阶段实测合计 0.44 ms）。
+**已做（无需 custom_vjp）**：chunk 循环现在由"最忙 tile 的占用"门控。该标量在 tile map 之外
+算好，所以谓词在 tile 批的 vmap 内仍是标量、`lax.cond` 能真正短路，标准反向自动微分照常工作。
+被跳过的 chunk 原本就被完全掩码，因此结果不变（loss 逐位相同、梯度约 1e-9 相对差）。前向在
+容量 4,096/16,384/65,536 上分别快 6.5×/8.9×/13.7×；护栏是
+`tests/test_rasterization_jax.py::test_forward_time_does_not_track_the_intersection_capacity`。
+
+**仍欠的（这才需要 custom_vjp）**：per-tile 粒度。现在一批 tile 按其中最忙的那个计费，
+稀疏 tile 仍在陪跑。要拿到上游那种"每个 tile 只走自己的区间"，才需要下面的方案。收益上限是
+当前的"批内最忙/批内平均"之比，先测这个比值再决定值不值得做。
+
+### Slice E 续：per-tile 动态遍历（原方案 A，仅在上面那个比值够大时才做）
+
+**动机**：见上，全局门控已把 95.0/379.4/1501.6 ms 降到 14.7/42.5/109.6 ms；剩下的是批内
+最忙 tile 与其它 tile 的差距。compositing 仍占前向的绝大部分（其余阶段实测合计 0.44 ms）。
 
 **不要用 `cost_analysis` 判断这类改动**：它对循环体只计一次、不乘 trip count，会完全掩盖这个
 问题。用 wall-clock。
@@ -394,9 +403,9 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`874 passed, 1 skipped, 38 deselected`
+- 常规：`875 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`912`
+- CPU 总通过数：`913`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
