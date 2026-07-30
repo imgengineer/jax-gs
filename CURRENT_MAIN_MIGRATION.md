@@ -115,6 +115,20 @@ count; before the change, quadrupling the tile count multiplied them by 3.6.
 The sparse per-pixel compositor maps over pixels rather than tiles and was left
 alone.
 
+Checkpointing the chunk loop inside a tile removes the remaining dependence on
+the intersection capacity: a tile's backward workspace was one
+`[max_gaussians_per_tile, pixel]` set per chunk, so a 65,536-intersection
+bucket kept 128 of them. With both levels checkpointed the workspace is one
+chunk of one tile batch, which finally makes the tile batch a free parameter.
+It was 4, which serializes 920 tiles into 230 steps and leaves a modern GPU
+almost idle; a sweep on an RTX 5090 at 200k Gaussians and 640x360 measured
+forward 1716/460/319/485/393 ms and backward 29157/6500/2685/4249/4921 ms for
+batches 4/16/64/256/920, so the default is now 64. Against the pre-change
+baseline that is forward 915.6 to 353.3 ms, `value_and_grad` 13,409.9 to
+2,929.3 ms, and peak device memory 5.524 to 0.448 GiB. `prevent_cse=False` was
+measured and rejected: it slowed the backward from 2,685 to 4,104 ms at the
+chosen batch.
+
 Unless a paragraph gives an explicit date, all test counts below are historical
 phase-exit snapshots recorded before the latest 2026-07-27 integration changes;
 their exact run timestamps were not retained. They are not the final acceptance
@@ -747,16 +761,25 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The backward-rematerialization 2026-07-29 forced-CPU non-resource
+The compositing-performance 2026-07-29 forced-CPU non-resource
 acceptance
-reported `872 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `873 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-910 passing CPU cases in total.
+911 passing CPU cases in total.
 
-Two full-script attempts invoked through
+On 2026-07-29 a full-script run through
+`RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` completed
+for the first time: the CPU phase passed its 66 fresh-process groups with 910
+cases and the GPU phase then passed 121 isolated CUDA cases, 1,031 in total
+with no failure and no preflight stop. That run validated the tree with
+per-tile rematerialization. The later chunk-level rematerialization and the
+`tile_batch_size` default change have full CPU acceptance but still need their
+own GPU rerun, which is blocked while another job holds the device.
+
+Two earlier full-script attempts invoked through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` passed all
 CPU preflight groups and then 21 and 32 isolated CUDA cases respectively. The
 per-case safety checks stopped the attempts when transient `libuv-worker` and

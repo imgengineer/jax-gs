@@ -1831,13 +1831,23 @@ def _backward_temp_bytes(
         pytest.skip(f"memory analysis is unavailable: {exc}")
 
 
+# A fixed small tile batch isolates the tile-count scaling from the batch
+# workspace, which is what the default tile_batch_size sizes for the device.
 @pytest.mark.parametrize(
     ("config", "kwargs"),
     [
-        (RasterizationConfig(max_intersections=8192), {}),
-        (RasterizationConfig(backend="reference", max_intersections=8192), {}),
         (
-            RasterizationConfig(max_intersections=8192),
+            RasterizationConfig(max_intersections=8192, tile_batch_size=4),
+            {},
+        ),
+        (
+            RasterizationConfig(
+                backend="reference", max_intersections=8192, tile_batch_size=4
+            ),
+            {},
+        ),
+        (
+            RasterizationConfig(max_intersections=8192, tile_batch_size=4),
             {"with_ut": True, "with_eval3d": True},
         ),
     ],
@@ -1849,5 +1859,18 @@ def test_backward_memory_does_not_grow_with_the_tile_count(config, kwargs):
     # Without it, quadrupling the tile count multiplied this by about 3.6.
     small = _backward_temp_bytes(config, 96, 64, **kwargs)
     large = _backward_temp_bytes(config, 192, 128, **kwargs)
+
+    assert large < 1.5 * small
+
+
+def test_backward_memory_does_not_grow_with_the_intersection_capacity():
+    # A tile's chunk loop is rematerialized too, so the backward workspace no
+    # longer holds one [max_gaussians_per_tile, pixel] set per chunk.
+    small = _backward_temp_bytes(
+        RasterizationConfig(max_intersections=8192, tile_batch_size=4), 96, 64
+    )
+    large = _backward_temp_bytes(
+        RasterizationConfig(max_intersections=65_536, tile_batch_size=4), 96, 64
+    )
 
     assert large < 1.5 * small

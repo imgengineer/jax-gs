@@ -73,7 +73,7 @@ class RasterizationConfig:
 
     tile_size: int = 16
     max_gaussians_per_tile: int = 512
-    tile_batch_size: int = 4
+    tile_batch_size: int = 64
     near_plane: float = 0.01
     far_plane: float = 1.0e10
     eps2d: float = 0.3

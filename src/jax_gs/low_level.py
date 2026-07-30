@@ -1139,7 +1139,14 @@ def rasterize_to_pixels(
             return render, accumulated_alpha, outgoing_transmittance
 
         render, accumulated_alpha, _ = jax.lax.fori_loop(
-            0, chunk_count, composite_chunk, initial
+            0,
+            chunk_count,
+            # Reverse mode would otherwise stack one [max_gaussians_per_tile,
+            # pixel] intermediate set per chunk, so a tile's backward
+            # workspace grew with the intersection capacity. Recomputing a
+            # chunk keeps only the carry.
+            jax.checkpoint(composite_chunk),
+            initial,
         )
         render = jnp.where(pixel_valid[:, None], render, 0.0)
         accumulated_alpha = jnp.where(pixel_valid, accumulated_alpha, 0.0)

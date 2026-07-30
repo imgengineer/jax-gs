@@ -147,10 +147,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  backward rematerialization
-  forced-CPU acceptance reported `872 passed, 1 skipped, 38 deselected`; five
+  compositing performance
+  forced-CPU acceptance reported `873 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  910 passing cases in total.
+  911 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -572,6 +572,21 @@ reduction order can still produce small floating-point differences; the
 implementation promises tolerance-based agreement, not bitwise identity.
 
 ## Measured performance status
+
+Reverse mode rematerializes compositing at two levels, and the tile batch is
+sized for the device. A tile's chunk loop and the tile map are both
+checkpointed, so a backward pass keeps one chunk of one tile batch of
+`[max_gaussians_per_tile, pixel]` intermediates alive instead of one set per
+chunk per tile. Backward workspace then stops scaling with the intersection
+capacity as well as with the tile count, which is what makes a larger
+`tile_batch_size` affordable; the default moved from 4 to 64 because the small
+batch left a modern GPU almost idle. Measured end to end on an RTX 5090 at 200k
+Gaussians, 640x360, SH degree 3 and a 65,536-intersection bucket: forward 915.6
+to 353.3 ms (2.6x), `value_and_grad` 13,409.9 to 2,929.3 ms (4.6x), and peak
+device memory 5.524 to 0.448 GiB (12.3x). Loss is unchanged to ten decimals and
+most gradient entries are bitwise unchanged, with a few hundred ill-conditioned
+entries out of twelve thousand differing by up to 1e-4 relative, the same
+reassociation class this document already allows.
 
 Reverse mode rematerializes per-tile compositing. Every tile-mapped renderer —
 the dense 3DGS pixel path, the reference backend, 2DGS, and the two eval3d
