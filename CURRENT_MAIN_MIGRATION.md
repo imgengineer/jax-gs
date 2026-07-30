@@ -148,7 +148,24 @@ rematerialization cannot be dropped now that the gate exists: without it the
 same backward pass asks for 85 GiB. The backward-to-forward ratio of about 27
 is therefore the price of fitting in memory through two levels of recompute,
 not waste. Pure rendering, which has no backward pass, is about twice as fast
-at a 256-tile batch and can opt in through `--tile-batch-size`. A wall-clock guard for this property was written and then
+at a 256-tile batch and can opt in through `--tile-batch-size`.
+
+Splitting the backward by parameter group then located where its cost really
+sits. Differentiating only the spherical harmonics, which reach the compositor
+through the colour einsum alone, costs 138.7 ms against a 38.3 ms forward pass:
+3.6 times, exactly what two levels of recompute predict. Every quantity that
+feeds alpha is far more expensive: 642.5 ms for opacities, 806 ms for
+quaternions or scales and 1,081.6 ms for means, against 995.4 ms for all five
+together. Rematerialization is therefore not the problem, and neither is
+projection, whose forward pass is 0.12 ms; the cost is the reverse of the
+alpha and transmittance chain itself. No single operation dominates it, since
+replacing `cumprod(1 - alpha)` with `exp(cumsum(log(1 - alpha)))` moved the
+combined gradient only from 995.4 to 927.1 ms while perturbing forward values,
+and was reverted. Closing that gap means writing the compositor's backward by
+hand the way upstream's kernel does, walking candidates back to front and
+recovering transmittance by dividing out `1 - alpha`, which the 0.999 alpha
+clamp keeps bounded. The ceiling is the colour path's 3.6 times, so roughly
+150 to 250 ms in place of 995. A wall-clock guard for this property was written and then
 removed: the ratio that discriminates on CPU sits inside the GPU's loop-overhead
 floor, so it failed the GPU acceptance without indicating any regression.
 
