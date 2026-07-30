@@ -8,20 +8,20 @@
 [`nerfstudio-project/gsplat`](https://github.com/nerfstudio-project/gsplat)。当前兼容基线固定在
 upstream `main@2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c`；单进程训练和大部分
 backend-independent API 已完成；2026-07-29 的结构审计确认**库面已对上游 HEAD 完整**（见 §2）。
-最新完成的是反向 per-tile rematerialization（训练规模的反向显存降 227×）。剩下的是 GPU 验收
-（需要 GPU 空闲）、吞吐优化，以及 host 编排（驱动扩容/重放循环、相机数据分片、distributed
-eval）。
+最新完成的是 compositing 的两级 rematerialization 与 tile 批加宽（RTX 5090 实测前向 2.6×、
+反向 4.6×、峰值显存 12.3×），GPU 验收也首次完整跑通。剩下的是这次性能改动的 GPU 复跑、
+进一步吞吐优化，以及 host 编排（驱动扩容/重放循环、相机数据分片、distributed eval）。
 
 ## 2. 仓库与版本状态
 
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`fad8ea0`
-  (`perf(rasterization): rematerialize per-tile compositing in reverse mode`)
-- 前一提交：`25272ce` (`feat(training): wire packed, visible_adam, and MCMC into sharded training`)、
-  `2ffb0a8` (`feat(training): support distributed camera-pose optimization`)、
-  `b9e51b1` (`fix(strategy): stop opacity resets at refine_stop`)
+- 已推送代码基线：`45715a4`
+  (`perf(rasterization): rematerialize chunks and widen the tile batch`)
+- 前一提交：`fad8ea0` (`perf(rasterization): rematerialize per-tile compositing in reverse mode`)、
+  `25272ce` (`feat(training): wire packed, visible_adam, and MCMC into sharded training`)、
+  `2ffb0a8` (`feat(training): support distributed camera-pose optimization`)
 - upstream `main` 在 2026-07-29 再次确认仍为 `2b902ff`
 - 同日做过一次结构审计（脚本可重写，未入库）：上游全部非 CUDA 模块路径都能在同名 `jax_gs`
   路径解析，134 个共有 callable 的参数名一致，唯一差异是已记录的 `SelectiveAdam` 调用面适配；
@@ -101,8 +101,11 @@ git push origin main
 - current-main global-batch Adam 超参数缩放、means scene-scale、sparse row selection 和
   uncorrected SelectiveAdam。
 - overflow 时 model、optimizer、strategy stats、camera/appearance state 和 MCMC noise 原子跳过。
-- 反向对 per-tile compositing 做 rematerialization（`jax.checkpoint` 包住 tile 函数），dense、
-  reference、2DGS、两条 eval3d 路径都已覆盖。不要删掉它：删掉会让反向临时显存重新随 tile 数
+- 反向对 compositing 做两级 rematerialization：`jax.checkpoint` 同时包住 tile 函数（dense、
+  reference、2DGS、两条 eval3d）和 dense 路径 tile 内部的 chunk 循环。后者让反向显存不再随
+  intersection 容量增长，从而能把 `tile_batch_size` 默认值从 4 提到 64 换取 GPU 并行度
+  （实测前向 2.6×、反向 4.6×、峰值显存 12.3×）。`prevent_cse=False` 试过并被否决：反向从
+  2,685 ms 变成 4,104 ms。不要删掉它：删掉会让反向临时显存重新随 tile 数
   增长，实测 200k 高斯 640×360 会从 5.16 GiB 回到 1,169.6 GiB 并直接 OOM。
   `tests/test_rasterization_jax.py::test_backward_memory_does_not_grow_with_the_tile_count`
   是护栏。sparse 的 per-pixel compositor 结构不同，没有改。
@@ -261,7 +264,9 @@ psum(new_count) / psum(pruned_count) / pmax(commit_overflow) / pmax(opacity_rese
 2. world-size 变更的重分片；当前 restore 明确拒绝。分布式 checkpoint 也不保存 scene
    transform/scene scale，resume 方必须自己带这两个值（optimizer 与 train step 都需要）。
 3. 分布式 Scene/Dynamic sidecar lineage；device 提交会丢弃 `_slot_copy_*` transaction。
-4. 吞吐优化与其余显存项：分布式 compatibility renderer 仍在每 rank gather/replicate 全局
+4. 吞吐优化与其余显存项：compositing 之外的阶段实测只占前向 0.44 ms（projection 0.12、
+   SH 0.02、intersect+sort 0.30），compositing 仍是 99% 以上的时间，下一步应看它本身的
+   pixel/candidate 并行结构而不是别的阶段。分布式 compatibility renderer 仍在每 rank gather/replicate 全局
    Gaussian scene（实测 L=50k/rank、640×360、SH3：每 rank temp 24/51/94 MiB 对应 world
    1/2/4，flops 1.19/1.79/2.99e8），上游用的是 gather cameras + all-to-all projection；
    sparse per-pixel compositor 的反向也还没做 remat。GPU 上的 wall-clock 优化未开始。
@@ -342,16 +347,17 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`872 passed, 1 skipped, 38 deselected`
+- 常规：`873 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`910`
+- CPU 总通过数：`911`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
-GPU 安全脚本此前两次分别通过 21 和 32 个独立 CUDA case，随后因瞬态
-`libuv-worker`/kernel-journal D-state 被 preflight 按设计停止。不要设置
-`ALLOW_D_STATE_GPU_TESTS=1` 绕过保护，除非用户明确接受风险。本轮 distributed statistics
-没有修改 CUDA 专用路径。
+2026-07-29 GPU 验收首次完整跑通：`RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1
+scripts/test_safe.sh` 的 CPU 段 66 组 910 项 + GPU 段 121 个独立 CUDA case，合计 1,031 项通过、
+零失败。该次覆盖的是 per-tile remat 状态；chunk-level remat 与 `tile_batch_size` 默认值变更之后
+的 GPU 复跑仍待做（当时 GPU 被用户自己的 transientMamba 训练占用）。不要设置
+`ALLOW_D_STATE_GPU_TESTS=1` 绕过保护，也不要杀别人的 GPU 进程。
 
 ## 10. 开发与验证注意事项
 
