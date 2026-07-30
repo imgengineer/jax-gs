@@ -265,8 +265,9 @@ psum(new_count) / psum(pruned_count) / pmax(commit_overflow) / pmax(opacity_rese
    transform/scene scale，resume 方必须自己带这两个值（optimizer 与 train step 都需要）。
 3. 分布式 Scene/Dynamic sidecar lineage；device 提交会丢弃 `_slot_copy_*` transaction。
 4. 吞吐优化与其余显存项：compositing 之外的阶段实测只占前向 0.44 ms（projection 0.12、
-   SH 0.02、intersect+sort 0.30），compositing 仍是 99% 以上的时间，下一步应看它本身的
-   pixel/candidate 并行结构而不是别的阶段。分布式 compatibility renderer 仍在每 rank gather/replicate 全局
+   SH 0.02、intersect+sort 0.30），compositing 占 99.95%。已定位到具体根因与方案，见 §8
+   Slice E；那是当前最大的一笔（约 900× 空转）。分布式 compatibility renderer 的 W× 场景复制
+   与 sparse per-pixel compositor 的反向 remat 仍未做。分布式 compatibility renderer 仍在每 rank gather/replicate 全局
    Gaussian scene（实测 L=50k/rank、640×360、SH3：每 rank temp 24/51/94 MiB 对应 world
    1/2/4，flops 1.19/1.79/2.99e8），上游用的是 gather cameras + all-to-all projection；
    sparse per-pixel compositor 的反向也还没做 remat。GPU 上的 wall-clock 优化未开始。
@@ -291,6 +292,48 @@ camera distortion、LiDAR 系数、以及 per-view `[C, N, D]` colors（即 appe
 `topology_commit`，语义见 6.2。Slice B 的语义选择已定：commit 用 post-update 状态**重算**
 events（贴 upstream），preflight 保留为 host 扩容信号。验收见
 `tests/test_training_distributed.py` 的 12 个 topology 测试。
+
+### Slice E：动态候选遍历的 compositor（下一步，已定方案 A）
+
+**动机（已测）**：`low_level.py` 的 `chunk_count = ceil(input_capacity / max_gaussians_per_tile)`
+是全局量，所以每个 tile 都按**全局 intersection 容量**迭代，与自己的占用无关。前向 wall-clock
+与桶大小线性相关（60 tiles、CPU 实测：桶 4,096/16,384/65,536 → 95.0/379.4/1501.6 ms，
+即 1.00/3.99/15.80×）。640×360 默认桶下 920 个 tile 各跑 128 chunk，合计 1.5e10 次
+candidate×pixel 求值，而真实交集只有 65,536×256≈1.7e7——约 900× 空转。compositing 目前占前向
+99.95%（其余阶段实测合计 0.44 ms）。
+
+**不要用 `cost_analysis` 判断这类改动**：它对循环体只计一次、不乘 trip count，会完全掩盖这个
+问题。用 wall-clock。
+
+**上游语义**：CUDA kernel 按 tile 的交集区间做动态 `while` 遍历，所有像素透射率耗尽即提前终止，
+**没有每 tile 上限、从不截断**。所以方案是复刻它，而不是加一个截断上限。
+
+**实现方案**：
+
+1. 只改 dense 路径（`low_level.rasterize_to_pixels` 的非 packed 分支）。reference、2DGS、
+   eval3d 以及 absgrad probe 分支先保留现有静态实现作为回退，缩小爆炸半径。
+2. 把 `composite_chunk` 重构成显式函数
+   `chunk(carry, flat_means, flat_conics, flat_colors, flat_opacities, chunk_index) -> carry`，
+   不再靠闭包捕获可微数组（`custom_vjp` 的可微输入必须是显式实参）。
+3. 给"单 tile compositing"套 `jax.custom_vjp`：
+   - forward：`lax.while_loop`，trip count = `ceil(count / max_gaussians_per_tile)`，
+     并在所有像素 `transmittance <= threshold` 时提前退出；每步把 carry 写进静态缓冲
+     （`ceil(capacity / K)` 槽 × `[P, C+2]`，256 像素 3 通道时约 655 KB/tile，
+     tile batch 64 约 42 MB，可接受）。residual 只存这个缓冲和输入数组。
+   - backward：按逆序在执行过的步上循环，对每步用 `jax.vjp(chunk, 存下的carry, ...)` 取梯度并
+     scatter-add 回全局数组。**不要手推 compositing 的导数**——让 JAX 对 chunk body 求导，
+     absgrad probe 的 `custom_vjp` 也会被自然包含。
+4. `vmap` 交互：tile batch 下 `while_loop` 的 trip count 变成该批的最大值（JAX 语义），
+   所以上界从"全局容量"降到"批内最大 tile 占用"，仍是主要收益；不要为此放弃 tile 批。
+5. 完成后 `jax.checkpoint(composite_chunk)` 可以去掉（动态循环已自带重算结构），但
+   `jax.checkpoint(render_tile)` 要保留——两个显存护栏会告诉你。
+
+**验收**：
+
+- 与现有静态实现逐点比对 loss 与全部梯度（容差参照 COMPATIBILITY 已声明的重结合级别）。
+- 现有两个护栏：反向显存不随 tile 数、不随 intersection 容量增长。
+- 新增护栏：前向 wall-clock 不再随 `max_intersections` 线性增长（现在是 15.8×/16×桶）。
+- 完整 CPU 验收 + GPU 验收（GPU 需设备空闲；不要杀别人的进程）。
 
 ### Slice C：分布式 checkpoint（已完成）
 
