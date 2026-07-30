@@ -604,8 +604,14 @@ tile rather than each tile's own occupancy. More importantly on GPU, the loop
 keeps its static step count and only the work inside a step is skipped, so a
 capacity of 65,536 with 512-candidate chunks carries a 128-step floor measured
 at about 11.8 ms even for a scene with 202 intersections; removing that needs a
-dynamic trip count, which is the per-tile walk described in the migration
-notes.
+dynamic trip count. A sweep argued against building one: larger chunks make a
+realistic scene slower, so compute rather than loop overhead dominates at
+scale, and the current 512-candidate chunk with a 64-tile batch is the measured
+training optimum. Both rematerialization levels are required at that batch;
+dropping the inner one makes the same backward pass ask for 85 GiB, so the
+backward-to-forward ratio of about 27 is the cost of fitting in memory rather
+than waste. Rendering without a backward pass is about twice as fast at a
+256-tile batch through `--tile-batch-size`.
 
 The sparse per-pixel compositor is rematerialized on the same principle: its
 `lax.map` over pixels kept every pixel's sampled candidate weights alive in

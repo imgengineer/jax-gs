@@ -134,8 +134,21 @@ no real work, still cost 0.87 ms at 2,048 and 11.8 ms at 65,536 on GPU, against
 because a static `fori_loop` still executes every step even when the body is
 skipped: 128 steps at roughly 90 microseconds of GPU loop overhead each account
 for the 11.8 ms almost exactly. Removing that floor needs a shorter trip count,
-not a cheaper body, which is precisely the dynamic per-tile walk in the
-handoff's Slice E. A wall-clock guard for this property was written and then
+not a cheaper body. A sweep then measured what that would be worth and argued
+against building it: enlarging the chunk to shorten the loop makes a realistic
+scene slower rather than faster (forward 37.6, 24.4 and 46.7 ms for 512, 2,048
+and 8,192-candidate chunks at a 64-tile batch, with backward passes of 999,
+1,419 and 1,724 ms), so compute rather than loop overhead dominates once a
+scene is large. On that scene the forward pass is under four percent of a
+training step, and the floor is only part of it, leaving a dynamic trip count
+worth a few percent for a rewrite of the most delicate code in the port. The
+same sweep confirmed the current 512-candidate chunk and 64-tile batch as the
+training optimum, and a separate check confirmed that the inner chunk
+rematerialization cannot be dropped now that the gate exists: without it the
+same backward pass asks for 85 GiB. The backward-to-forward ratio of about 27
+is therefore the price of fitting in memory through two levels of recompute,
+not waste. Pure rendering, which has no backward pass, is about twice as fast
+at a 256-tile batch and can opt in through `--tile-batch-size`. A wall-clock guard for this property was written and then
 removed: the ratio that discriminates on CPU sits inside the GPU's loop-overhead
 floor, so it failed the GPU acceptance without indicating any regression.
 
