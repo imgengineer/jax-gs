@@ -613,6 +613,16 @@ backward-to-forward ratio of about 27 is the cost of fitting in memory rather
 than waste. Rendering without a backward pass is about twice as fast at a
 256-tile batch through `--tile-batch-size`.
 
+The transmittance and weight step of the compositor carries a hand-written
+reverse pass. Differentiating its exclusive cumulative product generically made
+every alpha-dependent gradient far costlier than the colour path; the closed
+form needs one suffix sum and recovers transmittance by dividing out
+`1 - alpha`, which the 0.999 clamp keeps at or above 1e-3, exactly as upstream's
+backward kernel does. The combined gradient measured 995.4 to 808.3 ms on an
+RTX 5090 at 200k Gaussians and 640x360, opacities alone 642.5 to 458.4 ms, with
+the spherical-harmonic gradient unchanged. It agrees with generic autodiff to
+about 1e-7 relative, float32 rounding for a different evaluation order.
+
 The sparse per-pixel compositor is rematerialized on the same principle: its
 `lax.map` over pixels kept every pixel's sampled candidate weights alive in
 reverse mode, measured at 17 times the forward workspace on the suite's own

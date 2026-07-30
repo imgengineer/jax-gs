@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 import math
 import operator
 from typing import Iterator, NamedTuple
@@ -66,6 +67,106 @@ _broadcast_means_with_absgrad_probe.defvjp(
     _broadcast_means_with_absgrad_probe_fwd,
     _broadcast_means_with_absgrad_probe_bwd,
 )
+
+
+@partial(jax.custom_vjp, nondiff_argnums=(2,))
+def _chunk_weights(
+    alpha: jax.Array,
+    incoming_transmittance: jax.Array,
+    transmittance_threshold: float,
+) -> tuple[jax.Array, jax.Array]:
+    """Front-to-back weights for one chunk of depth-sorted candidates.
+
+    ``alpha`` is ``[K, P]`` for K candidates over P pixels and
+    ``incoming_transmittance`` is ``[P]``. Returns the compositing weights and
+    the transmittance leaving the chunk.
+
+    Reverse mode is written by hand. Differentiating the exclusive cumulative
+    product generically is what makes every alpha-dependent gradient far more
+    expensive than the colour path; the closed form below needs one suffix sum
+    instead. Upstream's backward kernel recovers transmittance the same way, by
+    dividing out ``1 - alpha``, which the ``MAX_ALPHA`` clamp keeps at or above
+    1e-3. Invalid candidates arrive with ``alpha = 0``, so their divisor is one.
+    """
+
+    weights, outgoing, _ = _chunk_weights_with_residuals(
+        alpha, incoming_transmittance, transmittance_threshold
+    )
+    return weights, outgoing
+
+
+def _chunk_weights_with_residuals(
+    alpha: jax.Array,
+    incoming_transmittance: jax.Array,
+    transmittance_threshold: float,
+) -> tuple[jax.Array, jax.Array, tuple[jax.Array, ...]]:
+    one_minus_alpha = 1.0 - alpha
+    exclusive = jnp.concatenate(
+        (
+            jnp.ones((1,) + alpha.shape[1:], dtype=alpha.dtype),
+            jnp.cumprod(one_minus_alpha, axis=0)[:-1],
+        ),
+        axis=0,
+    )
+    transmittance = incoming_transmittance[None, :] * exclusive
+    accepted = transmittance * one_minus_alpha > transmittance_threshold
+    weights = jnp.where(accepted, alpha * transmittance, 0.0)
+    chunk_product = jnp.prod(one_minus_alpha, axis=0)
+    outgoing = incoming_transmittance * chunk_product
+    residuals = (
+        alpha,
+        one_minus_alpha,
+        exclusive,
+        transmittance,
+        accepted,
+        weights,
+        chunk_product,
+        outgoing,
+    )
+    return weights, outgoing, residuals
+
+
+def _chunk_weights_fwd(
+    alpha: jax.Array,
+    incoming_transmittance: jax.Array,
+    transmittance_threshold: float,
+):
+    weights, outgoing, residuals = _chunk_weights_with_residuals(
+        alpha, incoming_transmittance, transmittance_threshold
+    )
+    return (weights, outgoing), residuals
+
+
+def _chunk_weights_bwd(_threshold: float, residuals, cotangents):
+    (
+        alpha,
+        one_minus_alpha,
+        exclusive,
+        transmittance,
+        accepted,
+        weights,
+        chunk_product,
+        outgoing,
+    ) = residuals
+    weight_cotangent, outgoing_cotangent = cotangents
+
+    # Every later candidate's weight carries this candidate's (1 - alpha)
+    # factor, so its share is the strict suffix sum of the weight cotangents.
+    scaled = weight_cotangent * weights
+    inclusive_suffix = jnp.cumsum(scaled[::-1], axis=0)[::-1]
+    strict_suffix = inclusive_suffix - scaled
+    trailing = strict_suffix + outgoing_cotangent[None, :] * outgoing[None, :]
+
+    direct = jnp.where(accepted, weight_cotangent * transmittance, 0.0)
+    alpha_cotangent = direct - trailing / one_minus_alpha
+
+    incoming_cotangent = jnp.sum(
+        jnp.where(accepted, weight_cotangent * alpha * exclusive, 0.0), axis=0
+    ) + outgoing_cotangent * chunk_product
+    return alpha_cotangent, incoming_cotangent
+
+
+_chunk_weights.defvjp(_chunk_weights_fwd, _chunk_weights_bwd)
 
 
 def _raise_rasterization_overflow() -> None:
@@ -1131,20 +1232,8 @@ def rasterize_to_pixels(
                 & (alpha >= alpha_threshold)
             )
             alpha = jnp.where(alpha_valid, alpha, 0.0)
-            local_transmittance = jnp.concatenate(
-                (
-                    jnp.ones((1, pixel_count), dtype=alpha.dtype),
-                    jnp.cumprod(1.0 - alpha, axis=0)[:-1],
-                ),
-                axis=0,
-            )
-            transmittance = (
-                incoming_transmittance[None, :] * local_transmittance
-            )
-            weights = jnp.where(
-                transmittance * (1.0 - alpha) > transmittance_threshold,
-                alpha * transmittance,
-                0.0,
+            weights, outgoing_transmittance = _chunk_weights(
+                alpha, incoming_transmittance, transmittance_threshold
             )
             render = render + jnp.einsum(
                 "kp,kc->pc",
@@ -1153,9 +1242,6 @@ def rasterize_to_pixels(
                 precision=jax.lax.Precision.HIGHEST,
             )
             accumulated_alpha = accumulated_alpha + jnp.sum(weights, axis=0)
-            outgoing_transmittance = incoming_transmittance * jnp.prod(
-                1.0 - alpha, axis=0
-            )
             return render, accumulated_alpha, outgoing_transmittance
 
         render, accumulated_alpha, _ = jax.lax.fori_loop(

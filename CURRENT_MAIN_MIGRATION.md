@@ -161,11 +161,27 @@ projection, whose forward pass is 0.12 ms; the cost is the reverse of the
 alpha and transmittance chain itself. No single operation dominates it, since
 replacing `cumprod(1 - alpha)` with `exp(cumsum(log(1 - alpha)))` moved the
 combined gradient only from 995.4 to 927.1 ms while perturbing forward values,
-and was reverted. Closing that gap means writing the compositor's backward by
-hand the way upstream's kernel does, walking candidates back to front and
-recovering transmittance by dividing out `1 - alpha`, which the 0.999 alpha
-clamp keeps bounded. The ceiling is the colour path's 3.6 times, so roughly
-150 to 250 ms in place of 995. A wall-clock guard for this property was written and then
+and was reverted. That gap is now partly closed by writing the
+transmittance and weight step's reverse pass by hand, the way upstream's kernel
+does. For a chunk of K depth-sorted candidates over P pixels with
+`x = 1 - alpha`, exclusive product `E`, transmittance `T = T_in * E`,
+acceptance mask `m` and weights `w = m * alpha * T`, the cotangents are
+`alpha_bar_k = g_k * m_k * T_k - (S_k + T_out_bar * T_out) / x_k` with `S` the
+strict suffix sum of `g * w`, and
+`T_in_bar = sum_k g_k * m_k * alpha_k * E_k + T_out_bar * prod(x)`. Dividing by
+`x` is safe because the 0.999 clamp keeps it at or above 1e-3 and invalid
+candidates arrive with `alpha = 0`. Reverse mode then needs one suffix sum
+instead of differentiating the cumulative product.
+
+The measured effect is a 1.23x combined gradient, from 995.4 to 808.3 ms, with
+opacities alone going from 642.5 to 458.4 ms and means from 1,081.6 to 840.6.
+The spherical-harmonic gradient is unchanged at 139.5 ms, which confirms the
+change only touches the alpha path. Gradients match generic autodiff to a
+median relative difference of about 1e-7, float32 rounding for a different but
+equivalent evaluation order. The earlier estimate that this slice could reach
+the colour path's 3.6 times was wrong: alpha gradients necessarily need the suffix pass
+and the per-candidate alpha evaluation itself, so 458 ms for opacities is still
+3.3 times the colour path and is dominated by work upstream also performs. A wall-clock guard for this property was written and then
 removed: the ratio that discriminates on CPU sits inside the GPU's loop-overhead
 floor, so it failed the GPU acceptance without indicating any regression.
 
