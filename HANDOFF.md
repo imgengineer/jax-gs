@@ -17,7 +17,8 @@ backend-independent API 已完成；2026-07-29 的结构审计确认**库面已�
 - 工作目录：`/home/lzc/Documents/jax-gs`
 - 当前分支：`main`
 - 远程仓库：`https://github.com/imgengineer/jax-gs.git`
-- 已推送代码基线：`45715a4`
+- 已推送代码基线：`7bc7291` (`perf(sparse): rematerialize the per-pixel compositor`)
+- 前置：`45715a4`
   (`perf(rasterization): rematerialize chunks and widen the tile batch`)
 - 前一提交：`fad8ea0` (`perf(rasterization): rematerialize per-tile compositing in reverse mode`)、
   `25272ce` (`feat(training): wire packed, visible_adam, and MCMC into sharded training`)、
@@ -108,7 +109,10 @@ git push origin main
   2,685 ms 变成 4,104 ms。不要删掉它：删掉会让反向临时显存重新随 tile 数
   增长，实测 200k 高斯 640×360 会从 5.16 GiB 回到 1,169.6 GiB 并直接 OOM。
   `tests/test_rasterization_jax.py::test_backward_memory_does_not_grow_with_the_tile_count`
-  是护栏。sparse 的 per-pixel compositor 结构不同，没有改。
+  是护栏。sparse 的 per-pixel compositor 也已按同样方式 remat（护栏在
+  `test_sparse_backward_does_not_store_every_pixel`）；但它的 `_sparse_sample_weights`
+  仍对每个像素展开整个 intersection 容量，那是 Slice E 的 sparse 对应物，未做。
+  `visibility.py` 的三处 pixel map 形状相同，但属查询面、未确认会被求导，按不做投机改动处理。
 - 与 upstream `step_post_backward` 的提前返回一致：`refine_stop` 之后统计累加、refine 和
   opacity reset 全部停止；判定集中在 `DefaultStrategy.should_refine`/`should_reset`。
 
@@ -390,16 +394,18 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`873 passed, 1 skipped, 38 deselected`
+- 常规：`874 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`911`
+- CPU 总通过数：`912`
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
 2026-07-29 GPU 验收首次完整跑通：`RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1
 scripts/test_safe.sh` 的 CPU 段 66 组 910 项 + GPU 段 121 个独立 CUDA case，合计 1,031 项通过、
-零失败。该次覆盖的是 per-tile remat 状态；chunk-level remat 与 `tile_batch_size` 默认值变更之后
-的 GPU 复跑仍待做（当时 GPU 被用户自己的 transientMamba 训练占用）。不要设置
+零失败。该次覆盖的是 per-tile remat 状态。其后 chunk-level remat、`tile_batch_size` 默认值变更与
+sparse remat 的 GPU 复跑**仍待做**：2026-07-30 尝试过一次，CPU 段 66 组 912 项全绿跑完，但
+GPU 段启动瞬间被 preflight 拒绝——用户的 transientMamba 训练在 CPU 段中途重新上了 GPU。
+重跑时先确认 `nvidia-smi --query-compute-apps` 为空。不要设置
 `ALLOW_D_STATE_GPU_TESTS=1` 绕过保护，也不要杀别人的 GPU 进程。
 
 ## 10. 开发与验证注意事项
