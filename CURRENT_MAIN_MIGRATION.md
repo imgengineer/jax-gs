@@ -112,7 +112,13 @@ increase in `value_and_grad` flops. Dense and reference gradients are bitwise
 unchanged and 2DGS agrees to one float32 ulp. A parametrized test pins the
 structural property that backward temporaries no longer grow with the tile
 count; before the change, quadrupling the tile count multiplied them by 3.6.
-The sparse per-pixel compositor maps over pixels rather than tiles and was left
+The sparse per-pixel compositor maps over pixels rather than tiles and is
+rematerialized the same way, which took its backward workspace from 17 times
+the forward one to 2.2 on the suite's own scene with bitwise-unchanged
+gradients. Its per-pixel sampler still expands the whole intersection capacity
+for every pixel, which is the sparse counterpart of the dense chunk bound and
+is not addressed here. The `visibility` query maps share that pixel-map shape
+but are diagnostic surfaces rather than differentiated ones, so they were left
 alone.
 
 Checkpointing the chunk loop inside a tile removes the remaining dependence on
@@ -761,14 +767,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The compositing-performance 2026-07-29 forced-CPU non-resource
+The sparse-rematerialization 2026-07-30 forced-CPU non-resource
 acceptance
-reported `873 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `874 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-911 passing CPU cases in total.
+912 passing CPU cases in total.
 
 On 2026-07-29 a full-script run through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` completed

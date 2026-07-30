@@ -557,3 +557,41 @@ def test_sparse_pixels_absgrad_probe_contract_errors():
         call(absgrad=True, probe=jnp.zeros((1, 2), means2d.dtype))
     with pytest.raises(TypeError, match="same dtype"):
         call(absgrad=True, probe=jnp.zeros(means2d.shape, jnp.float16))
+
+
+def test_sparse_backward_does_not_store_every_pixel():
+    # Per-pixel sampling is rematerialized, so reverse mode keeps one pixel's
+    # candidate weights alive instead of all of them. Without it this scene
+    # measured a backward workspace 17 times the forward one.
+    scene = _scene()
+    pixels, pixel_image_ids = _pixels()
+
+    def render(means2d, conics, colors, opacities):
+        return _sparse_render(
+            (means2d, conics, colors, opacities, scene[4], scene[5]),
+            pixels,
+            pixel_image_ids,
+        )[0]
+
+    def loss(means2d, conics, colors, opacities):
+        rendered, alpha = _sparse_render(
+            (means2d, conics, colors, opacities, scene[4], scene[5]),
+            pixels,
+            pixel_image_ids,
+        )[:2]
+        return jnp.mean(rendered**2) + jnp.mean(alpha**2)
+
+    args = scene[:4]
+    forward = jax.jit(render).lower(*args).compile()
+    backward = (
+        jax.jit(jax.value_and_grad(loss, argnums=(0, 1, 2, 3)))
+        .lower(*args)
+        .compile()
+    )
+    try:
+        forward_temp = forward.memory_analysis().temp_size_in_bytes
+        backward_temp = backward.memory_analysis().temp_size_in_bytes
+    except (AttributeError, NotImplementedError) as exc:  # pragma: no cover
+        pytest.skip(f"memory analysis is unavailable: {exc}")
+
+    assert backward_temp < 8 * max(forward_temp, 1)

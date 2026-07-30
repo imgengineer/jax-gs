@@ -1131,7 +1131,11 @@ def rasterize_to_pixels_sparse(
             return render, alpha
 
         sorted_colors, sorted_alphas = jax.lax.map(
-            render_pixel, jnp.arange(pixel_count, dtype=jnp.int32)
+            # Reverse mode would otherwise keep every pixel's sampled
+            # candidate weights alive at once; one pixel is recomputed
+            # instead, matching the dense tile paths.
+            jax.checkpoint(render_pixel),
+            jnp.arange(pixel_count, dtype=jnp.int32),
         )
     else:
         sorted_colors = jnp.zeros(

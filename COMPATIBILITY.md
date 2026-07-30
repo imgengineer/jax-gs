@@ -147,10 +147,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  compositing performance
-  forced-CPU acceptance reported `873 passed, 1 skipped, 38 deselected`; five
+  sparse rematerialization
+  forced-CPU acceptance reported `874 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  911 passing cases in total.
+  912 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -587,6 +587,11 @@ device memory 5.524 to 0.448 GiB (12.3x). Loss is unchanged to ten decimals and
 most gradient entries are bitwise unchanged, with a few hundred ill-conditioned
 entries out of twelve thousand differing by up to 1e-4 relative, the same
 reassociation class this document already allows.
+
+The sparse per-pixel compositor is rematerialized on the same principle: its
+`lax.map` over pixels kept every pixel's sampled candidate weights alive in
+reverse mode, measured at 17 times the forward workspace on the suite's own
+scene and 2.2 times after the change, with gradients bitwise unchanged.
 
 Reverse mode rematerializes per-tile compositing. Every tile-mapped renderer —
 the dense 3DGS pixel path, the reference backend, 2DGS, and the two eval3d
