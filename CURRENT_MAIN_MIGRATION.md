@@ -112,6 +112,22 @@ increase in `value_and_grad` flops. Dense and reference gradients are bitwise
 unchanged and 2DGS agrees to one float32 ulp. A parametrized test pins the
 structural property that backward temporaries no longer grow with the tile
 count; before the change, quadrupling the tile count multiplied them by 3.6.
+The chunk loop no longer walks the whole intersection buffer for every tile.
+Its static length must cover one tile holding the entire buffer, which made
+forward time track the configured capacity almost exactly (15.8x for a 16x
+capacity) even though the average tile holds a small fraction of it. Upstream
+avoids this with a per-tile dynamic walk, which JAX cannot differentiate
+through a `while_loop`; the same effect comes from gating the loop with the
+busiest tile's occupancy, a single scalar computed outside the tile map so the
+predicate stays scalar inside the tile batch's vmap and `lax.cond` genuinely
+skips. That keeps standard reverse-mode autodiff, needs no custom VJP, and is
+exact because the skipped chunks were entirely masked: loss is bitwise
+identical and gradients agree to about 1e-9 relative. Forward time fell 6.5x,
+8.9x and 13.7x at capacities 4,096, 16,384 and 65,536, and the residual scaling
+is real work rather than waste. What it does not recover is per-tile
+granularity, since a batch still pays for its busiest tile; that last step is
+the dynamic walk in the handoff's Slice E.
+
 The sparse per-pixel compositor maps over pixels rather than tiles and is
 rematerialized the same way, which took its backward workspace from 17 times
 the forward one to 2.2 on the suite's own scene with bitwise-unchanged
@@ -767,14 +783,14 @@ Also on 2026-07-27, the then-standalone camera-pose and appearance module
 selection reported 14 passes. This historical count predates unified appearance
 training and does not replace the current full-suite result below.
 
-The sparse-rematerialization 2026-07-30 forced-CPU non-resource
+The busiest-tile chunk gate 2026-07-30 forced-CPU non-resource
 acceptance
-reported `874 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `875 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-912 passing CPU cases in total.
+913 passing CPU cases in total.
 
 On 2026-07-29 a full-script run through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` completed

@@ -147,10 +147,10 @@ status, and acceptance criteria.
 - Leading-batch 3DGS and 2DGS packed metadata, public signed/AbsGrad strategy
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
-  sparse rematerialization
-  forced-CPU acceptance reported `874 passed, 1 skipped, 38 deselected`; five
+  busiest-tile chunk gate
+  forced-CPU acceptance reported `875 passed, 1 skipped, 38 deselected`; five
   fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  912 passing cases in total.
+  913 passing cases in total.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -587,6 +587,21 @@ device memory 5.524 to 0.448 GiB (12.3x). Loss is unchanged to ten decimals and
 most gradient entries are bitwise unchanged, with a few hundred ill-conditioned
 entries out of twelve thousand differing by up to 1e-4 relative, the same
 reassociation class this document already allows.
+
+The chunk loop is gated by the busiest tile. Its length has to cover the worst
+case where one tile holds the entire intersection buffer, so every tile used to
+walk the whole buffer regardless of its own occupancy and forward time tracked
+the configured capacity almost exactly: a 16x capacity measured 15.8x the time.
+The busiest tile is a single scalar over the image, so it is computed outside
+the tile map and gates the loop from there; the predicate stays scalar inside
+the tile batch and the loop skips chunks no tile can reach. Skipped chunks were
+fully masked before, so results are unchanged: loss is bitwise identical and
+gradients agree to about 1e-9 relative, far inside float32 rounding. Forward
+time on the same three capacities dropped 6.5x, 8.9x and 13.7x, and what
+remains is real compositing work, since a larger buffer retains more
+candidates. Per-tile occupancy still is not exploited: a batch pays for its
+busiest tile, which needs the dynamic per-tile walk described in the migration
+notes.
 
 The sparse per-pixel compositor is rematerialized on the same principle: its
 `lax.map` over pixels kept every pixel's sampled candidate weights alive in

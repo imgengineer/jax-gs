@@ -1023,6 +1023,18 @@ def rasterize_to_pixels(
     tile_count = offsets_flat.shape[0]
     candidate_slots = jnp.arange(max_gaussians_per_tile, dtype=jnp.int32)
     chunk_count = math.ceil(input_capacity / max_gaussians_per_tile)
+    # A tile only holds part of the intersection buffer, but the chunk loop has
+    # to be long enough for the worst case where one tile holds all of it. The
+    # busiest tile is a single scalar over the whole image, so it can gate the
+    # loop from outside the tile map: the predicate stays scalar inside the
+    # tile batch's vmap and lets the loop skip chunks no tile can reach.
+    tile_ends = jnp.concatenate(
+        (
+            offsets_flat[1:],
+            jnp.asarray(valid_count, dtype=offsets_flat.dtype)[None],
+        )
+    )
+    busiest_tile_count = jnp.max(jnp.maximum(tile_ends - offsets_flat, 0))
     local_y, local_x = jnp.meshgrid(
         jnp.arange(tile_size, dtype=means2d.dtype) + 0.5,
         jnp.arange(tile_size, dtype=means2d.dtype) + 0.5,
@@ -1055,6 +1067,14 @@ def rasterize_to_pixels(
         )
 
         def composite_chunk(chunk_index, carry):
+            return jax.lax.cond(
+                chunk_index * max_gaussians_per_tile < busiest_tile_count,
+                lambda state: composite_reached_chunk(chunk_index, state),
+                lambda state: state,
+                carry,
+            )
+
+        def composite_reached_chunk(chunk_index, carry):
             render, accumulated_alpha, incoming_transmittance = carry
             local_ids = chunk_index * max_gaussians_per_tile + candidate_slots
             positions = start + local_ids
