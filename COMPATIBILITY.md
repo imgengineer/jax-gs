@@ -148,9 +148,9 @@ status, and acceptance criteria.
   hooks, Scene/Dynamic fixed-slot topology, and current-main COLMAP
   normalization are implemented. The 2026-07-29 distributed
   busiest-tile chunk gate
-  forced-CPU acceptance reported `875 passed, 1 skipped, 38 deselected`; five
-  fresh-process resource-heavy groups then passed `19+5+9+3+2=38` cases, for
-  913 passing cases in total.
+  acceptance ran the full GPU script: the CPU phase passed its 66
+  fresh-process groups with 912 cases and the GPU phase then passed 122
+  isolated CUDA cases, 1,034 in total with no failure.
   The only skip is the unavailable optional local Mip-NeRF360 stump dataset.
   Two full GPU-safe-script attempts passed 21 and 32 isolated CUDA cases before
   transient `libuv-worker` and kernel-journal D-state preflights stopped them.
@@ -596,11 +596,15 @@ The busiest tile is a single scalar over the image, so it is computed outside
 the tile map and gates the loop from there; the predicate stays scalar inside
 the tile batch and the loop skips chunks no tile can reach. Skipped chunks were
 fully masked before, so results are unchanged: loss is bitwise identical and
-gradients agree to about 1e-9 relative, far inside float32 rounding. Forward
-time on the same three capacities dropped 6.5x, 8.9x and 13.7x, and what
-remains is real compositing work, since a larger buffer retains more
-candidates. Per-tile occupancy still is not exploited: a batch pays for its
-busiest tile, which needs the dynamic per-tile walk described in the migration
+gradients agree to about 1e-9 relative, far inside float32 rounding. On an RTX 5090 at 200k Gaussians and 640x360 the gate takes
+the forward pass from 197.8 to 37.9 ms and `value_and_grad` from 1,613.8 to
+1,002.9 ms; a CPU sweep over capacities 4,096, 16,384 and 65,536 measured 6.5x,
+8.9x and 13.7x. Two limits remain. A tile batch still pays for its busiest
+tile rather than each tile's own occupancy. More importantly on GPU, the loop
+keeps its static step count and only the work inside a step is skipped, so a
+capacity of 65,536 with 512-candidate chunks carries a 128-step floor measured
+at about 11.8 ms even for a scene with 202 intersections; removing that needs a
+dynamic trip count, which is the per-tile walk described in the migration
 notes.
 
 The sparse per-pixel compositor is rematerialized on the same principle: its

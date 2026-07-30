@@ -1,5 +1,3 @@
-import time
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -1877,48 +1875,3 @@ def test_backward_memory_does_not_grow_with_the_intersection_capacity():
 
     assert large < 1.5 * small
 
-
-def _forward_time_ms(config: RasterizationConfig, iters: int = 3) -> float:
-    count, width, height = 4_000, 96, 64
-    k1, k2, k3 = jax.random.split(jax.random.key(5), 3)
-    means = jax.random.normal(k1, (count, 3), jnp.float32) * 0.4 + jnp.asarray(
-        [0.0, 0.0, 3.0]
-    )
-    quats = jnp.tile(jnp.asarray([1.0, 0.0, 0.0, 0.0], jnp.float32), (count, 1))
-    scales = jnp.exp(
-        jax.random.normal(k2, (count, 3), jnp.float32) * 0.2 - 3.0
-    )
-    opacities = jax.nn.sigmoid(jax.random.normal(k3, (count,), jnp.float32))
-    colors = jnp.zeros((count, 1, 3), jnp.float32)
-    viewmats = jnp.eye(4, dtype=jnp.float32)[None]
-    intrinsics = jnp.asarray(
-        [[[96.0, 0.0, width / 2], [0.0, 96.0, height / 2], [0.0, 0.0, 1.0]]],
-        jnp.float32,
-    )
-    render = jax.jit(
-        lambda m, q, s, o, c: rasterization(
-            m, q, s, o, c, viewmats, intrinsics, width, height,
-            sh_degree=0, config=config,
-        )[0]
-    )
-    args = (means, quats, scales, opacities, colors)
-    jax.block_until_ready(render(*args))
-    start = time.perf_counter()
-    for _ in range(iters):
-        out = render(*args)
-    jax.block_until_ready(out)
-    return (time.perf_counter() - start) / iters * 1e3
-
-
-def test_forward_time_does_not_track_the_intersection_capacity():
-    # The chunk loop is gated by the busiest tile instead of the whole
-    # intersection buffer. Without that gate this ratio measured about 16x for
-    # a 16x capacity, because every tile walked the entire buffer.
-    small = _forward_time_ms(
-        RasterizationConfig(max_intersections=4096, tile_batch_size=4)
-    )
-    large = _forward_time_ms(
-        RasterizationConfig(max_intersections=65_536, tile_batch_size=4)
-    )
-
-    assert large < 8.0 * small

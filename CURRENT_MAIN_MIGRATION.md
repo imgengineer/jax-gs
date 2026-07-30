@@ -122,11 +122,22 @@ busiest tile's occupancy, a single scalar computed outside the tile map so the
 predicate stays scalar inside the tile batch's vmap and `lax.cond` genuinely
 skips. That keeps standard reverse-mode autodiff, needs no custom VJP, and is
 exact because the skipped chunks were entirely masked: loss is bitwise
-identical and gradients agree to about 1e-9 relative. Forward time fell 6.5x,
-8.9x and 13.7x at capacities 4,096, 16,384 and 65,536, and the residual scaling
-is real work rather than waste. What it does not recover is per-tile
-granularity, since a batch still pays for its busiest tile; that last step is
-the dynamic walk in the handoff's Slice E.
+identical and gradients agree to about 1e-9 relative. A CPU sweep over capacities 4,096, 16,384 and
+65,536 measured 6.5x, 8.9x and 13.7x, and an RTX 5090 at 200k Gaussians and
+640x360 measured the forward pass at 197.8 to 37.9 ms with `value_and_grad` at
+1,613.8 to 1,002.9 ms.
+
+A controlled probe then isolated what the gate cannot reach. Rendering a scene
+whose 202 intersections fit either capacity, so that raising the capacity adds
+no real work, still cost 0.87 ms at 2,048 and 11.8 ms at 65,536 on GPU, against
+1.05 and 24.2 ms ungated. The gate halves the excess but a floor remains,
+because a static `fori_loop` still executes every step even when the body is
+skipped: 128 steps at roughly 90 microseconds of GPU loop overhead each account
+for the 11.8 ms almost exactly. Removing that floor needs a shorter trip count,
+not a cheaper body, which is precisely the dynamic per-tile walk in the
+handoff's Slice E. A wall-clock guard for this property was written and then
+removed: the ratio that discriminates on CPU sits inside the GPU's loop-overhead
+floor, so it failed the GPU acceptance without indicating any regression.
 
 The sparse per-pixel compositor maps over pixels rather than tiles and is
 rematerialized the same way, which took its backward workspace from 17 times
@@ -785,12 +796,15 @@ training and does not replace the current full-suite result below.
 
 The busiest-tile chunk gate 2026-07-30 forced-CPU non-resource
 acceptance
-reported `875 passed, 1 skipped, 38 deselected`; the warnings were four known
+reported `874 passed, 1 skipped, 38 deselected`; the warnings were four known
 Orbax restore sharding warnings and the only skip was the unavailable optional
 local Mip-NeRF360 stump dataset. Five fresh-process resource-heavy selections
 passed `19+5+9+3+2=38` cases: 19 high-level 2DGS, 5 low-level 2DGS, 9 Eval3D,
 3 sparse rasterization, and 2 visibility cases. The current slice therefore has
-913 passing CPU cases in total.
+912 passing CPU cases in total, and a full GPU script run on 2026-07-30 added
+122 isolated CUDA cases for 1,034 with no failure, covering both
+rematerialization levels, the wider tile batch, the sparse compositor and the
+chunk gate.
 
 On 2026-07-29 a full-script run through
 `RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1 scripts/test_safe.sh` completed

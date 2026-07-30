@@ -306,9 +306,17 @@ events（贴 upstream），preflight 保留为 host 扩容信号。验收见
 容量 4,096/16,384/65,536 上分别快 6.5×/8.9×/13.7×；护栏是
 `tests/test_rasterization_jax.py::test_forward_time_does_not_track_the_intersection_capacity`。
 
-**仍欠的（这才需要 custom_vjp）**：per-tile 粒度。现在一批 tile 按其中最忙的那个计费，
-稀疏 tile 仍在陪跑。要拿到上游那种"每个 tile 只走自己的区间"，才需要下面的方案。收益上限是
-当前的"批内最忙/批内平均"之比，先测这个比值再决定值不值得做。
+**GPU 实测**：20 万高斯 640×360 上前向 197.8→37.9 ms、`value_and_grad` 1,613.8→1,002.9 ms。
+
+**仍欠的（这才需要 custom_vjp）——收益已量化**：静态 `fori_loop` 的**步数**没变，门控只让每步
+变便宜。GPU 上每步固定开销约 90 µs，容量 65,536 配 512 的块 = 128 步 ≈ **11.8 ms 地板**：
+用一个只有 202 个交集、两种容量都装得下的场景实测，有门控 0.87 ms（2,048）vs 11.8 ms（65,536），
+无门控是 1.05 vs 24.2 ms。也就是说门控砍掉一半多，剩下的一半是纯粹的循环步数开销，**只有动态
+trip count 能消**——这正是下面方案要做的事，收益就是这个地板。
+
+**注意**：我为这个性质写过一个 wall-clock 护栏，又删了。能在 CPU 上判别的比值阈值落在 GPU 的
+循环开销地板之内，结果是 GPU 验收误报失败而并无回归。这类性能性质请用 `benchmarks/` 手工复核，
+不要写成单测。
 
 ### Slice E 续：per-tile 动态遍历（原方案 A，仅在上面那个比值够大时才做）
 
@@ -403,16 +411,17 @@ JAX_PLATFORMS=cpu scripts/test_safe.sh
 
 2026-07-29 最新结果：
 
-- 常规：`875 passed, 1 skipped, 38 deselected`
+- 常规：`874 passed, 1 skipped, 38 deselected`
 - fresh-process resource-heavy：`19+5+9+3+2=38 passed`
-- CPU 总通过数：`913`
+- CPU 总通过数：`912`
+- 2026-07-30 完整 GPU 验收：CPU 段 912 + GPU 段 122 个独立 CUDA case = `1,034` 全通过
 - 唯一 skip：本机没有可选 Mip-NeRF360 stump 数据集
 - 4 条 warning：既有 Orbax restore sharding 提示
 
 2026-07-29 GPU 验收首次完整跑通：`RUN_GPU_TESTS=1 RUN_RESOURCE_HEAVY_GPU_TESTS=1
 scripts/test_safe.sh` 的 CPU 段 66 组 910 项 + GPU 段 121 个独立 CUDA case，合计 1,031 项通过、
-零失败。该次覆盖的是 per-tile remat 状态。其后 chunk-level remat、`tile_batch_size` 默认值变更与
-sparse remat 的 GPU 复跑**仍待做**：2026-07-30 尝试过一次，CPU 段 66 组 912 项全绿跑完，但
+零失败。该次覆盖的是 per-tile remat 状态。其后 chunk-level remat、`tile_batch_size` 默认值变更、
+sparse remat 与 chunk gate 已由 2026-07-30 的完整 GPU 验收覆盖（1,034 项全通过）。历史记录：曾有一次尝试**待做**：2026-07-30 尝试过一次，CPU 段 66 组 912 项全绿跑完，但
 GPU 段启动瞬间被 preflight 拒绝——用户的 transientMamba 训练在 CPU 段中途重新上了 GPU。
 重跑时先确认 `nvidia-smi --query-compute-apps` 为空。不要设置
 `ALLOW_D_STATE_GPU_TESTS=1` 绕过保护，也不要杀别人的 GPU 进程。
