@@ -564,3 +564,54 @@ def test_absgrad_probe_contract_is_explicit_and_shape_dtype_checked():
             absgrad=True,
             _means2d_absgrad_probe=jnp.zeros((1, 1, 2), jnp.float16),
         )
+
+
+def test_a_tile_claiming_more_candidates_than_slots_reports_overflow():
+    # The chunk loop is sized for the most candidates one tile can hold, which
+    # is the slot count rather than the whole intersection buffer: isect_tiles
+    # emits a tile at most once per Gaussian. Offsets that claim more than that
+    # cannot come from isect_tiles, so the render is incomplete and has to say
+    # so instead of dropping the tail.
+    slot_count = 2
+    means2d = jnp.full((1, slot_count, 2), 0.5, jnp.float32)
+    conics = jnp.tile(
+        jnp.asarray([[[1.0, 0.0, 1.0]]], jnp.float32), (1, slot_count, 1)
+    )
+    colors = jnp.ones((1, slot_count, 3), jnp.float32)
+    opacities = jnp.full((1, slot_count), 0.5, jnp.float32)
+    offsets = jnp.zeros((1, 1, 1), jnp.int32)
+    # One tile whose every slot repeats well past the slot count.
+    repeated_ids = jnp.tile(jnp.arange(slot_count, dtype=jnp.int32), 8)
+
+    _, _, info = rasterize_to_pixels(
+        means2d,
+        conics,
+        colors,
+        opacities,
+        1,
+        1,
+        1,
+        offsets,
+        repeated_ids,
+        max_gaussians_per_tile=1,
+        return_info=True,
+    )
+    assert bool(jnp.any(info["tile_overflow"]))
+    assert bool(info["overflow"])
+
+    # The same buffer with a truthful offset table renders without complaint.
+    _, _, honest = rasterize_to_pixels(
+        means2d,
+        conics,
+        colors,
+        opacities,
+        1,
+        1,
+        1,
+        offsets,
+        repeated_ids[:slot_count],
+        max_gaussians_per_tile=1,
+        return_info=True,
+    )
+    assert not bool(jnp.any(honest["tile_overflow"]))
+    assert not bool(honest["overflow"])

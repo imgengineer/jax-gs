@@ -999,8 +999,15 @@ def test_zero_means2d_offset_preserves_forward_and_model_gradient():
     )
 
     np.testing.assert_allclose(probed_value, baseline_value, rtol=0.0, atol=0.0)
+    # The probe reaches the same gradient by a different summation order, so
+    # the absolute floor has to match the accumulation rather than the element.
+    # These gradients reach a few hundred but include entries near zero, and a
+    # 32x32 weighted reduction lands about 30 float32 ulps from the direct
+    # path on those; in float64 the two agree to 5.5e-16. Which side rounds
+    # where also moves with XLA's fusion choices, so a tighter floor only
+    # passes by luck.
     np.testing.assert_allclose(
-        model_grad, baseline_model_grad, rtol=1.0e-6, atol=1.0e-6
+        model_grad, baseline_model_grad, rtol=1.0e-6, atol=1.0e-4
     )
     assert probed_render.shape == (2, 32, 32, 3)
     assert screen_grad.shape == offset.shape

@@ -1123,12 +1123,21 @@ def rasterize_to_pixels(
     mask_flat = masks.reshape(-1)
     tile_count = offsets_flat.shape[0]
     candidate_slots = jnp.arange(max_gaussians_per_tile, dtype=jnp.int32)
-    chunk_count = math.ceil(input_capacity / max_gaussians_per_tile)
-    # A tile only holds part of the intersection buffer, but the chunk loop has
-    # to be long enough for the worst case where one tile holds all of it. The
-    # busiest tile is a single scalar over the whole image, so it can gate the
-    # loop from outside the tile map: the predicate stays scalar inside the
-    # tile batch's vmap and lets the loop skip chunks no tile can reach.
+    # The chunk loop has to cover the worst case for a single tile. That is not
+    # the whole intersection buffer: isect_tiles emits a tile at most once per
+    # Gaussian, so one tile holds at most as many candidates as there are slots
+    # it can draw from. Batched dense inputs narrow that further, because a
+    # tile only accepts candidates from its own image.
+    per_tile_bound = (
+        slot_count if dense_gaussians_per_image is None else dense_gaussians_per_image
+    )
+    chunk_count = math.ceil(
+        min(input_capacity, per_tile_bound) / max_gaussians_per_tile
+    )
+    # The busiest tile is a single scalar over the whole image, so it can also
+    # gate the loop from outside the tile map: the predicate stays scalar
+    # inside the tile batch's vmap and lets the loop skip chunks no tile can
+    # reach at run time.
     tile_ends = jnp.concatenate(
         (
             offsets_flat[1:],
@@ -1272,7 +1281,11 @@ def rasterize_to_pixels(
         return (
             render.reshape(tile_size, tile_size, channels),
             accumulated_alpha.reshape(tile_size, tile_size, 1),
-            jnp.asarray(False),
+            # The chunk loop is sized for the most candidates one tile can
+            # hold. Offsets that claim more than that describe an intersection
+            # buffer this call cannot render completely, so report it rather
+            # than silently dropping the tail.
+            count > chunk_count * max_gaussians_per_tile,
         )
 
     tile_ids = jnp.arange(tile_count, dtype=jnp.int32)

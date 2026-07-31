@@ -230,6 +230,8 @@ Grain/KD-tree worker 默认 4 个，也可通过 `--num-workers` 配置为更大
 
 下面记录的是本机 compositor 调优的实测状态，只用于本仓库自己的回归对比。除非另行说明，测量条件都是 RTX 5090、JAX 0.11.0、合成场景 20 万高斯、640×360、`--k 512 --tile-batch 64 --max-intersections 65536`，warmup 之后取热运行的最小值，梯度目标为全部五组参数。测量时 GPU 上不能有其它进程：有竞争时反向会被抬高到 1.2–1.7 倍，而且实现越依赖显存带宽越敏感。
 
+**这个 65,536 的配置是溢出的**：该场景实际需要 1,237,085 个 intersection，所以它只是一个循环开销的 microbenchmark，不是质量等价的渲染，`intersection_overflow=True`。凡是从它推出来的「最忙 tile 有多满」一类结论都只对截断后的 buffer 成立。不溢出要 `--max-intersections 2097152`，那时最忙 tile 是 1,846 个候选。两种配置下的相对加速都成立，因为对比双方配置相同。
+
 compositing 之外的阶段合计只占前向 0.44 ms（projection 0.12、SH 0.02、intersect+sort 0.30），所以调优一直集中在 compositor。当前状态：
 
 | 阶段 | 耗时 | 编译期 backward temp |
@@ -260,7 +262,20 @@ compositing 之外的阶段合计只占前向 0.44 ms（projection 0.12、SH 0.0
 
 **这条结论推翻了此前「加大 tile 批会让反向更慢」的记录**：那次测量里零残差的体量正比于 tile 批，恰好抵消了步数的减少。默认值仍是 64；无梯度的 CLI render / eval 路径可以按显存余量自行调大 `--tile-batch-size`。
 
-剩下最大的一笔是**动态 trip count**。门控只让被跳过的 chunk 变便宜，步数本身没变：静态步数是 `ceil(capacity / K)`，而实际只需要 `ceil(最忙 tile 占用 / K)`。此前把这一项估为只值整体 1–3%，那个估算建立在「反向被别的东西主导」的前提上，现在已经失效——按上面的斜率，本场景 128 个 chunk 里只有 1 个真正工作，动态步数的上限是砍掉反向约 90%、前向约 71%（收益随场景而变：最忙 tile 越接近装满 capacity，收益越小）。代价是 `lax.while_loop` 不能反向微分，需要给单 tile compositing 套 `custom_vjp`：forward 用 `while_loop` 并把每步 carry 写进静态缓冲，backward 逆序对每步用 `jax.vjp` 求 chunk body 的梯度并 scatter-add 回去。不要手推 compositing 的导数，让 JAX 对 chunk body 求导，absgrad probe 的 `custom_vjp` 会被自然包含。这是本仓库最精细的一段改动，建议单独开一个切片，并按老规矩先写与现有静态实现逐点比梯度的失败测试。
+既然循环步数就是成本，就该先把**静态上限**收紧。`isect_tiles` 对每个高斯在同一个 tile 上最多发射一次，所以一个 tile 能装的候选不超过它能取用的槽数，而不是整个 intersection buffer；批量 dense 输入还更紧，因为 tile 只接受本图像的候选。于是 `chunk_count` 用 `min(input_capacity, 每 tile 上限)` 而不是 `input_capacity`。不溢出的 2,097,152 配置下 chunk 数从 4,096 降到 391，**前向 1,432 → 174 ms（8.1×）、反向 8,773 → 897 ms（9.5×）**；梯度逐位不变。注意它只在 `capacity > 槽数` 时生效，也就是正确配置的情形——上面那个溢出的 65,536 配置下 `min` 取的还是 capacity，没有任何变化。
+
+代价是对**畸形输入**不再与上游逐点一致：如果 offsets 声称某个 tile 的候选比槽数还多（只能来自重复发射的 (tile, gaussian) 对，`isect_tiles` 不会产生），上游会照渲，这里则渲不完整。所以这种情况会置 `tile_overflow`，训练本来就拒绝不完整结果，不会静默截断；守护用例见 `tests/test_low_level.py::test_a_tile_claiming_more_candidates_than_slots_reports_overflow`。
+
+再往下是**动态 trip count**。收紧后的静态上限仍然是「槽数 / K」，而实际只需要 `ceil(最忙 tile 占用 / K)`——2,097,152 配置下是 4 而不是 391。此前把这一项估为只值整体 1–3%，那个估算建立在「反向被别的东西主导」的前提上，现在已经失效。代价是 `lax.while_loop` 不能反向微分，需要给单 tile compositing 套 `custom_vjp`：forward 用 `while_loop` 并把每步 carry 写进静态缓冲，backward 逆序对每步用 `jax.vjp` 求 chunk body 的梯度并 scatter-add 回去。不要手推 compositing 的导数，让 JAX 对 chunk body 求导，absgrad probe 的 `custom_vjp` 会被自然包含。这是本仓库最精细的一段改动，建议单独开一个切片，并按老规矩先写与现有静态实现逐点比梯度的失败测试。
+
+对照近期 3DGS 加速工作过一遍（2026-07-30），按本项目的两条硬约束筛选——纯 JAX/XLA 无 CUDA kernel，且要保持 gsplat 数值 parity：
+
+- **用不上（kernel/硬件层）**：Taming 3DGS 的 per-splat 反向（warp shuffle、规避 atomic 冲突）、DISTWAR 式 warp 聚合 atomic、tensor core、Local-GS 的 warp coherence、以及用 programmable blending 做反向的硬件光栅化。这些都需要 XLA 不暴露的线程/warp/shared memory 控制。
+- **会改图像，与 parity 冲突**：neural sorting / order-independent blending、StochasticSplats、Duplex-GS、moment-based OIT。讽刺的是这一类对 JAX 帮助最大——它把顺序 scan 换成并行归约，正是这里最贵的结构——但它改渲染结果，只能作为可选模式，不能是默认路径。
+- **已经在库里**：Speedy-Splat 的 SnugBox/AccuTile（上游 2026-04 也合了 AccuTile）、`radius_clip`。
+- **值得借的一项**：Taming 3DGS 的反向 early termination（前向记下每个 tile 透射率饱和的位置，反向跳过被遮挡的尾部）。它是算法层且保 parity。但本仓库当前的瓶颈是循环步本身而不是步内的工作量，所以要等动态 trip count 落地之后才有意义。
+
+关于**手写反向**：没有更好的梯度数学可以抄。Taming 3DGS 明确没有重写 alpha-blending 的导数，它的反向加速全是 CUDA 调度；gsplat 的解析反向（后缀累加 + 用除 `1-α` 反推 `T`，并把 `α = o·exp(−σ)` 拆开让 `∂L/∂o`、`∂L/∂σ` 保持标量）就是 `low_level._chunk_weights` 已经实现的那套。所以本仓库剩下的「手写反向」机会是**结构性的**（动态 trip count 的 `custom_vjp`），不是数学性的。
 
 已被证伪或量化否决的猜测，不要重做：
 
