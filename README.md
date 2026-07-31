@@ -1,6 +1,6 @@
 # jax-gs
 
-基于 pure JAX、Flax NNX 和 Grain 的可微 Gaussian Splatting 实现。当前兼容目标已升级并固定到 gsplat [`main@2b902ff`](https://github.com/nerfstudio-project/gsplat/tree/2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c)（2026-07-24），并按渲染、稀疏可见性、传感器、场景/动态、损失/推理、训练集成等子系统分阶段迁移；已实现能力、明确边界和最终验收状态见 [`CURRENT_MAIN_MIGRATION.md`](CURRENT_MAIN_MIGRATION.md) 与 [`COMPATIBILITY.md`](COMPATIBILITY.md)。投影、可见项压缩、tile intersection、排序、前向 compositing 和反向传播均由普通 JAX primitives 表达，同一数值路径可由 XLA 在 CPU 或 CUDA GPU 上执行，不依赖项目自带的原生扩展、FFI 或专用 GPU kernel DSL。
+基于 pure JAX、Flax NNX 和 Grain 的可微 Gaussian Splatting 实现。当前兼容目标已升级并固定到 gsplat [`main@2b902ff`](https://github.com/nerfstudio-project/gsplat/tree/2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c)（2026-07-24），并按渲染、稀疏可见性、传感器、场景/动态、损失/推理、训练集成等子系统分阶段迁移；已实现能力、明确边界和最终验收状态见下面的「已实现」与「当前验收与明确边界」两节。投影、可见项压缩、tile intersection、排序、前向 compositing 和反向传播均由普通 JAX primitives 表达，同一数值路径可由 XLA 在 CPU 或 CUDA GPU 上执行，不依赖项目自带的原生扩展、FFI 或专用 GPU kernel DSL。
 
 核心设计是分桶的固定 shape 参数池：`ModelConfig.capacity` 默认是 1,000,000 个高斯的逻辑上限，可配置到硬上限 10,000,000；`GaussianModel.capacity` 则是当前实际分配的物理 bucket。物理 bucket 默认从 65,536 开始，按 2 倍增长到逻辑上限。在同一个 bucket 内，增密、分裂、重定位和裁剪只更新槽内容与 `active_mask`，active Gaussian 数量变化不会触发 JIT；跨 bucket 时参数、Adam moment 和策略状态一起扩容，相关 JIT 函数为新的 bucket shape 各编译一次，随后继续复用。全状态 active-prefix compaction 只在 checkpoint 前执行，不再在每次 refine 后搬运完整模型与 Adam。图像尺寸、tile 大小、候选上限、相机模型和输出通道仍是静态编译维度。
 
@@ -228,6 +228,51 @@ Grain/KD-tree worker 默认 4 个，也可通过 `--num-workers` 配置为更大
 
 当前阶段优先保证 current-main API、数值语义、训练流程和代码可读性，尚未发布 pure-JAX 路径与 upstream gsplat 的可复现性能结论。早期专用后端的测量不能代表当前实现，已从项目说明中移除。benchmark 仍可用于本机回归，但结果必须注明设备、JAX/XLA 版本、静态 capacity、图像尺寸、warmup 和是否包含梯度；这些数字不应外推为端到端训练吞吐。
 
+下面记录的是本机 compositor 调优的实测状态，只用于本仓库自己的回归对比。除非另行说明，测量条件都是 RTX 5090、JAX 0.11.0、合成场景 20 万高斯、640×360、`--k 512 --tile-batch 64 --max-intersections 65536`，warmup 之后取热运行的最小值，梯度目标为全部五组参数。测量时 GPU 上不能有其它进程：有竞争时反向会被抬高到 1.2–1.7 倍，而且实现越依赖显存带宽越敏感。
+
+compositing 之外的阶段合计只占前向 0.44 ms（projection 0.12、SH 0.02、intersect+sort 0.30），所以调优一直集中在 compositor。当前状态：
+
+| 阶段 | 耗时 | 编译期 backward temp |
+|---|---|---|
+| forward | 39.4 ms | — |
+| `value_and_grad` | 164.4 ms（4.2× forward） | 234 MiB |
+
+最近一步是**不再为门控跳过的 chunk 物化零残差**，反向 786.3 → 164.4 ms（4.78×），前向 39.1 → 39.4 ms 基本不变。`lax.cond` 必须让两个分支有同样的残差签名，因此在原来的写法里，每个被跳过的 chunk 都要为「到达」分支保存的每个 `[max_gaussians_per_tile, pixel]` 中间量生成一份零数组；上面的场景里最忙 tile 只有 119 个候选，128 个 chunk 只有 1 个真正工作，其余 127 步各写掉约 448 MiB。把「到达」分支自身再重算一遍就能把条件的残差压回 carry 大小；外层循环本来就挡住了 XLA 把重算折回原式，所以这层 `jax.checkpoint` 用 `prevent_cse=False`，避免它插入的 barrier 白白挡掉融合。反向的 GPU kernel 时间从每次约 705 ms 降到约 98 ms，`memcpy128` 从占 78.1% 降到 0，优化后 HLO 里的静态 copy 从 632.8 MiB 降到 23.1 MiB，编译期 backward temp 从 773.7 MiB 降到 234.2 MiB。梯度在 CPU 上与改动前逐位相同；GPU 上相对 L2 差 ≤ 1.2e-5（XLA 换了融合顺序，float32 重结合级别）。
+
+现在前向和反向都**随 chunk 步数线性增长**，尽管门控让绝大多数 chunk 不做任何工作：
+
+| `--max-intersections` | chunk 数 | forward | backward |
+|---:|---:|---:|---:|
+| 8,192 | 16 | 15.09 ms | 36.02 ms |
+| 16,384 | 32 | 18.82 ms | 52.71 ms |
+| 32,768 | 64 | 25.77 ms | 89.85 ms |
+| 65,536 | 128 | 39.78 ms | 164.62 ms |
+| 131,072 | 256 | 67.97 ms | 312.11 ms |
+
+斜率约为反向每 chunk 1.15 ms、前向每 chunk 0.22 ms，也就是说 65,536 桶下反向约 90%、前向约 71% 是纯粹的循环步开销。总步数是 `ceil(tile 数 / tile_batch_size) * ceil(capacity / K)`，所以加大 tile 批直接减少步数：
+
+| `--tile-batch` | 循环步数 | forward | backward | backward temp |
+|---:|---:|---:|---:|---:|
+| 16 | 7,424 | 119.62 ms | 583.29 ms | 96 MiB |
+| 64（默认） | 1,920 | 39.50 ms | 164.40 ms | 234 MiB |
+| 128 | 1,024 | 27.30 ms | 99.40 ms | 465 MiB |
+| 256 | 512 | 20.05 ms | 61.43 ms | 908 MiB |
+
+**这条结论推翻了此前「加大 tile 批会让反向更慢」的记录**：那次测量里零残差的体量正比于 tile 批，恰好抵消了步数的减少。默认值仍是 64；无梯度的 CLI render / eval 路径可以按显存余量自行调大 `--tile-batch-size`。
+
+剩下最大的一笔是**动态 trip count**。门控只让被跳过的 chunk 变便宜，步数本身没变：静态步数是 `ceil(capacity / K)`，而实际只需要 `ceil(最忙 tile 占用 / K)`。此前把这一项估为只值整体 1–3%，那个估算建立在「反向被别的东西主导」的前提上，现在已经失效——按上面的斜率，本场景 128 个 chunk 里只有 1 个真正工作，动态步数的上限是砍掉反向约 90%、前向约 71%（收益随场景而变：最忙 tile 越接近装满 capacity，收益越小）。代价是 `lax.while_loop` 不能反向微分，需要给单 tile compositing 套 `custom_vjp`：forward 用 `while_loop` 并把每步 carry 写进静态缓冲，backward 逆序对每步用 `jax.vjp` 求 chunk body 的梯度并 scatter-add 回去。不要手推 compositing 的导数，让 JAX 对 chunk body 求导，absgrad probe 的 `custom_vjp` 会被自然包含。这是本仓库最精细的一段改动，建议单独开一个切片，并按老规矩先写与现有静态实现逐点比梯度的失败测试。
+
+已被证伪或量化否决的猜测，不要重做：
+
+- 内层 `jax.checkpoint(composite_chunk)` 不能因为有了门控就去掉，实测去掉直接 OOM（需要 85 GiB）。两级 remat 都必须保留。
+- 把 `cumprod(1-alpha)` 换成 `exp(cumsum(log(1-alpha)))`，当时只把全梯度从 995 降到 927 ms，还会改前向数值，不值得。
+- 曾按参数分组把成本归因到「alpha 链的 VJP」（仅 sh 138.7 ms、仅 opacities 642.5、仅 means 1081.6）。这个归因被上面的零残差成本污染过：残差个数随梯度目标变化，颜色路径的残差最少。手写透射率反向（`low_level._chunk_weights` 的 `custom_vjp`，反向只需一次后缀和）当时确实把全梯度从 995.4 降到 808.3 ms，但剩下的差距主要不是算术。
+
+两条测量方法上的教训：
+
+- 不要用 `cost_analysis` 判断循环类改动：它对循环体只计一次、不乘 trip count，会完全掩盖这类问题。用 wall-clock；要定位则采 profiler trace 按 kernel 聚合，或直接 dump 优化后 HLO 查 `copy`。
+- 不要把这些性质写成单测。wall-clock 阈值会在 GPU 的循环开销地板上误报；上面的显存性质也只在 GPU 上判别得开（零残差改动前后，backward/forward temp 之比 GPU 上是 5.62 对 1.31，CPU 上只有 6.33 对 4.70）。用 `benchmarks/` 手工复核。
+
 ## 测试
 
 为避免单个 pytest 进程累积大量 CPU/GPU executable，建议使用脚本按测试文件启动独立进程并严格串行运行：
@@ -309,9 +354,7 @@ camera/LiDAR/stage、PPISP loss/regularization，以及本轮训练/分布式集
 PyTorch autograd
 包装类、根级 `cuda` extension wrapper、原生 CUDA backend loader/build 模块和上游
 测试辅助 `_helper.py` 不在 pure-JAX 包中伪造；对应数值能力由直接可微的 JAX 函数
-提供。精确边界和最终验收见
-[`CURRENT_MAIN_MIGRATION.md`](CURRENT_MAIN_MIGRATION.md) 与
-[`COMPATIBILITY.md`](COMPATIBILITY.md)。
+提供。精确边界见本文「当前验收与明确边界」一节。
 
 ## JAX 项目参考
 

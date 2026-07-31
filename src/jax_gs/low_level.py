@@ -1170,7 +1170,20 @@ def rasterize_to_pixels(
         def composite_chunk(chunk_index, carry):
             return jax.lax.cond(
                 chunk_index * max_gaussians_per_tile < busiest_tile_count,
-                lambda state: composite_reached_chunk(chunk_index, state),
+                # Recomputing the reached branch keeps the conditional's
+                # reverse-mode residuals down to the carry. A conditional gives
+                # both branches the same residual signature, so without this the
+                # skipped branch materializes a zero-filled stand-in for every
+                # [max_gaussians_per_tile, pixel] intermediate the reached
+                # branch saves. That costs far more than the compositing it
+                # stands in for, and the gate skips most chunks. The enclosing
+                # loop already keeps XLA from folding the recomputation back
+                # into the original, so the barrier that prevent_cse inserts
+                # would only cost fusion opportunities.
+                jax.checkpoint(
+                    partial(composite_reached_chunk, chunk_index),
+                    prevent_cse=False,
+                ),
                 lambda state: state,
                 carry,
             )
