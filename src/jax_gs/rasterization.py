@@ -839,6 +839,7 @@ def _render_camera_intersections(
             valid_count=intersections.valid_count,
             overflow=intersections.overflow,
             max_gaussians_per_tile=config.max_gaussians_per_tile,
+            max_candidates_per_tile=config.max_candidates_per_tile,
             tile_batch_size=config.tile_batch_size,
             alpha_threshold=config.alpha_clip,
             transmittance_threshold=config.transmittance_eps,

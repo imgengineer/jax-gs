@@ -87,6 +87,7 @@ class RasterizationConfig:
     intersection_mode: str = "auto"
     sort_backend: str = "auto"
     max_intersections: int | None = None
+    max_candidates_per_tile: int | None = None
 
     def __post_init__(self) -> None:
         removed_backends = []
@@ -126,6 +127,13 @@ class RasterizationConfig:
             raise ValueError("max_gaussians_per_tile must be positive")
         if self.max_intersections is not None and self.max_intersections <= 0:
             raise ValueError("max_intersections must be positive when provided")
+        if (
+            self.max_candidates_per_tile is not None
+            and self.max_candidates_per_tile <= 0
+        ):
+            raise ValueError(
+                "max_candidates_per_tile must be positive when provided"
+            )
         if self.tile_batch_size <= 0:
             raise ValueError("tile_batch_size must be positive")
         if self.ut_chunk_size <= 0:

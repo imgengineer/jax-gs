@@ -262,11 +262,38 @@ compositing 之外的阶段合计只占前向 0.44 ms（projection 0.12、SH 0.0
 
 **这条结论推翻了此前「加大 tile 批会让反向更慢」的记录**：那次测量里零残差的体量正比于 tile 批，恰好抵消了步数的减少。默认值仍是 64；无梯度的 CLI render / eval 路径可以按显存余量自行调大 `--tile-batch-size`。
 
-既然循环步数就是成本，就该先把**静态上限**收紧。`isect_tiles` 对每个高斯在同一个 tile 上最多发射一次，所以一个 tile 能装的候选不超过它能取用的槽数，而不是整个 intersection buffer；批量 dense 输入还更紧，因为 tile 只接受本图像的候选。于是 `chunk_count` 用 `min(input_capacity, 每 tile 上限)` 而不是 `input_capacity`。不溢出的 2,097,152 配置下 chunk 数从 4,096 降到 391，**前向 1,432 → 174 ms（8.1×）、反向 8,773 → 897 ms（9.5×）**；梯度逐位不变。注意它只在 `capacity > 槽数` 时生效，也就是正确配置的情形——上面那个溢出的 65,536 配置下 `min` 取的还是 capacity，没有任何变化。
+既然循环步数就是成本，就该先把**静态上限**收紧。第一步是从输入形状推出的无条件上限：`isect_tiles` 对每个高斯在同一个 tile 上最多发射一次，所以一个 tile 能装的候选不超过它能取用的槽数，而不是整个 intersection buffer；批量 dense 输入还更紧，因为 tile 只接受本图像的候选。于是 `chunk_count` 用 `min(input_capacity, 每 tile 上限)` 而不是 `input_capacity`。不溢出的 2,097,152 配置下 chunk 数从 4,096 降到 391，**前向 1,432 → 174 ms（8.1×）、反向 8,773 → 897 ms（9.5×）**；梯度逐位不变。注意它只在 `capacity > 槽数` 时生效，也就是正确配置的情形——上面那个溢出的 65,536 配置下 `min` 取的还是 capacity，没有任何变化。
 
 代价是对**畸形输入**不再与上游逐点一致：如果 offsets 声称某个 tile 的候选比槽数还多（只能来自重复发射的 (tile, gaussian) 对，`isect_tiles` 不会产生），上游会照渲，这里则渲不完整。所以这种情况会置 `tile_overflow`，训练本来就拒绝不完整结果，不会静默截断；守护用例见 `tests/test_low_level.py::test_a_tile_claiming_more_candidates_than_slots_reports_overflow`。
 
-再往下是**动态 trip count**。收紧后的静态上限仍然是「槽数 / K」，而实际只需要 `ceil(最忙 tile 占用 / K)`——2,097,152 配置下是 4 而不是 391。此前把这一项估为只值整体 1–3%，那个估算建立在「反向被别的东西主导」的前提上，现在已经失效。代价是 `lax.while_loop` 不能反向微分，需要给单 tile compositing 套 `custom_vjp`：forward 用 `while_loop` 并把每步 carry 写进静态缓冲，backward 逆序对每步用 `jax.vjp` 求 chunk body 的梯度并 scatter-add 回去。不要手推 compositing 的导数，让 JAX 对 chunk body 求导，absgrad probe 的 `custom_vjp` 会被自然包含。这是本仓库最精细的一段改动，建议单独开一个切片，并按老规矩先写与现有静态实现逐点比梯度的失败测试。
+但槽数这个上限仍然极度宽松，因为**不看数据就不可能知道更小的值**。所以再加一个可选的静态承诺 `RasterizationConfig.max_candidates_per_tile`（低层同名参数、benchmark `--max-candidates-per-tile`）：调用方观察到真实占用后可以给出紧得多的上限，循环长度直接由它决定。默认 `None` 保持上面那个宽松上限，不改变任何现有行为。承诺是**被检查的而不是被信任的**——某个 tile 真的超了就置 `tile_overflow`，和 intersection buffer 溢出同一条路径，主机按老规矩扩容重放即可。
+
+真实场景 garden（138,766 高斯、640×360、camera 0、`--max-intersections 524288`，最忙 tile 2,003 个候选）给 `--max-candidates-per-tile 2048`，chunk 数 272 → 4：**前向 105.1 → 19.4 ms（5.4×）、反向 481.5 → 59.3 ms（8.1×）**。梯度在 CPU 上逐位相同，GPU 上相对 L2 差 2.8e-8（低于 float32 eps），loss 完全不变。
+
+wall-clock 的倍数小于循环步数的倍数（后者是 68×），因为省掉的是**空转的**步，而剩下的 4 个 chunk 每步都在满负荷算。收紧之后的前向阶段构成（同一配置，关掉 CUDA graph 后按 HLO `op_name` 逐 kernel 归属，12.96 ms GPU kernel time）：
+
+| 阶段 | ms/次 | 占比 |
+|---|---:|---:|
+| compositing | ~6.0 | ~46% |
+| intersection：AccuTile emit | 4.25 | 33% |
+| intersection：bounds/count | 1.58 | 12% |
+| intersection：排序 | 0.19 | 1.5% |
+| projection / SH / offsets | <0.1 | <1% |
+
+**排序不是瓶颈**（1.5%），不要去动它。真正的第二大项是 AccuTile 的 emit：`_emit_accutile_intersections_jax` 是一对嵌套 `fori_loop`，各跑 `max(tile_width, tile_height)` 次，640×360 下就是 40×40=1,600 次迭代，每次对整个 138,766 长的输入做两次 scatter——为了产出 355,211 个交集，做了约 2.22 亿次 scatter 尝试，绝大多数被 `mode="drop"` 丢掉。它的代价只取决于 tile 网格，与场景无关，且随分辨率平方增长。AABB 路径用的是 O(capacity) 的 rank 映射（`searchsorted(cumulative, ranks)`），AccuTile 路径应该也能改成按输出槽反查所属高斯与行内偏移，代价是要在每高斯的逐行 span 上做一次前缀和再二分。
+
+再往下的空间有多大，2026-07-31 用真实 garden 的逐 tile 占用量化过。**合成 benchmark 场景在这里会骗人**：它按屏幕坐标均匀撒点，占用分布天然平坦（最忙/均值 1.4×），据此会得出「负载均衡没用」的错误结论。真实 garden 是重尾的（p50≈290、max≈2000、最忙/均值 3.9–6.0×，还有空 tile）。三个相机下各方案的循环步数：
+
+| 方案 | cam0 | cam1 | cam2 | 需要 custom_vjp |
+|---|---:|---:|---:|:--:|
+| 上限=槽数 | 4,080（1×） | 4,080（1×） | 4,080（1×） | — |
+| 单个静态上限（按占用分桶） | 60（68×） | 120（34×） | 60（68×） | 否 |
+| 按占用排序分 8 组、每组一个静态上限 | 26（157×） | 34（120×） | 26（157×） | 否 |
+| 逐 tile 理想 | 20（204×） | 19（215×） | 19（215×） | 是 |
+
+结论是**动态 trip count 不该是下一步**：静态上限加排序分组能拿到 204–215× 里的 120–157×，完全不需要手写反向，而 `custom_vjp` 只多买约 1.4×，却要重写本仓库最精细的一段代码。静态上限已经落地；排序分组按上表把 compositing 的 60 步降到约 26 步，即整个前向的约 25%，仍然值得做。排序分组的做法是把 tile 按占用排序后切成固定大小的组，每组用自己的 `lax.map` 和自己的静态 chunk 数：置换是数据相关的，形状和 trip count 仍是静态的，组上限给小了就由 `tile_overflow` 兜住。注意 2 的幂分桶最多浪费 2×（cam1 的 2,140 进到 4,096），按 K 的倍数分桶更紧但编译变体更多。
+
+如果最后仍要做动态 trip count：`lax.while_loop` 不能反向微分，需要给单 tile compositing 套 `custom_vjp`，forward 用 `while_loop` 并把每步 carry 写进静态缓冲，backward 逆序对每步用 `jax.vjp` 求 chunk body 的梯度并 scatter-add 回去。不要手推 compositing 的导数，让 JAX 对 chunk body 求导，absgrad probe 的 `custom_vjp` 会被自然包含。
 
 对照近期 3DGS 加速工作过一遍（2026-07-30），按本项目的两条硬约束筛选——纯 JAX/XLA 无 CUDA kernel，且要保持 gsplat 数值 parity：
 

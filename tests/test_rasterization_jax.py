@@ -1882,3 +1882,52 @@ def test_backward_memory_does_not_grow_with_the_intersection_capacity():
 
     assert large < 1.5 * small
 
+
+
+def _render_with_candidate_bound(bound):
+    means, quats, scales, opacities, colors, viewmats, Ks = _scene()
+    return rasterization(
+        means,
+        quats,
+        scales,
+        opacities,
+        colors,
+        viewmats,
+        Ks,
+        32,
+        32,
+        active_mask=jnp.array([True, True, True, False]),
+        config=RasterizationConfig(
+            backend="intersections",
+            tile_size=8,
+            max_gaussians_per_tile=1,
+            max_intersections=64,
+            tile_batch_size=1,
+            max_candidates_per_tile=bound,
+        ),
+    )
+
+
+def test_a_sufficient_candidate_bound_renders_identically():
+    # The bound only sets how many chunks the loop runs. Promising at least the
+    # busiest tile's occupancy has to leave the image and the diagnostics alone
+    # while shortening the loop.
+    reference, reference_alphas, reference_info = _render_with_candidate_bound(None)
+    busiest = int(jnp.max(reference_info["candidate_counts"]))
+    assert busiest > 0
+
+    rendered, alphas, info = _render_with_candidate_bound(busiest)
+    np.testing.assert_array_equal(np.asarray(rendered), np.asarray(reference))
+    np.testing.assert_array_equal(np.asarray(alphas), np.asarray(reference_alphas))
+    assert not bool(jnp.any(info["tile_overflow"]))
+    assert not bool(jnp.any(info["intersection_overflow"]))
+
+
+def test_an_insufficient_candidate_bound_reports_tile_overflow():
+    # Promising less than the busiest tile holds truncates it, so the renderer
+    # has to say the result is incomplete rather than return a short render.
+    _, _, reference_info = _render_with_candidate_bound(None)
+    busiest = int(jnp.max(reference_info["candidate_counts"]))
+
+    _, _, info = _render_with_candidate_bound(busiest - 1)
+    assert bool(jnp.any(info["tile_overflow"]))

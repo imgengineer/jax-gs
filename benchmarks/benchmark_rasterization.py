@@ -153,6 +153,14 @@ def _parser() -> argparse.ArgumentParser:
         help="static global intersection capacity; default uses the renderer heuristic",
     )
     parser.add_argument(
+        "--max-candidates-per-tile",
+        type=_positive_int,
+        help=(
+            "static promise about the busiest tile's candidate count; sets the "
+            "compositor chunk loop length. Too small only sets tile_overflow"
+        ),
+    )
+    parser.add_argument(
         "--tile-batch",
         type=_positive_int,
         default=1,
@@ -701,6 +709,7 @@ def main(argv: list[str] | None = None) -> int:
         tile_size=args.tile_size,
         max_gaussians_per_tile=args.k,
         max_intersections=args.max_intersections,
+        max_candidates_per_tile=args.max_candidates_per_tile,
         tile_batch_size=args.tile_batch,
         radius_clip=args.radius_clip,
     )
@@ -790,6 +799,7 @@ def main(argv: list[str] | None = None) -> int:
             "intersection_mode": args.intersection_mode,
             "sort_backend": args.sort_backend,
             "max_intersections": args.max_intersections,
+            "max_candidates_per_tile": args.max_candidates_per_tile,
             "tile_batch": args.tile_batch,
             "radius_clip": args.radius_clip,
             "seed": args.seed,

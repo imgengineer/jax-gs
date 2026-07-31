@@ -987,6 +987,7 @@ def rasterize_to_pixels(
     valid_count: jax.Array | int | None = None,
     overflow: jax.Array | bool = False,
     max_gaussians_per_tile: int = 512,
+    max_candidates_per_tile: int | None = None,
     tile_batch_size: int = 1,
     alpha_threshold: float = DEFAULT_ALPHA_THRESHOLD,
     transmittance_threshold: float = DEFAULT_TRANSMITTANCE_THRESHOLD,
@@ -998,6 +999,16 @@ def rasterize_to_pixels(
     ``max_gaussians_per_tile`` controls the temporary chunk size; it does not
     truncate a tile. Only an overflowing input intersection buffer makes the
     result incomplete.
+
+    ``max_candidates_per_tile`` is a static promise about how many candidates
+    the busiest tile holds, and it sets how many chunks the loop runs. The
+    default derives a sound but very loose one from the input shapes, because
+    nothing smaller is knowable without looking at the data: a tile can only
+    draw from the slots it can address. A caller that observes the real
+    occupancy can supply a far tighter bound and cut the loop by two orders of
+    magnitude. A tile that turns out to hold more sets ``tile_overflow``,
+    exactly like an overflowing intersection buffer, so the promise is checked
+    rather than trusted.
 
     JAX cannot attach a mutable ``.absgrad`` value during a later backward
     pass. To request the equivalent statistic, pass ``absgrad=True`` together
@@ -1024,6 +1035,10 @@ def rasterize_to_pixels(
     max_gaussians_per_tile = _as_static_int(
         "max_gaussians_per_tile", max_gaussians_per_tile, minimum=1
     )
+    if max_candidates_per_tile is not None:
+        max_candidates_per_tile = _as_static_int(
+            "max_candidates_per_tile", max_candidates_per_tile, minimum=1
+        )
     tile_batch_size = _as_static_int("tile_batch_size", tile_batch_size, minimum=1)
     means2d = jnp.asarray(means2d)
     conics = jnp.asarray(conics)
@@ -1128,12 +1143,15 @@ def rasterize_to_pixels(
     # Gaussian, so one tile holds at most as many candidates as there are slots
     # it can draw from. Batched dense inputs narrow that further, because a
     # tile only accepts candidates from its own image.
+    # A caller that has observed the real occupancy can promise something far
+    # tighter; the per-tile overflow flag checks the promise.
     per_tile_bound = (
         slot_count if dense_gaussians_per_image is None else dense_gaussians_per_image
     )
-    chunk_count = math.ceil(
-        min(input_capacity, per_tile_bound) / max_gaussians_per_tile
-    )
+    per_tile_bound = min(input_capacity, per_tile_bound)
+    if max_candidates_per_tile is not None:
+        per_tile_bound = min(per_tile_bound, max_candidates_per_tile)
+    chunk_count = math.ceil(per_tile_bound / max_gaussians_per_tile)
     # The busiest tile is a single scalar over the whole image, so it can also
     # gate the loop from outside the tile map: the predicate stays scalar
     # inside the tile batch's vmap and lets the loop skip chunks no tile can
