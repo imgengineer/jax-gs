@@ -496,3 +496,61 @@ def test_accutile_overflow_keeps_gaussian_major_prefix_and_padding_is_minus_one(
     np.testing.assert_array_equal(
         padded.tile_ids[padded.valid_count :], np.full((4,), -1, np.int32)
     )
+
+
+def test_accutile_matches_reference_on_a_wide_grid_with_multi_column_ellipses():
+    # Emission resolves each output slot's Gaussian from the prefix sums, so
+    # the cases that matter are the ones where a Gaussian spans many columns
+    # and the runs of several Gaussians meet inside the buffer. A wide,
+    # shallow grid also forces the walk onto its transposed axis.
+    rng = np.random.default_rng(4471)
+    count = 64
+    tile_size = 4
+    tile_width = 17
+    tile_height = 3
+    alpha_threshold = 1.0 / 255.0
+    means2d = rng.uniform(
+        [-6.0, -4.0],
+        [tile_width * tile_size + 6.0, tile_height * tile_size + 4.0],
+        size=(count, 2),
+    ).astype(np.float32)
+    covariances = []
+    conics = []
+    for major, minor, angle in zip(
+        rng.uniform(1.5, 9.0, count),
+        rng.uniform(0.3, 1.4, count),
+        rng.uniform(-np.pi, np.pi, count),
+        strict=True,
+    ):
+        covariance, conic = _covariance_case(major, minor, angle)
+        covariances.append(covariance)
+        conics.append(conic)
+    covariances = np.asarray(covariances, dtype=np.float32)
+    conics = np.asarray(conics, dtype=np.float32)
+    opacities = rng.uniform(0.02, 0.99, count).astype(np.float32)
+    radii = _opacity_radii(covariances, opacities, alpha_threshold)
+    depths = np.linspace(0.4, 9.0, count, dtype=np.float32)[::-1].copy()
+    valid = rng.random(count) > 0.15
+
+    result = _assert_matches_reference(
+        means2d,
+        radii,
+        depths,
+        valid,
+        conics,
+        opacities,
+        alpha_threshold=alpha_threshold,
+        tile_size=tile_size,
+        tile_width=tile_width,
+        tile_height=tile_height,
+        capacity=4096,
+    )
+
+    # A Gaussian reaches a tile at most once. The compositor's chunk loop is
+    # sized on that, so it is worth asserting separately from the reference.
+    emitted = int(result.valid_count)
+    assert emitted > count, "the case should emit multi-tile runs"
+    pairs = np.stack(
+        (result.tile_ids[:emitted], result.gaussian_ids[:emitted]), axis=-1
+    )
+    assert len(np.unique(pairs, axis=0)) == emitted

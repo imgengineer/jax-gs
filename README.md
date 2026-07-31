@@ -280,7 +280,13 @@ wall-clock 的倍数小于循环步数的倍数（后者是 68×），因为省�
 | intersection：排序 | 0.19 | 1.5% |
 | projection / SH / offsets | <0.1 | <1% |
 
-**排序不是瓶颈**（1.5%），不要去动它。真正的第二大项是 AccuTile 的 emit：`_emit_accutile_intersections_jax` 是一对嵌套 `fori_loop`，各跑 `max(tile_width, tile_height)` 次，640×360 下就是 40×40=1,600 次迭代，每次对整个 138,766 长的输入做两次 scatter——为了产出 355,211 个交集，做了约 2.22 亿次 scatter 尝试，绝大多数被 `mode="drop"` 丢掉。它的代价只取决于 tile 网格，与场景无关，且随分辨率平方增长。AABB 路径用的是 O(capacity) 的 rank 映射（`searchsorted(cumulative, ranks)`），AccuTile 路径应该也能改成按输出槽反查所属高斯与行内偏移，代价是要在每高斯的逐行 span 上做一次前缀和再二分。
+**排序不是瓶颈**（1.5%），不要去动它。第二大项是 AccuTile 的 emit，这一项已经重写。
+
+原来的 `_emit_accutile_intersections_jax` 是一对嵌套 `fori_loop`，各跑 `max(tile_width, tile_height)` 次，640×360 下就是 40×40=1,600 次迭代，每次对整个 138,766 长的输入做两次 scatter——为了产出 355,211 个交集，做了约 2.22 亿次 scatter 尝试，绝大多数被 `mode="drop"` 丢掉；代价只取决于 tile 网格，与场景无关，且随分辨率平方增长。
+
+椭圆走查沿 outer 轴本来就是顺序的，逐列 span 仍然由那一趟扫描产生；但**发射不必也是嵌套的**。现在每个输出槽用前缀和反查自己的高斯（和 AABB 路径一样的 `searchsorted(cumulative, ranks)`），outer 那一趟只需要说明它刚测出的这些 run 覆盖了哪些槽。内层循环和 scatter 全部消失，只剩每步三次 gather。
+
+实测（garden、camera 0、640×360、`--max-intersections 524288 --max-candidates-per-tile 2048`，GPU 空闲）：**前向 16.98 → 8.29 ms（2.05×）、反向 46.98 → 38.23 ms（1.23×）**。1920×1080 下前向 143.0 → 62.0 ms（2.31×），倍数更大正是因为旧写法随 tile 网格平方增长。发射出的 (tile, gaussian) 多重集、`valid_count` 和 `overflow` 在 9 个构造场景下与旧实现逐位相同（含溢出、转置 `is_y` 轴、宽高比极端的网格、比图像还大的椭圆）；端到端 loss 与梯度在 CPU 上逐位不变。发射顺序不必保持，因为下游排序是 (tile, depth, gaussian_id) 上的全序。
 
 再往下的空间有多大，2026-07-31 用真实 garden 的逐 tile 占用量化过。**合成 benchmark 场景在这里会骗人**：它按屏幕坐标均匀撒点，占用分布天然平坦（最忙/均值 1.4×），据此会得出「负载均衡没用」的错误结论。真实 garden 是重尾的（p50≈290、max≈2000、最忙/均值 3.9–6.0×，还有空 tile）。三个相机下各方案的循环步数：
 

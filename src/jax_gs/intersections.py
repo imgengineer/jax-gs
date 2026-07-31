@@ -386,21 +386,43 @@ def _emit_accutile_intersections_jax(
     tile_width: int,
     tile_height: int,
 ) -> tuple[jax.Array, jax.Array]:
-    gaussian_ids = jnp.full((capacity,), -1, dtype=jnp.int32)
-    tile_ids = jnp.full((capacity,), -1, dtype=jnp.int32)
-    if capacity == 0:
-        return gaussian_ids, tile_ids
+    """Fill the output buffer by asking each slot which run it belongs to.
 
-    input_gaussian_ids = jnp.arange(state.valid.shape[0], dtype=jnp.int32)
-    starts = jnp.where(
-        input_gaussian_ids > 0,
-        cumulative[jnp.maximum(input_gaussian_ids - 1, 0)],
+    The ellipse walk is sequential along the outer axis, so the per-column
+    spans still come from one pass over it. Emitting used to add a second,
+    nested pass that scattered the entire input into the output buffer once per
+    (outer, cross) pair. That costs the square of the tile grid however few
+    intersections the scene produces, and grows with the square of the
+    resolution. Instead every output slot resolves its own Gaussian from the
+    prefix sums, the way the AABB path already does, and a pass over the outer
+    axis only has to say which slots the runs it just measured cover.
+    """
+
+    if capacity == 0:
+        return (
+            jnp.full((capacity,), -1, dtype=jnp.int32),
+            jnp.full((capacity,), -1, dtype=jnp.int32),
+        )
+
+    gaussian_count = state.valid.shape[0]
+    ranks = jnp.arange(capacity, dtype=jnp.int32)
+    owner = jnp.clip(
+        jnp.searchsorted(cumulative, ranks, side="right"),
         0,
+        gaussian_count - 1,
     )
+    previous = jnp.where(
+        owner > 0, cumulative[jnp.maximum(owner - 1, 0)], 0
+    )
+    local = ranks - previous
+    output_valid = ranks < valid_count
+
     previous_min, previous_max = _accutile_initial_span_jax(
         state, tile_size=tile_size
     )
     emitted = jnp.zeros(state.valid.shape, dtype=jnp.int32)
+    cross = jnp.zeros((capacity,), dtype=jnp.int32)
+    outer_offset_of_slot = jnp.zeros((capacity,), dtype=jnp.int32)
 
     def emit_outer(
         outer_offset: int,
@@ -418,8 +440,8 @@ def _emit_accutile_intersections_jax(
         jax.Array,
         jax.Array,
     ]:
-        gaussian_ids, tile_ids, previous_min, previous_max, emitted = carry
-        min_v, max_v, current_min, current_max, active, outer = (
+        previous_min, previous_max, emitted, cross, outer_offset_of_slot = carry
+        min_v, max_v, current_min, current_max, active, _ = (
             _accutile_column_span_jax(
                 state,
                 jnp.int32(outer_offset),
@@ -429,52 +451,37 @@ def _emit_accutile_intersections_jax(
             )
         )
         span = jnp.where(active, max_v - min_v, 0)
-
-        def emit_cross(
-            cross_offset: int,
-            outputs: tuple[jax.Array, jax.Array],
-        ) -> tuple[jax.Array, jax.Array]:
-            gaussian_ids, tile_ids = outputs
-            positions = starts + emitted + jnp.int32(cross_offset)
-            cross = min_v + jnp.int32(cross_offset)
-            output_valid = (
-                active
-                & (cross_offset < span)
-                & (positions < valid_count)
-                & (positions < capacity)
-            )
-            safe_positions = jnp.where(output_valid, positions, capacity)
-            emitted_tile_ids = jnp.where(
-                state.is_y,
-                outer * tile_width + cross,
-                cross * tile_width + outer,
-            ).astype(jnp.int32)
-            gaussian_ids = gaussian_ids.at[safe_positions].set(
-                input_gaussian_ids, mode="drop"
-            )
-            tile_ids = tile_ids.at[safe_positions].set(
-                emitted_tile_ids, mode="drop"
-            )
-            return gaussian_ids, tile_ids
-
-        gaussian_ids, tile_ids = jax.lax.fori_loop(
-            0,
-            max(tile_width, tile_height),
-            emit_cross,
-            (gaussian_ids, tile_ids),
+        # The run this column contributes occupies the Gaussian's output slots
+        # [emitted, emitted + span). A negative span covers nothing, which is
+        # what the nested loop's cross_offset < span condition also did.
+        run_start = emitted[owner]
+        covered = (local >= run_start) & (local < run_start + span[owner])
+        cross = jnp.where(covered, min_v[owner] + local - run_start, cross)
+        outer_offset_of_slot = jnp.where(
+            covered, jnp.int32(outer_offset), outer_offset_of_slot
         )
         emitted = emitted + span
         previous_min = jnp.where(active, current_min, previous_min)
         previous_max = jnp.where(active, current_max, previous_max)
-        return gaussian_ids, tile_ids, previous_min, previous_max, emitted
+        return previous_min, previous_max, emitted, cross, outer_offset_of_slot
 
-    gaussian_ids, tile_ids, _, _, _ = jax.lax.fori_loop(
+    _, _, _, cross, outer_offset_of_slot = jax.lax.fori_loop(
         0,
         max(tile_width, tile_height),
         emit_outer,
-        (gaussian_ids, tile_ids, previous_min, previous_max, emitted),
+        (previous_min, previous_max, emitted, cross, outer_offset_of_slot),
     )
-    return gaussian_ids, tile_ids
+
+    outer = state.outer_min[owner] + outer_offset_of_slot
+    tile_ids = jnp.where(
+        state.is_y[owner],
+        outer * tile_width + cross,
+        cross * tile_width + outer,
+    )
+    return (
+        jnp.where(output_valid, owner, -1).astype(jnp.int32),
+        jnp.where(output_valid, tile_ids, -1).astype(jnp.int32),
+    )
 
 
 def _accutile_intersections_jax(
