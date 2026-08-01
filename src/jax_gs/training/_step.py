@@ -379,6 +379,229 @@ def _apply_topology_update(
     return (new_count, pruned_count, commit_overflow, opacity_reset)
 
 
+class _ResolvedBatch(NamedTuple):
+    """One training batch after sampling, posing and sizing.
+
+    The step resolves these before it can render: the crop actually being
+    scored, the cameras to render it from, and the sizes and step number
+    that follow. Grouping them keeps the loss's own arguments to the ones
+    it is differentiated with respect to.
+    """
+
+    targets: jax.Array
+    viewmats: jax.Array
+    camtoworlds: jax.Array | None
+    image_ids: jax.Array | None
+    patch_intrinsics: jax.Array
+    backgrounds: jax.Array
+    render_height: int
+    render_width: int
+    sh_degree: jax.Array
+    training_step: jax.Array
+    uses_camera_modules: bool
+    pose_perturb: CameraOptModule | None
+
+
+def _training_loss(
+    current_model: GaussianModel,
+    current_pose_adjust: CameraOptModule | None,
+    current_screen_probe: jax.Array,
+    current_appearance_module: AppearanceOptModule | None = None,
+    *,
+    batch: _ResolvedBatch,
+    plan: _TrainStepPlan,
+    config: TrainConfig,
+    distributed_axis_name: Hashable | None,
+    distributed_world_size: int,
+):
+    """Render the batch and score it.
+
+    The differentiated arguments stay positional, because the step takes their
+    gradients by index and which ones are live depends on whether pose and
+    appearance are being optimized. Everything the batch already resolved, and
+    everything the step was compiled around, arrives by keyword.
+    """
+    render_viewmats = batch.viewmats
+    adjusted_camtoworlds = None
+    if batch.uses_camera_modules:
+        assert batch.camtoworlds is not None
+        assert batch.image_ids is not None
+        adjusted_camtoworlds = _apply_camera_pose_modules(
+            batch.camtoworlds,
+            batch.image_ids,
+            pose_adjust=(
+                current_pose_adjust if config.pose_opt else None
+            ),
+            pose_perturb=batch.pose_perturb,
+        )
+        render_viewmats = _invert_rigid_transforms(
+            adjusted_camtoworlds
+        )
+    parameters = current_model.activated(
+        split_sh=(
+            config.model_type == "3dgs" and not config.app_opt
+        )
+    )
+    if config.app_opt:
+        assert current_appearance_module is not None
+        assert adjusted_camtoworlds is not None
+        assert batch.image_ids is not None
+        directions = (
+            parameters["means"][None, :, :]
+            - adjusted_camtoworlds[:, None, :3, 3]
+        )
+        corrections = current_appearance_module(
+            parameters["features"],
+            batch.image_ids,
+            directions,
+            batch.sh_degree,
+        )
+        render_colors = jax.nn.sigmoid(
+            parameters["colors"][None, :, :] + corrections
+        )
+        raster_sh_degree = None
+    else:
+        render_colors = parameters["sh_coeffs"]
+        raster_sh_degree = batch.sh_degree
+    if config.model_type == "2dgs":
+        (
+            renders,
+            alphas,
+            rendered_normals,
+            normals_from_depth,
+            render_distort,
+            _,
+            info,
+        ) = _training.rasterization_2dgs(
+            parameters["means"],
+            parameters["quats"],
+            parameters["scales"],
+            parameters["opacities"],
+            render_colors,
+            render_viewmats,
+            batch.patch_intrinsics,
+            batch.render_width,
+            batch.render_height,
+            packed=config.packed,
+            sparse_grad=config.sparse_grad,
+            absgrad=plan.use_absgrad,
+            active_mask=parameters["active_mask"],
+            sh_degree=raster_sh_degree,
+            backgrounds=batch.backgrounds,
+            render_mode="RGB",
+            distloss=config.dist_loss,
+            config=plan.rasterizer_config,
+            _gradient_2dgs_offset=(
+                None
+                if plan.use_absgrad or not plan.collect_screen_stats
+                else current_screen_probe
+            ),
+            _gradient_2dgs_absgrad_probe=(
+                current_screen_probe
+                if plan.use_absgrad and plan.collect_screen_stats
+                else None
+            ),
+        )
+        normal_loss_value, distortion_loss_value = (
+            _two_dgs_regularization_losses(
+                rendered_normals,
+                normals_from_depth,
+                alphas,
+                render_distort,
+                batch.training_step,
+                config,
+            )
+        )
+    else:
+        renders, _, info = _training.rasterization(
+            parameters["means"],
+            parameters["quats"],
+            parameters["scales"],
+            parameters["opacities"],
+            render_colors,
+            render_viewmats,
+            batch.patch_intrinsics,
+            batch.render_width,
+            batch.render_height,
+            packed=config.packed,
+            sparse_grad=config.sparse_grad,
+            absgrad=plan.use_absgrad,
+            active_mask=parameters["active_mask"],
+            sh_degree=raster_sh_degree,
+            backgrounds=batch.backgrounds,
+            camera_model=config.camera_model,
+            with_ut=config.with_ut,
+            with_eval3d=config.with_eval3d,
+            distributed=plan.distributed,
+            distributed_world_size=distributed_world_size,
+            distributed_axis_name=distributed_axis_name,
+            config=plan.rasterizer_config,
+            _means2d_offset=(
+                None
+                if plan.use_absgrad or not plan.collect_screen_stats
+                else current_screen_probe
+            ),
+            _means2d_absgrad_probe=(
+                current_screen_probe
+                if plan.use_absgrad and plan.collect_screen_stats
+                else None
+            ),
+        )
+        normal_loss_value = jnp.zeros((), dtype=renders.dtype)
+        distortion_loss_value = jnp.zeros((), dtype=renders.dtype)
+    rgb = renders[..., :3]
+    l1_value = jnp.mean(l1_loss(rgb, batch.targets))
+    ssim_value = ssim(rgb, batch.targets)
+    photometric_loss = (1.0 - plan.ssim_lambda) * l1_value + plan.ssim_lambda * (
+        1.0 - ssim_value
+    )
+    opacity_reg_loss_value = jnp.zeros(
+        (), dtype=photometric_loss.dtype
+    )
+    if config.opacity_reg > 0.0:
+        opacity_reg_loss_value = jnp.asarray(
+            config.opacity_reg, dtype=photometric_loss.dtype
+        ) * opacity_reg_loss(
+            current_model.opacity_logits[...],
+            mask=current_model.active_mask[...],
+        )
+    scale_reg_loss_value = jnp.zeros(
+        (), dtype=photometric_loss.dtype
+    )
+    if config.scale_reg > 0.0:
+        scale_reg_loss_value = jnp.asarray(
+            config.scale_reg, dtype=photometric_loss.dtype
+        ) * scale_reg_loss(
+            current_model.log_scales[...],
+            mask=current_model.active_mask[...],
+        )
+    loss = (
+        photometric_loss
+        + normal_loss_value
+        + distortion_loss_value
+        + opacity_reg_loss_value
+        + scale_reg_loss_value
+    )
+    pose_error_value = jnp.zeros((), dtype=loss.dtype)
+    if config.pose_opt and config.pose_noise > 0.0:
+        assert adjusted_camtoworlds is not None
+        assert batch.camtoworlds is not None
+        pose_error_value = jnp.mean(
+            jnp.abs(adjusted_camtoworlds - batch.camtoworlds)
+        )
+    return loss, (
+        l1_value,
+        ssim_value,
+        normal_loss_value,
+        distortion_loss_value,
+        opacity_reg_loss_value,
+        scale_reg_loss_value,
+        pose_error_value,
+        rgb,
+        info,
+    )
+
+
 class _TrainStepPlan(NamedTuple):
     """What a training step's configuration settles before it can be traced.
 
@@ -467,11 +690,10 @@ def _make_train_step(
     )
     # Bound by name rather than unpacked, so the step body reads the same as
     # before the plan existed and adding a field cannot silently shift these.
+    # The fields only the loss and the commit stage read stay on the plan and
+    # travel to them by keyword.
     patch_size = plan.patch_size
-    rasterizer_config = plan.rasterizer_config
-    ssim_lambda = plan.ssim_lambda
     random_background = plan.random_background
-    use_absgrad = plan.use_absgrad
     distributed = plan.distributed
     collect_screen_stats = plan.collect_screen_stats
     mcmc_strategy = plan.mcmc_strategy
@@ -615,191 +837,28 @@ def _make_train_step(
             screen_probe_shape, dtype=model.means[...].dtype
         )
 
-        def loss_fn(
-            current_model: GaussianModel,
-            current_pose_adjust: CameraOptModule | None,
-            current_screen_probe: jax.Array,
-            current_appearance_module: AppearanceOptModule | None = None,
-        ):
-            render_viewmats = viewmats
-            adjusted_camtoworlds = None
-            if uses_camera_modules:
-                assert camtoworlds is not None
-                assert image_ids is not None
-                adjusted_camtoworlds = _apply_camera_pose_modules(
-                    camtoworlds,
-                    image_ids,
-                    pose_adjust=(
-                        current_pose_adjust if config.pose_opt else None
-                    ),
-                    pose_perturb=pose_perturb,
-                )
-                render_viewmats = _invert_rigid_transforms(
-                    adjusted_camtoworlds
-                )
-            parameters = current_model.activated(
-                split_sh=(
-                    config.model_type == "3dgs" and not config.app_opt
-                )
-            )
-            if config.app_opt:
-                assert current_appearance_module is not None
-                assert adjusted_camtoworlds is not None
-                assert image_ids is not None
-                directions = (
-                    parameters["means"][None, :, :]
-                    - adjusted_camtoworlds[:, None, :3, 3]
-                )
-                corrections = current_appearance_module(
-                    parameters["features"],
-                    image_ids,
-                    directions,
-                    sh_degree,
-                )
-                render_colors = jax.nn.sigmoid(
-                    parameters["colors"][None, :, :] + corrections
-                )
-                raster_sh_degree = None
-            else:
-                render_colors = parameters["sh_coeffs"]
-                raster_sh_degree = sh_degree
-            if config.model_type == "2dgs":
-                (
-                    renders,
-                    alphas,
-                    rendered_normals,
-                    normals_from_depth,
-                    render_distort,
-                    _,
-                    info,
-                ) = _training.rasterization_2dgs(
-                    parameters["means"],
-                    parameters["quats"],
-                    parameters["scales"],
-                    parameters["opacities"],
-                    render_colors,
-                    render_viewmats,
-                    patch_intrinsics,
-                    render_width,
-                    render_height,
-                    packed=config.packed,
-                    sparse_grad=config.sparse_grad,
-                    absgrad=use_absgrad,
-                    active_mask=parameters["active_mask"],
-                    sh_degree=raster_sh_degree,
-                    backgrounds=backgrounds,
-                    render_mode="RGB",
-                    distloss=config.dist_loss,
-                    config=rasterizer_config,
-                    _gradient_2dgs_offset=(
-                        None
-                        if use_absgrad or not collect_screen_stats
-                        else current_screen_probe
-                    ),
-                    _gradient_2dgs_absgrad_probe=(
-                        current_screen_probe
-                        if use_absgrad and collect_screen_stats
-                        else None
-                    ),
-                )
-                normal_loss_value, distortion_loss_value = (
-                    _two_dgs_regularization_losses(
-                        rendered_normals,
-                        normals_from_depth,
-                        alphas,
-                        render_distort,
-                        training_step,
-                        config,
-                    )
-                )
-            else:
-                renders, _, info = _training.rasterization(
-                    parameters["means"],
-                    parameters["quats"],
-                    parameters["scales"],
-                    parameters["opacities"],
-                    render_colors,
-                    render_viewmats,
-                    patch_intrinsics,
-                    render_width,
-                    render_height,
-                    packed=config.packed,
-                    sparse_grad=config.sparse_grad,
-                    absgrad=use_absgrad,
-                    active_mask=parameters["active_mask"],
-                    sh_degree=raster_sh_degree,
-                    backgrounds=backgrounds,
-                    camera_model=config.camera_model,
-                    with_ut=config.with_ut,
-                    with_eval3d=config.with_eval3d,
-                    distributed=distributed,
-                    distributed_world_size=distributed_world_size,
-                    distributed_axis_name=distributed_axis_name,
-                    config=rasterizer_config,
-                    _means2d_offset=(
-                        None
-                        if use_absgrad or not collect_screen_stats
-                        else current_screen_probe
-                    ),
-                    _means2d_absgrad_probe=(
-                        current_screen_probe
-                        if use_absgrad and collect_screen_stats
-                        else None
-                    ),
-                )
-                normal_loss_value = jnp.zeros((), dtype=renders.dtype)
-                distortion_loss_value = jnp.zeros((), dtype=renders.dtype)
-            rgb = renders[..., :3]
-            l1_value = jnp.mean(l1_loss(rgb, targets))
-            ssim_value = ssim(rgb, targets)
-            photometric_loss = (1.0 - ssim_lambda) * l1_value + ssim_lambda * (
-                1.0 - ssim_value
-            )
-            opacity_reg_loss_value = jnp.zeros(
-                (), dtype=photometric_loss.dtype
-            )
-            if config.opacity_reg > 0.0:
-                opacity_reg_loss_value = jnp.asarray(
-                    config.opacity_reg, dtype=photometric_loss.dtype
-                ) * opacity_reg_loss(
-                    current_model.opacity_logits[...],
-                    mask=current_model.active_mask[...],
-                )
-            scale_reg_loss_value = jnp.zeros(
-                (), dtype=photometric_loss.dtype
-            )
-            if config.scale_reg > 0.0:
-                scale_reg_loss_value = jnp.asarray(
-                    config.scale_reg, dtype=photometric_loss.dtype
-                ) * scale_reg_loss(
-                    current_model.log_scales[...],
-                    mask=current_model.active_mask[...],
-                )
-            loss = (
-                photometric_loss
-                + normal_loss_value
-                + distortion_loss_value
-                + opacity_reg_loss_value
-                + scale_reg_loss_value
-            )
-            pose_error_value = jnp.zeros((), dtype=loss.dtype)
-            if config.pose_opt and config.pose_noise > 0.0:
-                assert adjusted_camtoworlds is not None
-                assert camtoworlds is not None
-                pose_error_value = jnp.mean(
-                    jnp.abs(adjusted_camtoworlds - camtoworlds)
-                )
-            return loss, (
-                l1_value,
-                ssim_value,
-                normal_loss_value,
-                distortion_loss_value,
-                opacity_reg_loss_value,
-                scale_reg_loss_value,
-                pose_error_value,
-                rgb,
-                info,
-            )
+        batch = _ResolvedBatch(
+            targets=targets,
+            viewmats=viewmats,
+            camtoworlds=camtoworlds,
+            image_ids=image_ids,
+            patch_intrinsics=patch_intrinsics,
+            backgrounds=backgrounds,
+            render_height=render_height,
+            render_width=render_width,
+            sh_degree=sh_degree,
+            training_step=training_step,
+            uses_camera_modules=uses_camera_modules,
+            pose_perturb=pose_perturb,
+        )
+        loss_fn = partial(
+            _training_loss,
+            batch=batch,
+            plan=plan,
+            config=config,
+            distributed_axis_name=distributed_axis_name,
+            distributed_world_size=distributed_world_size,
+        )
 
         with jax.named_scope("loss_and_backward"):
             if config.pose_opt and config.app_opt:
