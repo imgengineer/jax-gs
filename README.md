@@ -322,7 +322,8 @@ emit 重写之后同样口径再测一次（7.67 ms GPU kernel time）：composi
 - **透射率饱和的批级 early termination**（Taming 3DGS 的 last-contributor 思路搬到批门控上）：2026-08-01 用真实候选列表和精确的 compositor alpha 数学定价过。garden 三个相机下，把「本批所有 tile 的所有有效像素 T ≤ 1e-4」并入门控只把 chunk 步数从 23/24/22 降到 23/23/22（1.00–1.04×）——约 58% 的 tile 在候选耗尽前根本不饱和，按占用排序的分批又已吃掉了其余空间。合成场景上是 3.00×，这又是均匀合成场景的陷阱。语义上它是无损的（饱和后 accepted 恒 false，输出与全部梯度贡献逐位不变），如果以后拿到**训练过的** checkpoint（不透明度远高于 benchmark 的生成值）可以用 `/tmp` 里同样的方法重新定价，但在此之前不要做。
 - **Morton/聚类重排高斯槽位以改善 gather 局部性**（LiteGS 的 Cluster-Cull-Compact 思路）：被缓存算术直接否决。compositor 的 gather 对象是 visible packing 后的参数数组，138k 高斯约 5 MB，而 RTX 5090 的 L2 是 128 MB——gather 本来就常驻 L2，重排无从改善。在 L2 小的设备上才值得重看。
 
-- 内层 `jax.checkpoint(composite_chunk)` 不能因为有了门控就去掉。最早实测去掉直接 OOM（需要 85 GiB）；chunk 数从 128 降到 4 之后不再 OOM，但 2026-08-01 重测仍然**更慢**（rasterizer 前反向 17.37 → 20.86 ms）。这一段是带宽受限的，重算比把残差写出去再读回来便宜。两级 remat 都保留。
+- 内层 `jax.checkpoint(composite_chunk)` 不能因为有了门控就去掉。最早实测去掉直接 OOM（需要 85 GiB）；chunk 数从 128 降到 4 之后不再 OOM，但 2026-08-01 重测仍然**更慢**（rasterizer 前反向 17.37 → 20.86 ms）。这一段是带宽受限的，重算比把残差写出去再读回来便宜。内层 remat 始终保留。
+- **外层 `jax.checkpoint(render_tile)` 改成按需**：给了 `max_candidates_per_tile` 就不套（省掉反向里对整个 tile 前向的一次重算），没给就保留。garden 有上限配置下反向 19.0 → 17.9 ms（**6%**），编译期 temp 238.3 → 246.4 MiB（+8）；默认无上限配置**逐字节不变**。这个分界是量出来的：无上限时 chunk 数按形状最坏情况定，同样去掉外层 remat 虽然反向快 16%（156.7 → 131.8 ms），但 temp 从 232.4 涨到 355.6 MiB（+53%），对默认路径不划算。默认路径梯度逐位不变；有上限路径 loss 不变、梯度 1.1e-7 relative L2。
 - `max_gaussians_per_tile` 在按批门控之后仍然是 512 最优：garden 上 K=128/256/512/1024 的反向是 33.6/26.2/**21.6**/38.6 ms。K=256 的前向略快（5.39 对 5.52），但训练由反向主导。
 - 把 `cumprod(1-alpha)` 换成 `exp(cumsum(log(1-alpha)))`，当时只把全梯度从 995 降到 927 ms，还会改前向数值，不值得。
 - 曾按参数分组把成本归因到「alpha 链的 VJP」（仅 sh 138.7 ms、仅 opacities 642.5、仅 means 1081.6）。这个归因被上面的零残差成本污染过：残差个数随梯度目标变化，颜色路径的残差最少。手写透射率反向（`low_level._chunk_weights` 的 `custom_vjp`，反向只需一次后缀和）当时确实把全梯度从 995.4 降到 808.3 ms，但剩下的差距主要不是算术。

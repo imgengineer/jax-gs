@@ -1324,15 +1324,26 @@ def rasterize_to_pixels(
     ).reshape(batch_count, tile_batch_size)
     batch_bounds = jnp.max(tile_candidate_counts[padded_order], axis=1)
 
+    # What a checkpoint here buys is not storing a carry per chunk per tile
+    # during the forward, at the price of recomputing each tile's whole forward
+    # before walking its chunks backward. Which side wins depends entirely on
+    # the chunk count, and that is exactly what a candidate bound pins down. A
+    # caller who has supplied one has said the loop is a handful of chunks, so
+    # the carries are small and the recompute is the larger cost; measured on a
+    # real capture, keeping them took 6% off the backward for 8 MiB. Without a
+    # bound the loop is sized for the worst tile the shapes allow, and the same
+    # trade trends the other way as the chunk count grows, so the recompute
+    # stays.
+    keep_tile_carries = max_candidates_per_tile is not None
+    render_batch_tiles = (
+        (lambda bound: jax.vmap(partial(render_tile, bound)))
+        if keep_tile_carries
+        else (lambda bound: jax.vmap(jax.checkpoint(partial(render_tile, bound))))
+    )
+
     def render_batch(_, batch):
         tiles, bound = batch
-        return None, jax.vmap(
-            # Reverse mode otherwise keeps every chunk of every tile's
-            # [max_gaussians_per_tile, pixel] compositing intermediates alive
-            # at once, which dwarfs the forward workspace. Recomputing one tile
-            # batch at a time is also what the upstream backward kernel does.
-            jax.checkpoint(partial(render_tile, bound))
-        )(tiles)
+        return None, render_batch_tiles(bound)(tiles)
 
     _, batched_tiles = jax.lax.scan(
         render_batch, None, (padded_order, batch_bounds)
