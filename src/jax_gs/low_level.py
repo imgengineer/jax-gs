@@ -1152,17 +1152,20 @@ def rasterize_to_pixels(
     if max_candidates_per_tile is not None:
         per_tile_bound = min(per_tile_bound, max_candidates_per_tile)
     chunk_count = math.ceil(per_tile_bound / max_gaussians_per_tile)
-    # The busiest tile is a single scalar over the whole image, so it can also
-    # gate the loop from outside the tile map: the predicate stays scalar
-    # inside the tile batch's vmap and lets the loop skip chunks no tile can
-    # reach at run time.
+    # A scalar bound outside the tile map also gates the loop at run time: the
+    # predicate stays scalar inside the tile batch's vmap, so the conditional
+    # really short circuits instead of evaluating both branches. One bound for
+    # the whole image has to be the busiest tile's occupancy, which every other
+    # tile then pays for. Occupancy is very uneven in real captures, so the
+    # bound is per tile batch and the batches are built from tiles of similar
+    # occupancy.
     tile_ends = jnp.concatenate(
         (
             offsets_flat[1:],
             jnp.asarray(valid_count, dtype=offsets_flat.dtype)[None],
         )
     )
-    busiest_tile_count = jnp.max(jnp.maximum(tile_ends - offsets_flat, 0))
+    tile_candidate_counts = jnp.maximum(tile_ends - offsets_flat, 0)
     local_y, local_x = jnp.meshgrid(
         jnp.arange(tile_size, dtype=means2d.dtype) + 0.5,
         jnp.arange(tile_size, dtype=means2d.dtype) + 0.5,
@@ -1172,7 +1175,7 @@ def rasterize_to_pixels(
     local_y = local_y.reshape(-1)
     pixel_count = tile_size * tile_size
 
-    def render_tile(tile_global):
+    def render_tile(batch_bound, tile_global):
         start = offsets_flat[tile_global]
         end = jnp.where(
             tile_global + 1 < tile_count,
@@ -1196,7 +1199,7 @@ def rasterize_to_pixels(
 
         def composite_chunk(chunk_index, carry):
             return jax.lax.cond(
-                chunk_index * max_gaussians_per_tile < busiest_tile_count,
+                chunk_index * max_gaussians_per_tile < batch_bound,
                 # Recomputing the reached branch keeps the conditional's
                 # reverse-mode residuals down to the carry. A conditional gives
                 # both branches the same residual signature, so without this the
@@ -1306,15 +1309,38 @@ def rasterize_to_pixels(
             count > chunk_count * max_gaussians_per_tile,
         )
 
-    tile_ids = jnp.arange(tile_count, dtype=jnp.int32)
-    rendered_tiles, alpha_tiles, tile_overflow = jax.lax.map(
-        # Reverse mode otherwise keeps every chunk of every tile's
-        # [max_gaussians_per_tile, pixel] compositing intermediates alive at
-        # once, which dwarfs the forward workspace. Recomputing one tile batch
-        # at a time is also what the upstream backward kernel does.
-        jax.checkpoint(render_tile),
-        tile_ids,
-        batch_size=tile_batch_size,
+    # Grouping tiles by occupancy is what makes a per-batch bound worth having:
+    # in raster order a batch almost always contains the image's busiest tile's
+    # neighbourhood, so its bound stays near the global one. Sorting is a
+    # permutation of whole tiles, so it changes nothing but the order the
+    # results and their gradient contributions are accumulated in.
+    batch_count = math.ceil(tile_count / tile_batch_size)
+    padded = batch_count * tile_batch_size
+    order = jnp.argsort(tile_candidate_counts)
+    # Pad with the lightest tile so the busiest batch does not inherit extra
+    # full-cost lanes. Padded results are dropped below.
+    padded_order = jnp.concatenate(
+        (order, jnp.broadcast_to(order[:1], (padded - tile_count,)))
+    ).reshape(batch_count, tile_batch_size)
+    batch_bounds = jnp.max(tile_candidate_counts[padded_order], axis=1)
+
+    def render_batch(_, batch):
+        tiles, bound = batch
+        return None, jax.vmap(
+            # Reverse mode otherwise keeps every chunk of every tile's
+            # [max_gaussians_per_tile, pixel] compositing intermediates alive
+            # at once, which dwarfs the forward workspace. Recomputing one tile
+            # batch at a time is also what the upstream backward kernel does.
+            jax.checkpoint(partial(render_tile, bound))
+        )(tiles)
+
+    _, batched_tiles = jax.lax.scan(
+        render_batch, None, (padded_order, batch_bounds)
+    )
+    scattered_position = jnp.argsort(order)
+    rendered_tiles, alpha_tiles, tile_overflow = (
+        value.reshape((padded,) + value.shape[2:])[scattered_position]
+        for value in batched_tiles
     )
     render_colors = (
         rendered_tiles.reshape(

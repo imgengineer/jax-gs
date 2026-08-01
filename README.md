@@ -280,6 +280,8 @@ wall-clock 的倍数小于循环步数的倍数（后者是 68×），因为省�
 | intersection：排序 | 0.19 | 1.5% |
 | projection / SH / offsets | <0.1 | <1% |
 
+emit 重写之后同样口径再测一次（7.67 ms GPU kernel time）：compositing 约 6.0 ms（78%）、bounds/count 0.32、**AccuTile emit 0.26（原 4.25，16×）**、排序 0.19、projection 0.08。也就是说 emit 这一项已经退出瓶颈，compositing 重新占绝对主导。
+
 **排序不是瓶颈**（1.5%），不要去动它。第二大项是 AccuTile 的 emit，这一项已经重写。
 
 原来的 `_emit_accutile_intersections_jax` 是一对嵌套 `fori_loop`，各跑 `max(tile_width, tile_height)` 次，640×360 下就是 40×40=1,600 次迭代，每次对整个 138,766 长的输入做两次 scatter——为了产出 355,211 个交集，做了约 2.22 亿次 scatter 尝试，绝大多数被 `mode="drop"` 丢掉；代价只取决于 tile 网格，与场景无关，且随分辨率平方增长。
@@ -297,7 +299,11 @@ wall-clock 的倍数小于循环步数的倍数（后者是 68×），因为省�
 | 按占用排序分 8 组、每组一个静态上限 | 26（157×） | 34（120×） | 26（157×） | 否 |
 | 逐 tile 理想 | 20（204×） | 19（215×） | 19（215×） | 是 |
 
-结论是**动态 trip count 不该是下一步**：静态上限加排序分组能拿到 204–215× 里的 120–157×，完全不需要手写反向，而 `custom_vjp` 只多买约 1.4×，却要重写本仓库最精细的一段代码。静态上限已经落地；排序分组按上表把 compositing 的 60 步降到约 26 步，即整个前向的约 25%，仍然值得做。排序分组的做法是把 tile 按占用排序后切成固定大小的组，每组用自己的 `lax.map` 和自己的静态 chunk 数：置换是数据相关的，形状和 trip count 仍是静态的，组上限给小了就由 `tile_overflow` 兜住。注意 2 的幂分桶最多浪费 2×（cam1 的 2,140 进到 4,096），按 K 的倍数分桶更紧但编译变体更多。
+结论是**动态 trip count 不该是下一步**：静态上限加按占用分组能拿到 204–215× 里的 120–157×，完全不需要手写反向，而 `custom_vjp` 只多买约 1.4×，却要重写本仓库最精细的一段代码。
+
+静态上限和分组都已落地。分组的做法是：门控标量改成**每个 tile 批一个**，而不是整幅图一个；再把 tile 按候选数排序后才切批，让同一批里的 tile 占用相近。排序只是整块 tile 的置换，除了结果与梯度的累加顺序之外什么都不改；批数不能整除时用最轻的 tile 补齐，免得最忙的那一批白白多出满载的 lane。实测（garden、camera 0、同上配置）**前向 9.32 → 5.55 ms（1.68×）、反向 42.56 → 24.59 ms（1.73×）**，编译期 backward temp 不变（234.2 → 232.4 MiB）。loss 逐位不变，梯度相对 L2 差 ≤ 2.7e-7（约 2 倍 float32 eps，中位数差为 0），来自重排后的累加顺序。
+
+之所以必须先排序：栅格顺序下同一批 tile 在图像上相邻，几乎总会包含全图最忙 tile 的邻域，批上限也就退回接近全局上限。排序分组的做法是把 tile 按占用排序后切成固定大小的组，每组用自己的 `lax.map` 和自己的静态 chunk 数：置换是数据相关的，形状和 trip count 仍是静态的，组上限给小了就由 `tile_overflow` 兜住。注意 2 的幂分桶最多浪费 2×（cam1 的 2,140 进到 4,096），按 K 的倍数分桶更紧但编译变体更多。
 
 如果最后仍要做动态 trip count：`lax.while_loop` 不能反向微分，需要给单 tile compositing 套 `custom_vjp`，forward 用 `while_loop` 并把每步 carry 写进静态缓冲，backward 逆序对每步用 `jax.vjp` 求 chunk body 的梯度并 scatter-add 回去。不要手推 compositing 的导数，让 JAX 对 chunk body 求导，absgrad probe 的 `custom_vjp` 会被自然包含。
 
