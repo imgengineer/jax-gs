@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Hashable
 from dataclasses import replace
+from functools import partial
 import math
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -878,6 +879,481 @@ def _render_camera_intersections(
     }
 
 
+class _CameraRenderContext(NamedTuple):
+    """What every camera in one rasterization call shares.
+
+    The scene being rendered, the camera-model coefficients, and the
+    choices and sizes the call was configured with. One camera's own
+    arrays travel separately as the mapped-over inputs.
+    """
+
+    absgrad_probe_enabled: Any
+    calc_compensations: Any
+    camera_model: Any
+    color_channels: Any
+    colors: Any
+    config: Any
+    external_distortion_coeffs: Any
+    extra_channels: Any
+    extra_signals: Any
+    extra_signals_sh_degree: Any
+    ftheta_coeffs: Any
+    height: Any
+    lidar_coeffs: Any
+    means: Any
+    opacities: Any
+    quats: Any
+    radial_coeffs: Any
+    rays: Any
+    render_mode: Any
+    return_normals: Any
+    rolling_shutter: Any
+    scales: Any
+    sh_degree: Any
+    tangential_coeffs: Any
+    thin_prism_coeffs: Any
+    tile_count: Any
+    tile_height: Any
+    tile_width: Any
+    use_ut: Any
+    viewmats_rs: Any
+    visible_capacity: Any
+    width: Any
+    with_eval3d: Any
+
+
+def _render_one_camera(camera_inputs, *, ctx: _CameraRenderContext):
+    """Render one camera against everything the sweep of cameras shares.
+
+    ``camera_inputs`` is the per-camera slice ``jax.lax.map`` hands over;
+    ``ctx`` is fixed for the whole sweep and arrives bound by
+    :func:`functools.partial`, which traces the same as the closure this used
+    to be.
+    """
+    (
+        camera_index,
+        means2d_c,
+        absgrad_probe_c,
+        radii_c,
+        depths_c,
+        conics_c,
+        compensation_c,
+        colors_c,
+        extra_c,
+        valid_c,
+        viewmat_c,
+        K_c,
+        bg,
+    ) = camera_inputs
+    if ctx.visible_capacity == ctx.means.shape[0]:
+        visible_ids = jnp.arange(ctx.means.shape[0], dtype=jnp.int32)
+        retained_valid = valid_c
+        # Packing is bypassed, so an exact visibility reduction would add
+        # a standalone launch solely for diagnostics. ``-1`` ctx.means not
+        # counted; overflow is impossible because the full bucket is kept.
+        visible_count = jnp.asarray(-1, dtype=jnp.int32)
+        visible_overflow = jnp.asarray(False)
+    else:
+        with jax.named_scope("visible_pack"):
+            (
+                visible_ids,
+                retained_valid,
+                visible_count,
+                visible_overflow,
+            ) = _compact_visible_ids(
+                valid_c,
+                capacity=ctx.visible_capacity,
+                backend=ctx.config.intersection_backend,
+            )
+    compacted = ctx.visible_capacity != ctx.means.shape[0]
+    if compacted:
+        with jax.named_scope("visible_gather"):
+            means2d_c = means2d_c[visible_ids]
+            absgrad_probe_c = absgrad_probe_c[visible_ids]
+            radii_c = radii_c[visible_ids]
+            depths_c = depths_c[visible_ids]
+            conics_c = conics_c[visible_ids]
+            opacities_c = ctx.opacities[visible_ids]
+            if ctx.calc_compensations:
+                opacities_c = opacities_c * compensation_c[visible_ids]
+            selected_means = ctx.means[visible_ids]
+            selected_quats = ctx.quats[visible_ids]
+            selected_scales = ctx.scales[visible_ids]
+    else:
+        opacities_c = ctx.opacities
+        if ctx.calc_compensations:
+            opacities_c = opacities_c * compensation_c
+        selected_means = ctx.means
+        selected_quats = ctx.quats
+        selected_scales = ctx.scales
+    opacities_c = jnp.where(retained_valid, opacities_c, 0.0)
+
+    colors_arg = None
+    if _has_color(ctx.render_mode):
+        assert ctx.colors is not None
+        if ctx.sh_degree is not None:
+            if isinstance(ctx.colors, tuple):
+                all_coefficients = _join_sh_coefficients(ctx.colors)
+            elif ctx.colors.ndim == 4:
+                all_coefficients = ctx.colors[camera_index]
+            else:
+                all_coefficients = ctx.colors
+            coefficients = (
+                all_coefficients[visible_ids]
+                if compacted
+                else all_coefficients
+            )
+            camera_center = _camera_centers(viewmat_c[None, ...])[0]
+            directions = selected_means - camera_center[None, :]
+            with jax.named_scope("spherical_harmonics"):
+                colors_arg = jnp.maximum(
+                    spherical_harmonics(
+                        ctx.sh_degree,
+                        directions,
+                        coefficients,
+                        masks=retained_valid,
+                    )
+                    + 0.5,
+                    0.0,
+                )
+        else:
+            colors_arg = (
+                jnp.where(
+                    retained_valid[:, None], colors_c[visible_ids], 0.0
+                )
+                if compacted
+                else colors_c
+            )
+
+    extra_arg = None
+    if ctx.extra_signals is not None:
+        if ctx.extra_signals_sh_degree is not None:
+            all_extra_coefficients = (
+                ctx.extra_signals[camera_index]
+                if ctx.extra_signals.ndim == 4
+                else ctx.extra_signals
+            )
+            extra_coefficients = (
+                all_extra_coefficients[visible_ids]
+                if compacted
+                else all_extra_coefficients
+            )
+            camera_center = _camera_centers(viewmat_c[None, ...])[0]
+            directions = selected_means - camera_center[None, :]
+            with jax.named_scope("extra_signals_spherical_harmonics"):
+                extra_arg = (
+                    spherical_harmonics(
+                        ctx.extra_signals_sh_degree,
+                        directions,
+                        extra_coefficients,
+                        masks=retained_valid,
+                    )
+                    + 0.5
+                )
+        else:
+            extra_arg = (
+                jnp.where(
+                    retained_valid[:, None], extra_c[visible_ids], 0.0
+                )
+                if compacted
+                else extra_c
+            )
+
+    feature_parts = []
+    feature_background_parts = []
+    if render_mode_has_color(ctx.render_mode):
+        assert colors_arg is not None
+        feature_parts.append(colors_arg)
+        feature_background_parts.append(bg[:ctx.color_channels])
+    if extra_arg is not None:
+        feature_parts.append(extra_arg)
+        feature_background_parts.append(
+            jnp.zeros((ctx.extra_channels,), dtype=extra_arg.dtype)
+        )
+    combined_features = (
+        None if not feature_parts else jnp.concatenate(feature_parts, axis=-1)
+    )
+    combined_background = (
+        jnp.zeros((0,), dtype=ctx.means.dtype)
+        if not feature_background_parts
+        else jnp.concatenate(feature_background_parts, axis=-1)
+    )
+    has_depth_channel = render_mode_has_depth_channel(ctx.render_mode)
+    expected_depth = render_mode_has_expected_depth(ctx.render_mode)
+    if combined_features is None:
+        composite_mode: RenderMode = "ED" if expected_depth else "D"
+    elif has_depth_channel:
+        composite_mode = "RGB+ED" if expected_depth else "RGB+D"
+    else:
+        composite_mode = "RGB"
+
+    if ctx.with_eval3d:
+        intersection_capacity = _automatic_intersection_capacity(
+            means2d_c.shape[0], ctx.tile_count, ctx.config
+        )
+        if ctx.lidar_coeffs is None:
+            intersections = intersect_tiles(
+                means2d_c,
+                radii_c,
+                depths_c,
+                retained_valid & (opacities_c > 0.0),
+                tile_size=ctx.config.tile_size,
+                tile_width=ctx.tile_width,
+                tile_height=ctx.tile_height,
+                max_intersections=intersection_capacity,
+                backend=ctx.config.intersection_backend,
+                sort_backend=ctx.config.sort_backend,
+                mode="aabb",
+            )
+            intersection_offsets = intersections.offsets
+            intersection_gaussian_ids = intersections.gaussian_ids
+            intersection_tile_ids = intersections.tile_ids
+            intersection_valid_count = intersections.valid_count
+            intersection_required_count = intersections.required_count
+            intersection_overflow = intersections.overflow
+        else:
+            lidar_intersections = isect_tiles_lidar(
+                ctx.lidar_coeffs,
+                means2d_c[None, ...],
+                radii_c[None, ...],
+                depths_c[None, ...],
+                max_intersections=intersection_capacity,
+                active_mask=(
+                    retained_valid & (opacities_c > 0.0)
+                )[None, ...],
+            )
+            encoded_offsets = isect_offset_encode(
+                lidar_intersections.isect_ids,
+                1,
+                ctx.tile_width,
+                ctx.tile_height,
+                valid_count=lidar_intersections.valid_count,
+                overflow=lidar_intersections.overflow,
+                return_info=True,
+            )
+            intersection_offsets = encoded_offsets.offsets[0]
+            intersection_gaussian_ids = lidar_intersections.flatten_ids
+            intersection_valid_count = lidar_intersections.valid_count
+            intersection_required_count = jnp.sum(
+                lidar_intersections.tiles_per_gaussian, dtype=jnp.int32
+            )
+            intersection_overflow = lidar_intersections.overflow
+        flat_offsets = intersection_offsets.reshape(-1)
+        if ctx.lidar_coeffs is not None:
+            intersection_positions = jnp.arange(
+                intersection_gaussian_ids.shape[0], dtype=jnp.int32
+            )
+            intersection_tile_ids = jnp.searchsorted(
+                flat_offsets,
+                intersection_positions,
+                side="right",
+            ) - 1
+            intersection_tile_ids = jnp.where(
+                intersection_positions < intersection_valid_count,
+                intersection_tile_ids,
+                -1,
+            ).astype(jnp.int32)
+        ends = jnp.concatenate(
+            (flat_offsets[1:], intersection_valid_count[None]), axis=0
+        )
+        candidate_counts = jnp.maximum(ends - flat_offsets, 0).reshape(
+            ctx.tile_height, ctx.tile_width
+        )
+        if composite_mode == "RGB":
+            features = combined_features
+            feature_background = combined_background
+        elif composite_mode in {"D", "ED"}:
+            features = depths_c[:, None]
+            feature_background = jnp.zeros((1,), dtype=depths_c.dtype)
+        else:
+            assert composite_mode in {"RGB+D", "RGB+ED"}
+            assert combined_features is not None
+            features = jnp.concatenate(
+                (combined_features, depths_c[:, None]), axis=-1
+            )
+            feature_background = jnp.concatenate(
+                (
+                    combined_background,
+                    jnp.zeros((1,), dtype=combined_background.dtype),
+                ),
+                axis=0,
+            )
+        assert features is not None
+        camera_radial = (
+            None
+            if ctx.radial_coeffs is None
+            else jnp.asarray(ctx.radial_coeffs)[camera_index]
+        )
+        camera_tangential = (
+            None
+            if ctx.tangential_coeffs is None
+            else jnp.asarray(ctx.tangential_coeffs)[camera_index]
+        )
+        camera_thin_prism = (
+            None
+            if ctx.thin_prism_coeffs is None
+            else jnp.asarray(ctx.thin_prism_coeffs)[camera_index]
+        )
+        camera_viewmat_rs = (
+            None
+            if ctx.viewmats_rs is None
+            else jnp.asarray(ctx.viewmats_rs)[camera_index]
+        )
+        common_arguments = (
+            selected_means,
+            selected_quats,
+            selected_scales,
+            features,
+            opacities_c,
+            viewmat_c,
+            K_c,
+        )
+        if ctx.lidar_coeffs is None:
+            rendered, alpha, eval3d_info = _rasterize_eval3d_camera(
+                *common_arguments,
+                ctx.width,
+                ctx.height,
+                ctx.config.tile_size,
+                intersection_offsets,
+                intersection_gaussian_ids,
+                intersection_valid_count,
+                background=feature_background,
+                mask=None,
+                camera_model=ctx.camera_model,
+                radial_coeffs=camera_radial,
+                tangential_coeffs=camera_tangential,
+                thin_prism_coeffs=camera_thin_prism,
+                ftheta_coeffs=ctx.ftheta_coeffs,
+                external_distortion_coeffs=ctx.external_distortion_coeffs,
+                rolling_shutter=ctx.rolling_shutter,
+                viewmat_rs=camera_viewmat_rs,
+                rays=None if ctx.rays is None else ctx.rays[camera_index],
+                use_hit_distance=render_mode_has_hit_distance(ctx.render_mode),
+                return_normals=ctx.return_normals,
+                flatten_index_offset=0,
+                max_gaussians_per_tile=ctx.config.max_gaussians_per_tile,
+                tile_batch_size=ctx.config.tile_batch_size,
+            )
+        else:
+            rendered, alpha, eval3d_info = _rasterize_eval3d_lidar(
+                *common_arguments,
+                intersection_offsets,
+                intersection_gaussian_ids,
+                intersection_valid_count,
+                ctx.lidar_coeffs,
+                background=feature_background,
+                mask=None,
+                viewmat_rs=camera_viewmat_rs,
+                rays=None if ctx.rays is None else ctx.rays[camera_index],
+                use_hit_distance=render_mode_has_hit_distance(ctx.render_mode),
+                return_normals=ctx.return_normals,
+                flatten_index_offset=0,
+                max_gaussians_per_tile=ctx.config.max_gaussians_per_tile,
+                tile_batch_size=ctx.config.tile_batch_size,
+            )
+        if composite_mode == "ED":
+            rendered = rendered / jnp.maximum(alpha, ctx.config.transmittance_eps)
+        elif composite_mode == "RGB+ED":
+            rendered = rendered.at[..., -1].set(
+                rendered[..., -1]
+                / jnp.maximum(alpha[..., 0], ctx.config.transmittance_eps)
+            )
+        tile_info = {
+            "candidate_counts": candidate_counts,
+            "tile_overflow": eval3d_info["tile_overflow"],
+            "candidate_limit_exceeded": (
+                candidate_counts > ctx.config.max_gaussians_per_tile
+            ),
+            "intersection_count": intersection_valid_count,
+            "intersection_required_count": intersection_required_count,
+            "intersection_overflow": intersection_overflow,
+            "intersection_capacity": jnp.asarray(
+                intersection_capacity, dtype=jnp.int32
+            ),
+            "intersection_gaussian_ids": intersection_gaussian_ids,
+            "intersection_tile_ids": intersection_tile_ids,
+            "intersection_offsets": intersection_offsets,
+        }
+        if ctx.return_normals:
+            tile_info["normals"] = eval3d_info["normals"]
+    else:
+        render_impl = (
+            _render_camera_tiles
+            if ctx.config.backend == "reference"
+            else _render_camera_intersections
+        )
+        rendered, alpha, tile_info = render_impl(
+            means2d_c,
+            radii_c,
+            depths_c,
+            conics_c,
+            opacities_c,
+            combined_features,
+            retained_valid,
+            width=ctx.width,
+            height=ctx.height,
+            config=ctx.config,
+            background=combined_background,
+            render_mode=composite_mode,
+            absgrad_probe=(
+                absgrad_probe_c if ctx.absgrad_probe_enabled else None
+            ),
+            allow_accutile=not ctx.use_ut,
+        )
+    local_gaussian_ids = tile_info["intersection_gaussian_ids"]
+    intersection_positions = jnp.arange(
+        local_gaussian_ids.shape[0], dtype=jnp.int32
+    )
+    intersection_valid = (
+        intersection_positions < tile_info["intersection_count"]
+    ) & (local_gaussian_ids >= 0)
+    if visible_ids.shape[0] == 0:
+        original_gaussian_ids = jnp.full_like(local_gaussian_ids, -1)
+    else:
+        safe_local_ids = jnp.clip(
+            local_gaussian_ids, 0, visible_ids.shape[0] - 1
+        )
+        original_gaussian_ids = visible_ids[safe_local_ids]
+        original_gaussian_ids = jnp.where(
+            intersection_valid, original_gaussian_ids, -1
+        ).astype(jnp.int32)
+    tile_info["intersection_gaussian_ids"] = original_gaussian_ids
+    if has_depth_channel:
+        rendered_depth = rendered[..., -1:]
+    if render_mode_has_color(ctx.render_mode):
+        rendered_primary = rendered[..., :ctx.color_channels]
+    if extra_arg is not None:
+        rendered_extra = rendered[
+            ..., ctx.color_channels : ctx.color_channels + ctx.extra_channels
+        ]
+    if render_mode_has_color(ctx.render_mode) and has_depth_channel:
+        rendered = jnp.concatenate(
+            (rendered_primary, rendered_depth), axis=-1
+        )
+    elif render_mode_has_color(ctx.render_mode):
+        rendered = rendered_primary
+    else:
+        rendered = rendered_depth
+    if extra_arg is not None:
+        tile_info["render_extra_signals"] = rendered_extra
+    tile_info = {
+        **tile_info,
+        "intersection_overflow": (
+            tile_info["intersection_overflow"] | visible_overflow
+        ),
+        "intersection_required_count": jnp.maximum(
+            tile_info["intersection_required_count"],
+            jnp.maximum(visible_count, 0),
+        ),
+        "visible_count": visible_count,
+        "visible_capacity": jnp.asarray(
+            ctx.visible_capacity, dtype=jnp.int32
+        ),
+        "visible_overflow": visible_overflow,
+    }
+    return rendered, alpha, tile_info
+
+
 def rasterization(
     means: jax.Array,
     quats: jax.Array,
@@ -1673,429 +2149,42 @@ def rasterization(
             ),
         )
 
-    def render_one_camera(camera_inputs):
-        (
-            camera_index,
-            means2d_c,
-            absgrad_probe_c,
-            radii_c,
-            depths_c,
-            conics_c,
-            compensation_c,
-            colors_c,
-            extra_c,
-            valid_c,
-            viewmat_c,
-            K_c,
-            bg,
-        ) = camera_inputs
-        if visible_capacity == means.shape[0]:
-            visible_ids = jnp.arange(means.shape[0], dtype=jnp.int32)
-            retained_valid = valid_c
-            # Packing is bypassed, so an exact visibility reduction would add
-            # a standalone launch solely for diagnostics. ``-1`` means not
-            # counted; overflow is impossible because the full bucket is kept.
-            visible_count = jnp.asarray(-1, dtype=jnp.int32)
-            visible_overflow = jnp.asarray(False)
-        else:
-            with jax.named_scope("visible_pack"):
-                (
-                    visible_ids,
-                    retained_valid,
-                    visible_count,
-                    visible_overflow,
-                ) = _compact_visible_ids(
-                    valid_c,
-                    capacity=visible_capacity,
-                    backend=config.intersection_backend,
-                )
-        compacted = visible_capacity != means.shape[0]
-        if compacted:
-            with jax.named_scope("visible_gather"):
-                means2d_c = means2d_c[visible_ids]
-                absgrad_probe_c = absgrad_probe_c[visible_ids]
-                radii_c = radii_c[visible_ids]
-                depths_c = depths_c[visible_ids]
-                conics_c = conics_c[visible_ids]
-                opacities_c = opacities[visible_ids]
-                if calc_compensations:
-                    opacities_c = opacities_c * compensation_c[visible_ids]
-                selected_means = means[visible_ids]
-                selected_quats = quats[visible_ids]
-                selected_scales = scales[visible_ids]
-        else:
-            opacities_c = opacities
-            if calc_compensations:
-                opacities_c = opacities_c * compensation_c
-            selected_means = means
-            selected_quats = quats
-            selected_scales = scales
-        opacities_c = jnp.where(retained_valid, opacities_c, 0.0)
-
-        colors_arg = None
-        if _has_color(render_mode):
-            assert colors is not None
-            if sh_degree is not None:
-                if isinstance(colors, tuple):
-                    all_coefficients = _join_sh_coefficients(colors)
-                elif colors.ndim == 4:
-                    all_coefficients = colors[camera_index]
-                else:
-                    all_coefficients = colors
-                coefficients = (
-                    all_coefficients[visible_ids]
-                    if compacted
-                    else all_coefficients
-                )
-                camera_center = _camera_centers(viewmat_c[None, ...])[0]
-                directions = selected_means - camera_center[None, :]
-                with jax.named_scope("spherical_harmonics"):
-                    colors_arg = jnp.maximum(
-                        spherical_harmonics(
-                            sh_degree,
-                            directions,
-                            coefficients,
-                            masks=retained_valid,
-                        )
-                        + 0.5,
-                        0.0,
-                    )
-            else:
-                colors_arg = (
-                    jnp.where(
-                        retained_valid[:, None], colors_c[visible_ids], 0.0
-                    )
-                    if compacted
-                    else colors_c
-                )
-
-        extra_arg = None
-        if extra_signals is not None:
-            if extra_signals_sh_degree is not None:
-                all_extra_coefficients = (
-                    extra_signals[camera_index]
-                    if extra_signals.ndim == 4
-                    else extra_signals
-                )
-                extra_coefficients = (
-                    all_extra_coefficients[visible_ids]
-                    if compacted
-                    else all_extra_coefficients
-                )
-                camera_center = _camera_centers(viewmat_c[None, ...])[0]
-                directions = selected_means - camera_center[None, :]
-                with jax.named_scope("extra_signals_spherical_harmonics"):
-                    extra_arg = (
-                        spherical_harmonics(
-                            extra_signals_sh_degree,
-                            directions,
-                            extra_coefficients,
-                            masks=retained_valid,
-                        )
-                        + 0.5
-                    )
-            else:
-                extra_arg = (
-                    jnp.where(
-                        retained_valid[:, None], extra_c[visible_ids], 0.0
-                    )
-                    if compacted
-                    else extra_c
-                )
-
-        feature_parts = []
-        feature_background_parts = []
-        if render_mode_has_color(render_mode):
-            assert colors_arg is not None
-            feature_parts.append(colors_arg)
-            feature_background_parts.append(bg[:color_channels])
-        if extra_arg is not None:
-            feature_parts.append(extra_arg)
-            feature_background_parts.append(
-                jnp.zeros((extra_channels,), dtype=extra_arg.dtype)
-            )
-        combined_features = (
-            None if not feature_parts else jnp.concatenate(feature_parts, axis=-1)
-        )
-        combined_background = (
-            jnp.zeros((0,), dtype=means.dtype)
-            if not feature_background_parts
-            else jnp.concatenate(feature_background_parts, axis=-1)
-        )
-        has_depth_channel = render_mode_has_depth_channel(render_mode)
-        expected_depth = render_mode_has_expected_depth(render_mode)
-        if combined_features is None:
-            composite_mode: RenderMode = "ED" if expected_depth else "D"
-        elif has_depth_channel:
-            composite_mode = "RGB+ED" if expected_depth else "RGB+D"
-        else:
-            composite_mode = "RGB"
-
-        if with_eval3d:
-            intersection_capacity = _automatic_intersection_capacity(
-                means2d_c.shape[0], tile_count, config
-            )
-            if lidar_coeffs is None:
-                intersections = intersect_tiles(
-                    means2d_c,
-                    radii_c,
-                    depths_c,
-                    retained_valid & (opacities_c > 0.0),
-                    tile_size=config.tile_size,
-                    tile_width=tile_width,
-                    tile_height=tile_height,
-                    max_intersections=intersection_capacity,
-                    backend=config.intersection_backend,
-                    sort_backend=config.sort_backend,
-                    mode="aabb",
-                )
-                intersection_offsets = intersections.offsets
-                intersection_gaussian_ids = intersections.gaussian_ids
-                intersection_tile_ids = intersections.tile_ids
-                intersection_valid_count = intersections.valid_count
-                intersection_required_count = intersections.required_count
-                intersection_overflow = intersections.overflow
-            else:
-                lidar_intersections = isect_tiles_lidar(
-                    lidar_coeffs,
-                    means2d_c[None, ...],
-                    radii_c[None, ...],
-                    depths_c[None, ...],
-                    max_intersections=intersection_capacity,
-                    active_mask=(
-                        retained_valid & (opacities_c > 0.0)
-                    )[None, ...],
-                )
-                encoded_offsets = isect_offset_encode(
-                    lidar_intersections.isect_ids,
-                    1,
-                    tile_width,
-                    tile_height,
-                    valid_count=lidar_intersections.valid_count,
-                    overflow=lidar_intersections.overflow,
-                    return_info=True,
-                )
-                intersection_offsets = encoded_offsets.offsets[0]
-                intersection_gaussian_ids = lidar_intersections.flatten_ids
-                intersection_valid_count = lidar_intersections.valid_count
-                intersection_required_count = jnp.sum(
-                    lidar_intersections.tiles_per_gaussian, dtype=jnp.int32
-                )
-                intersection_overflow = lidar_intersections.overflow
-            flat_offsets = intersection_offsets.reshape(-1)
-            if lidar_coeffs is not None:
-                intersection_positions = jnp.arange(
-                    intersection_gaussian_ids.shape[0], dtype=jnp.int32
-                )
-                intersection_tile_ids = jnp.searchsorted(
-                    flat_offsets,
-                    intersection_positions,
-                    side="right",
-                ) - 1
-                intersection_tile_ids = jnp.where(
-                    intersection_positions < intersection_valid_count,
-                    intersection_tile_ids,
-                    -1,
-                ).astype(jnp.int32)
-            ends = jnp.concatenate(
-                (flat_offsets[1:], intersection_valid_count[None]), axis=0
-            )
-            candidate_counts = jnp.maximum(ends - flat_offsets, 0).reshape(
-                tile_height, tile_width
-            )
-            if composite_mode == "RGB":
-                features = combined_features
-                feature_background = combined_background
-            elif composite_mode in {"D", "ED"}:
-                features = depths_c[:, None]
-                feature_background = jnp.zeros((1,), dtype=depths_c.dtype)
-            else:
-                assert composite_mode in {"RGB+D", "RGB+ED"}
-                assert combined_features is not None
-                features = jnp.concatenate(
-                    (combined_features, depths_c[:, None]), axis=-1
-                )
-                feature_background = jnp.concatenate(
-                    (
-                        combined_background,
-                        jnp.zeros((1,), dtype=combined_background.dtype),
-                    ),
-                    axis=0,
-                )
-            assert features is not None
-            camera_radial = (
-                None
-                if radial_coeffs is None
-                else jnp.asarray(radial_coeffs)[camera_index]
-            )
-            camera_tangential = (
-                None
-                if tangential_coeffs is None
-                else jnp.asarray(tangential_coeffs)[camera_index]
-            )
-            camera_thin_prism = (
-                None
-                if thin_prism_coeffs is None
-                else jnp.asarray(thin_prism_coeffs)[camera_index]
-            )
-            camera_viewmat_rs = (
-                None
-                if viewmats_rs is None
-                else jnp.asarray(viewmats_rs)[camera_index]
-            )
-            common_arguments = (
-                selected_means,
-                selected_quats,
-                selected_scales,
-                features,
-                opacities_c,
-                viewmat_c,
-                K_c,
-            )
-            if lidar_coeffs is None:
-                rendered, alpha, eval3d_info = _rasterize_eval3d_camera(
-                    *common_arguments,
-                    width,
-                    height,
-                    config.tile_size,
-                    intersection_offsets,
-                    intersection_gaussian_ids,
-                    intersection_valid_count,
-                    background=feature_background,
-                    mask=None,
-                    camera_model=camera_model,
-                    radial_coeffs=camera_radial,
-                    tangential_coeffs=camera_tangential,
-                    thin_prism_coeffs=camera_thin_prism,
-                    ftheta_coeffs=ftheta_coeffs,
-                    external_distortion_coeffs=external_distortion_coeffs,
-                    rolling_shutter=rolling_shutter,
-                    viewmat_rs=camera_viewmat_rs,
-                    rays=None if rays is None else rays[camera_index],
-                    use_hit_distance=render_mode_has_hit_distance(render_mode),
-                    return_normals=return_normals,
-                    flatten_index_offset=0,
-                    max_gaussians_per_tile=config.max_gaussians_per_tile,
-                    tile_batch_size=config.tile_batch_size,
-                )
-            else:
-                rendered, alpha, eval3d_info = _rasterize_eval3d_lidar(
-                    *common_arguments,
-                    intersection_offsets,
-                    intersection_gaussian_ids,
-                    intersection_valid_count,
-                    lidar_coeffs,
-                    background=feature_background,
-                    mask=None,
-                    viewmat_rs=camera_viewmat_rs,
-                    rays=None if rays is None else rays[camera_index],
-                    use_hit_distance=render_mode_has_hit_distance(render_mode),
-                    return_normals=return_normals,
-                    flatten_index_offset=0,
-                    max_gaussians_per_tile=config.max_gaussians_per_tile,
-                    tile_batch_size=config.tile_batch_size,
-                )
-            if composite_mode == "ED":
-                rendered = rendered / jnp.maximum(alpha, config.transmittance_eps)
-            elif composite_mode == "RGB+ED":
-                rendered = rendered.at[..., -1].set(
-                    rendered[..., -1]
-                    / jnp.maximum(alpha[..., 0], config.transmittance_eps)
-                )
-            tile_info = {
-                "candidate_counts": candidate_counts,
-                "tile_overflow": eval3d_info["tile_overflow"],
-                "candidate_limit_exceeded": (
-                    candidate_counts > config.max_gaussians_per_tile
-                ),
-                "intersection_count": intersection_valid_count,
-                "intersection_required_count": intersection_required_count,
-                "intersection_overflow": intersection_overflow,
-                "intersection_capacity": jnp.asarray(
-                    intersection_capacity, dtype=jnp.int32
-                ),
-                "intersection_gaussian_ids": intersection_gaussian_ids,
-                "intersection_tile_ids": intersection_tile_ids,
-                "intersection_offsets": intersection_offsets,
-            }
-            if return_normals:
-                tile_info["normals"] = eval3d_info["normals"]
-        else:
-            render_impl = (
-                _render_camera_tiles
-                if config.backend == "reference"
-                else _render_camera_intersections
-            )
-            rendered, alpha, tile_info = render_impl(
-                means2d_c,
-                radii_c,
-                depths_c,
-                conics_c,
-                opacities_c,
-                combined_features,
-                retained_valid,
-                width=width,
-                height=height,
-                config=config,
-                background=combined_background,
-                render_mode=composite_mode,
-                absgrad_probe=(
-                    absgrad_probe_c if absgrad_probe_enabled else None
-                ),
-                allow_accutile=not use_ut,
-            )
-        local_gaussian_ids = tile_info["intersection_gaussian_ids"]
-        intersection_positions = jnp.arange(
-            local_gaussian_ids.shape[0], dtype=jnp.int32
-        )
-        intersection_valid = (
-            intersection_positions < tile_info["intersection_count"]
-        ) & (local_gaussian_ids >= 0)
-        if visible_ids.shape[0] == 0:
-            original_gaussian_ids = jnp.full_like(local_gaussian_ids, -1)
-        else:
-            safe_local_ids = jnp.clip(
-                local_gaussian_ids, 0, visible_ids.shape[0] - 1
-            )
-            original_gaussian_ids = visible_ids[safe_local_ids]
-            original_gaussian_ids = jnp.where(
-                intersection_valid, original_gaussian_ids, -1
-            ).astype(jnp.int32)
-        tile_info["intersection_gaussian_ids"] = original_gaussian_ids
-        if has_depth_channel:
-            rendered_depth = rendered[..., -1:]
-        if render_mode_has_color(render_mode):
-            rendered_primary = rendered[..., :color_channels]
-        if extra_arg is not None:
-            rendered_extra = rendered[
-                ..., color_channels : color_channels + extra_channels
-            ]
-        if render_mode_has_color(render_mode) and has_depth_channel:
-            rendered = jnp.concatenate(
-                (rendered_primary, rendered_depth), axis=-1
-            )
-        elif render_mode_has_color(render_mode):
-            rendered = rendered_primary
-        else:
-            rendered = rendered_depth
-        if extra_arg is not None:
-            tile_info["render_extra_signals"] = rendered_extra
-        tile_info = {
-            **tile_info,
-            "intersection_overflow": (
-                tile_info["intersection_overflow"] | visible_overflow
-            ),
-            "intersection_required_count": jnp.maximum(
-                tile_info["intersection_required_count"],
-                jnp.maximum(visible_count, 0),
-            ),
-            "visible_count": visible_count,
-            "visible_capacity": jnp.asarray(
-                visible_capacity, dtype=jnp.int32
-            ),
-            "visible_overflow": visible_overflow,
-        }
-        return rendered, alpha, tile_info
+    ctx = _CameraRenderContext(
+        absgrad_probe_enabled=absgrad_probe_enabled,
+        calc_compensations=calc_compensations,
+        camera_model=camera_model,
+        color_channels=color_channels,
+        colors=colors,
+        config=config,
+        external_distortion_coeffs=external_distortion_coeffs,
+        extra_channels=extra_channels,
+        extra_signals=extra_signals,
+        extra_signals_sh_degree=extra_signals_sh_degree,
+        ftheta_coeffs=ftheta_coeffs,
+        height=height,
+        lidar_coeffs=lidar_coeffs,
+        means=means,
+        opacities=opacities,
+        quats=quats,
+        radial_coeffs=radial_coeffs,
+        rays=rays,
+        render_mode=render_mode,
+        return_normals=return_normals,
+        rolling_shutter=rolling_shutter,
+        scales=scales,
+        sh_degree=sh_degree,
+        tangential_coeffs=tangential_coeffs,
+        thin_prism_coeffs=thin_prism_coeffs,
+        tile_count=tile_count,
+        tile_height=tile_height,
+        tile_width=tile_width,
+        use_ut=use_ut,
+        viewmats_rs=viewmats_rs,
+        visible_capacity=visible_capacity,
+        width=width,
+        with_eval3d=with_eval3d,
+    )
+    render_one_camera = partial(_render_one_camera, ctx=ctx)
 
     camera_inputs = (
         jnp.arange(viewmats.shape[0], dtype=jnp.int32),
