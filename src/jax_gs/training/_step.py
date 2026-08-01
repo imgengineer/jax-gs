@@ -4,17 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass
+from functools import partial
 import math
 import operator
 import sys
-from typing import Any
+from typing import Any, NamedTuple
 
 from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..config import TrainConfig
+from ..config import RasterizationConfig, TrainConfig
 from ..losses import l1_loss, opacity_reg_loss, psnr, scale_reg_loss, ssim
 from ..model import GaussianModel
 from ..optimizers import (
@@ -173,6 +174,287 @@ def _two_dgs_regularization_losses(
     return normal_loss_value, distortion_loss_value
 
 
+def _skip_topology_update(
+    current_model,
+    current_optimizer,
+    current_strategy_state,
+    current_grads,
+    current_visible,
+    *,
+    config: TrainConfig,
+    strategy_capacity_overflow: jax.Array,
+    uncommitted_topology: tuple[jax.Array, ...],
+):
+    """Leave the model alone, because committing would truncate a gradient.
+
+    The counterpart to :func:`_apply_topology_update` under the same
+    conditional, so it takes the same five traced arguments and returns the
+    same shape of result. MCMC still has to record that its own refinement was
+    dropped, since its state carries the counts across steps.
+    """
+
+    del current_model, current_optimizer, current_grads, current_visible
+    if config.strategy.kind == "mcmc":
+        current_strategy_state.last_new_count[...] = jnp.where(
+            strategy_capacity_overflow,
+            0,
+            current_strategy_state.last_new_count[...],
+        )
+        current_strategy_state.last_pruned_count[...] = jnp.where(
+            strategy_capacity_overflow,
+            0,
+            current_strategy_state.last_pruned_count[...],
+        )
+        current_strategy_state.capacity_overflow[...] = (
+            current_strategy_state.capacity_overflow[...]
+            | strategy_capacity_overflow
+        )
+    return uncommitted_topology
+
+
+def _apply_topology_update(
+    current_model,
+    current_optimizer,
+    current_strategy_state,
+    current_grads,
+    current_visible,
+    *,
+    plan: _TrainStepPlan,
+    config: TrainConfig,
+    distributed_scene_scale: float,
+    densification_stats,
+    mcmc_should_refine,
+    noise_key,
+    refine_key,
+    refine_scheduled,
+    reset_scheduled,
+    training_step,
+    uncommitted_refine,
+    uncommitted_topology,
+):
+    """Commit the step: optimizer update, then whatever refinement is due.
+
+    The taken branch of the conditional :func:`_skip_topology_update` guards,
+    so it carries the same five traced arguments. Everything else the step
+    settled before reaching here arrives by keyword.
+    """
+    with jax.named_scope("optimizer_update"):
+        if plan.row_selective_optimizer:
+            current_optimizer.update(
+                current_model,
+                current_grads,
+                visible_mask=current_visible,
+            )
+            normalized_quats = current_model.normalized_quats
+            current_model.quats[...] = jnp.where(
+                current_visible[:, None],
+                normalized_quats,
+                current_model.quats[...],
+            )
+        else:
+            current_optimizer.update(current_model, current_grads)
+            current_model.normalize_quaternions()
+        if config.strategy.kind == "mcmc":
+            step_number = current_optimizer.step[...]
+            def refine(_model, _optimizer, _state):
+                assert plan.mcmc_strategy is not None
+                refine_result = plan.mcmc_strategy.refine(
+                    _model,
+                    _state,
+                    _optimizer,
+                    refine_key,
+                    _state.scene_scale[...],
+                    step=step_number,
+                )
+                return refine_result["capacity_overflow"]
+            def skip_refine(_model, _optimizer, _state):
+                del _model, _optimizer, _state
+                return jnp.asarray(False)
+            refine_overflow = nnx.cond(
+                mcmc_should_refine,
+                refine,
+                skip_refine,
+                current_model,
+                current_optimizer,
+                current_strategy_state,
+            )
+            schedule_progress = step_number.astype(jnp.float32) / float(
+                max(config.optimizer.max_steps, 1)
+            )
+            means_lr = config.optimizer.means_lr * jnp.power(
+                config.optimizer.means_lr_final_scale,
+                schedule_progress,
+            )
+            perturbed_means = mcmc_position_perturbation(
+                current_model.means[...],
+                current_model.quats[...],
+                current_model.log_scales[...],
+                current_model.opacity_logits[...],
+                means_lr * config.strategy.noise_lr,
+                key=noise_key,
+                t=config.strategy.noise_opacity_t,
+                k=config.strategy.noise_opacity_k,
+                active_mask=current_model.active_mask[...],
+            )
+            noise_stop = config.strategy.noise_injection_stop_iter
+            should_inject = (
+                ((noise_stop < 0) | (step_number < noise_stop))
+                & ~refine_overflow
+            )
+            current_model.means[...] = jnp.where(
+                should_inject, perturbed_means, current_model.means[...]
+            )
+    if config.strategy.kind == "default" and plan.collect_screen_stats:
+        with jax.named_scope("strategy_stats_update"):
+            accumulate_stats = training_step < config.strategy.refine_stop
+            current_strategy_state.grad_accum[...] += jnp.where(
+                accumulate_stats,
+                densification_stats.grad_sum,
+                0.0,
+            )
+            current_strategy_state.visible_count[...] += jnp.where(
+                accumulate_stats,
+                densification_stats.count,
+                0.0,
+            )
+            current_strategy_state.max_radii[...] = jnp.where(
+                accumulate_stats,
+                jnp.maximum(
+                    current_strategy_state.max_radii[...],
+                    densification_stats.max_radii,
+                ),
+                current_strategy_state.max_radii[...],
+            )
+    if plan.distributed_plan_strategy is None:
+        return uncommitted_topology
+    # current-main refines after the optimizer step and after this
+    # step's statistics, so the owner-local commit recomputes its own
+    # events here instead of replaying the pre-update preflight.
+    with jax.named_scope("topology_commit"):
+        def commit_refine(_model, _optimizer, _state):
+            assert plan.distributed_plan_strategy is not None
+            refine_result = plan.distributed_plan_strategy.refine(
+                _model,
+                _state,
+                _optimizer,
+                refine_key,
+                distributed_scene_scale,
+                step=training_step,
+            )
+            return (
+                refine_result["new_count"],
+                refine_result["pruned_count"],
+                refine_result["capacity_overflow"],
+            )
+        def skip_commit_refine(_model, _optimizer, _state):
+            del _model, _optimizer, _state
+            return uncommitted_refine
+        new_count, pruned_count, commit_overflow = nnx.cond(
+            refine_scheduled,
+            commit_refine,
+            skip_commit_refine,
+            current_model,
+            current_optimizer,
+            current_strategy_state,
+        )
+        def commit_reset(_model, _optimizer):
+            reset_opacities(
+                _model,
+                _optimizer,
+                maximum_opacity=config.strategy.reset_opacity,
+            )
+            return jnp.asarray(True)
+        def skip_commit_reset(_model, _optimizer):
+            del _model, _optimizer
+            return jnp.asarray(False)
+        # An owner that could not grow keeps its statistics for the
+        # next refinement, so it must not reset opacities either.
+        opacity_reset = nnx.cond(
+            reset_scheduled & ~commit_overflow,
+            commit_reset,
+            skip_commit_reset,
+            current_model,
+            current_optimizer,
+        )
+    return (new_count, pruned_count, commit_overflow, opacity_reset)
+
+
+class _TrainStepPlan(NamedTuple):
+    """What a training step's configuration settles before it can be traced.
+
+    These are the values the step closes over: fixed for the life of the
+    compiled step, and derived only from the configuration and the distributed
+    topology. Naming them together separates deciding what the step will do
+    from doing it, and makes the decisions checkable on their own.
+    """
+
+    patch_size: int | None
+    rasterizer_config: RasterizationConfig
+    ssim_lambda: float
+    random_background: bool
+    use_absgrad: bool
+    row_selective_optimizer: bool
+    distributed: bool
+    collect_screen_stats: bool
+    mcmc_strategy: MCMCStrategy | None
+    distributed_plan_strategy: DefaultStrategy | None
+    donated_nodes: tuple[str, ...]
+
+
+def _plan_train_step(
+    config: TrainConfig, *, distributed_world_size: int = 1
+) -> _TrainStepPlan:
+    """Settle the fixed decisions a training step is compiled around."""
+
+    _validate_2dgs_mode(config)
+    if config.with_eval3d and config.strategy.kind != "mcmc":
+        raise NotImplementedError(
+            "screen-space densification statistics do not yet support "
+            "with_eval3d=True"
+        )
+    distributed = distributed_world_size > 1
+    return _TrainStepPlan(
+        patch_size=config.data.patch_size,
+        rasterizer_config=config.rasterizer,
+        ssim_lambda=config.ssim_lambda,
+        random_background=config.random_background,
+        use_absgrad=config.strategy.absgrad,
+        row_selective_optimizer=config.sparse_grad or config.visible_adam,
+        distributed=distributed,
+        # MCMC densifies from its own state, so the screen-space statistics are
+        # only collected when something will read them.
+        collect_screen_stats=not (
+            config.strategy.kind == "mcmc"
+            and (config.with_ut or config.with_eval3d)
+        ),
+        mcmc_strategy=(
+            MCMCStrategy(config.strategy)
+            if config.strategy.kind == "mcmc"
+            else None
+        ),
+        # Distributed refinement has no host callback, so the owner-local
+        # default strategy must plan inside the step to preflight every shard
+        # together.
+        distributed_plan_strategy=(
+            DefaultStrategy(config.strategy)
+            if distributed and config.strategy.kind == "default"
+            else None
+        ),
+        donated_nodes=(
+            "model",
+            "optimizer",
+            "strategy_state",
+            "safety_state",
+        )
+        + (("pose_adjust", "pose_optimizer") if config.pose_opt else ())
+        + (
+            ("appearance_module", "appearance_optimizer")
+            if config.app_opt
+            else ()
+        ),
+    )
+
+
 def _make_train_step(
     config: TrainConfig,
     *,
@@ -180,48 +462,22 @@ def _make_train_step(
     distributed_axis_name: Hashable | None = None,
     distributed_scene_scale: float = 1.0,
 ) -> Callable[..., dict[str, jax.Array]]:
-    _validate_2dgs_mode(config)
-    if config.with_eval3d and config.strategy.kind != "mcmc":
-        raise NotImplementedError(
-            "screen-space densification statistics do not yet support "
-            "with_eval3d=True"
-        )
-    patch_size = config.data.patch_size
-    rasterizer_config = config.rasterizer
-    ssim_lambda = config.ssim_lambda
-    random_background = config.random_background
-    use_absgrad = config.strategy.absgrad
-    row_selective_optimizer = config.sparse_grad or config.visible_adam
-    distributed = distributed_world_size > 1
-    collect_screen_stats = not (
-        config.strategy.kind == "mcmc"
-        and (config.with_ut or config.with_eval3d)
+    plan = _plan_train_step(
+        config, distributed_world_size=distributed_world_size
     )
-    mcmc_strategy = (
-        MCMCStrategy(config.strategy)
-        if config.strategy.kind == "mcmc"
-        else None
-    )
-    # Distributed refinement has no host callback, so the owner-local default
-    # strategy must plan inside the step to preflight every shard together.
-    distributed_plan_strategy = (
-        DefaultStrategy(config.strategy)
-        if distributed and config.strategy.kind == "default"
-        else None
-    )
+    # Bound by name rather than unpacked, so the step body reads the same as
+    # before the plan existed and adding a field cannot silently shift these.
+    patch_size = plan.patch_size
+    rasterizer_config = plan.rasterizer_config
+    ssim_lambda = plan.ssim_lambda
+    random_background = plan.random_background
+    use_absgrad = plan.use_absgrad
+    distributed = plan.distributed
+    collect_screen_stats = plan.collect_screen_stats
+    mcmc_strategy = plan.mcmc_strategy
+    distributed_plan_strategy = plan.distributed_plan_strategy
 
-    donated_nodes = (
-        "model",
-        "optimizer",
-        "strategy_state",
-        "safety_state",
-    ) + (("pose_adjust", "pose_optimizer") if config.pose_opt else ()) + (
-        ("appearance_module", "appearance_optimizer")
-        if config.app_opt
-        else ()
-    )
-
-    @nnx.jit(donate_argnames=donated_nodes)
+    @nnx.jit(donate_argnames=plan.donated_nodes)
     def train_step(
         model: GaussianModel,
         optimizer: nnx.Optimizer,
@@ -696,6 +952,10 @@ def _make_train_step(
                     axis=0,
                 )
             visible = visible & active_mask
+        # Only the branches that produce these read them again, but the commit
+        # stage now receives them by argument rather than closing over them, so
+        # they have to be bound on every path.
+        densification_stats = None
         if collect_screen_stats:
             densification_stats = _training.build_densification_stats(
                 screen_grad,
@@ -775,6 +1035,8 @@ def _make_train_step(
         safety_state.intersection_overflow_seen[...] = intersection_overflow_seen
         strategy_capacity_overflow = jnp.asarray(False)
         mcmc_should_refine = jnp.asarray(False)
+        refine_scheduled = None
+        reset_scheduled = None
         plan_metrics: dict[str, jax.Array] = {}
         if config.strategy.kind == "mcmc":
             mcmc_should_refine = (
@@ -901,186 +1163,28 @@ def _make_train_step(
         )
         uncommitted_topology = uncommitted_refine + (jnp.asarray(False),)
 
-        def skip_update(
-            current_model,
-            current_optimizer,
-            current_strategy_state,
-            current_grads,
-            current_visible,
-        ):
-            del current_model, current_optimizer, current_grads, current_visible
-            if config.strategy.kind == "mcmc":
-                current_strategy_state.last_new_count[...] = jnp.where(
-                    strategy_capacity_overflow,
-                    0,
-                    current_strategy_state.last_new_count[...],
-                )
-                current_strategy_state.last_pruned_count[...] = jnp.where(
-                    strategy_capacity_overflow,
-                    0,
-                    current_strategy_state.last_pruned_count[...],
-                )
-                current_strategy_state.capacity_overflow[...] = (
-                    current_strategy_state.capacity_overflow[...]
-                    | strategy_capacity_overflow
-                )
-            return uncommitted_topology
+        skip_update = partial(
+            _skip_topology_update,
+            config=config,
+            strategy_capacity_overflow=strategy_capacity_overflow,
+            uncommitted_topology=uncommitted_topology,
+        )
 
-        def apply_update(
-            current_model,
-            current_optimizer,
-            current_strategy_state,
-            current_grads,
-            current_visible,
-        ):
-            with jax.named_scope("optimizer_update"):
-                if row_selective_optimizer:
-                    current_optimizer.update(
-                        current_model,
-                        current_grads,
-                        visible_mask=current_visible,
-                    )
-                    normalized_quats = current_model.normalized_quats
-                    current_model.quats[...] = jnp.where(
-                        current_visible[:, None],
-                        normalized_quats,
-                        current_model.quats[...],
-                    )
-                else:
-                    current_optimizer.update(current_model, current_grads)
-                    current_model.normalize_quaternions()
-                if config.strategy.kind == "mcmc":
-                    step_number = current_optimizer.step[...]
-
-                    def refine(_model, _optimizer, _state):
-                        assert mcmc_strategy is not None
-                        refine_result = mcmc_strategy.refine(
-                            _model,
-                            _state,
-                            _optimizer,
-                            refine_key,
-                            _state.scene_scale[...],
-                            step=step_number,
-                        )
-                        return refine_result["capacity_overflow"]
-
-                    def skip_refine(_model, _optimizer, _state):
-                        del _model, _optimizer, _state
-                        return jnp.asarray(False)
-
-                    refine_overflow = nnx.cond(
-                        mcmc_should_refine,
-                        refine,
-                        skip_refine,
-                        current_model,
-                        current_optimizer,
-                        current_strategy_state,
-                    )
-                    schedule_progress = step_number.astype(jnp.float32) / float(
-                        max(config.optimizer.max_steps, 1)
-                    )
-                    means_lr = config.optimizer.means_lr * jnp.power(
-                        config.optimizer.means_lr_final_scale,
-                        schedule_progress,
-                    )
-                    perturbed_means = mcmc_position_perturbation(
-                        current_model.means[...],
-                        current_model.quats[...],
-                        current_model.log_scales[...],
-                        current_model.opacity_logits[...],
-                        means_lr * config.strategy.noise_lr,
-                        key=noise_key,
-                        t=config.strategy.noise_opacity_t,
-                        k=config.strategy.noise_opacity_k,
-                        active_mask=current_model.active_mask[...],
-                    )
-                    noise_stop = config.strategy.noise_injection_stop_iter
-                    should_inject = (
-                        ((noise_stop < 0) | (step_number < noise_stop))
-                        & ~refine_overflow
-                    )
-                    current_model.means[...] = jnp.where(
-                        should_inject, perturbed_means, current_model.means[...]
-                    )
-            if config.strategy.kind == "default" and collect_screen_stats:
-                with jax.named_scope("strategy_stats_update"):
-                    accumulate_stats = training_step < config.strategy.refine_stop
-                    current_strategy_state.grad_accum[...] += jnp.where(
-                        accumulate_stats,
-                        densification_stats.grad_sum,
-                        0.0,
-                    )
-                    current_strategy_state.visible_count[...] += jnp.where(
-                        accumulate_stats,
-                        densification_stats.count,
-                        0.0,
-                    )
-                    current_strategy_state.max_radii[...] = jnp.where(
-                        accumulate_stats,
-                        jnp.maximum(
-                            current_strategy_state.max_radii[...],
-                            densification_stats.max_radii,
-                        ),
-                        current_strategy_state.max_radii[...],
-                    )
-            if distributed_plan_strategy is None:
-                return uncommitted_topology
-            # current-main refines after the optimizer step and after this
-            # step's statistics, so the owner-local commit recomputes its own
-            # events here instead of replaying the pre-update preflight.
-            with jax.named_scope("topology_commit"):
-
-                def commit_refine(_model, _optimizer, _state):
-                    assert distributed_plan_strategy is not None
-                    refine_result = distributed_plan_strategy.refine(
-                        _model,
-                        _state,
-                        _optimizer,
-                        refine_key,
-                        distributed_scene_scale,
-                        step=training_step,
-                    )
-                    return (
-                        refine_result["new_count"],
-                        refine_result["pruned_count"],
-                        refine_result["capacity_overflow"],
-                    )
-
-                def skip_commit_refine(_model, _optimizer, _state):
-                    del _model, _optimizer, _state
-                    return uncommitted_refine
-
-                new_count, pruned_count, commit_overflow = nnx.cond(
-                    refine_scheduled,
-                    commit_refine,
-                    skip_commit_refine,
-                    current_model,
-                    current_optimizer,
-                    current_strategy_state,
-                )
-
-                def commit_reset(_model, _optimizer):
-                    reset_opacities(
-                        _model,
-                        _optimizer,
-                        maximum_opacity=config.strategy.reset_opacity,
-                    )
-                    return jnp.asarray(True)
-
-                def skip_commit_reset(_model, _optimizer):
-                    del _model, _optimizer
-                    return jnp.asarray(False)
-
-                # An owner that could not grow keeps its statistics for the
-                # next refinement, so it must not reset opacities either.
-                opacity_reset = nnx.cond(
-                    reset_scheduled & ~commit_overflow,
-                    commit_reset,
-                    skip_commit_reset,
-                    current_model,
-                    current_optimizer,
-                )
-            return (new_count, pruned_count, commit_overflow, opacity_reset)
+        apply_update = partial(
+            _apply_topology_update,
+            plan=plan,
+            config=config,
+            distributed_scene_scale=distributed_scene_scale,
+            densification_stats=densification_stats,
+            mcmc_should_refine=mcmc_should_refine,
+            noise_key=noise_key,
+            refine_key=refine_key,
+            refine_scheduled=refine_scheduled,
+            reset_scheduled=reset_scheduled,
+            training_step=training_step,
+            uncommitted_refine=uncommitted_refine,
+            uncommitted_topology=uncommitted_topology,
+        )
 
         (
             committed_new_count,
