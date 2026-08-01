@@ -318,6 +318,9 @@ emit 重写之后同样口径再测一次（7.67 ms GPU kernel time）：composi
 
 已被证伪或量化否决的猜测，不要重做：
 
+- **透射率饱和的批级 early termination**（Taming 3DGS 的 last-contributor 思路搬到批门控上）：2026-08-01 用真实候选列表和精确的 compositor alpha 数学定价过。garden 三个相机下，把「本批所有 tile 的所有有效像素 T ≤ 1e-4」并入门控只把 chunk 步数从 23/24/22 降到 23/23/22（1.00–1.04×）——约 58% 的 tile 在候选耗尽前根本不饱和，按占用排序的分批又已吃掉了其余空间。合成场景上是 3.00×，这又是均匀合成场景的陷阱。语义上它是无损的（饱和后 accepted 恒 false，输出与全部梯度贡献逐位不变），如果以后拿到**训练过的** checkpoint（不透明度远高于 benchmark 的生成值）可以用 `/tmp` 里同样的方法重新定价，但在此之前不要做。
+- **Morton/聚类重排高斯槽位以改善 gather 局部性**（LiteGS 的 Cluster-Cull-Compact 思路）：被缓存算术直接否决。compositor 的 gather 对象是 visible packing 后的参数数组，138k 高斯约 5 MB，而 RTX 5090 的 L2 是 128 MB——gather 本来就常驻 L2，重排无从改善。在 L2 小的设备上才值得重看。
+
 - 内层 `jax.checkpoint(composite_chunk)` 不能因为有了门控就去掉。最早实测去掉直接 OOM（需要 85 GiB）；chunk 数从 128 降到 4 之后不再 OOM，但 2026-08-01 重测仍然**更慢**（rasterizer 前反向 17.37 → 20.86 ms）。这一段是带宽受限的，重算比把残差写出去再读回来便宜。两级 remat 都保留。
 - `max_gaussians_per_tile` 在按批门控之后仍然是 512 最优：garden 上 K=128/256/512/1024 的反向是 33.6/26.2/**21.6**/38.6 ms。K=256 的前向略快（5.39 对 5.52），但训练由反向主导。
 - 把 `cumprod(1-alpha)` 换成 `exp(cumsum(log(1-alpha)))`，当时只把全梯度从 995 降到 927 ms，还会改前向数值，不值得。
@@ -326,6 +329,11 @@ emit 重写之后同样口径再测一次（7.67 ms GPU kernel time）：composi
 **整个训练步的构成**（2026-08-01，13.9 万高斯、SH3、640×360、bucket 262,144，合成点云）：一步 19.96 ms，其中 rasterizer 前反向单独就是 17.37 ms，**占 87%**；loss、Adam 和 densification 统计合计只有约 2.6 ms。上游 Taming 3DGS 报告 Adam 是仅次于反向的第二大项，这里不是——固定容量的 dense 参数更新被 XLA 融合得很好。所以继续优化 rasterizer 仍然直接换算成训练吞吐。
 
 另一件值得知道的事：关掉 CUDA graph（`--xla_gpu_enable_command_buffer=`）后同一个训练步从 19.96 ms 变成 143 ms。也就是说这一步是**发射受限**的，而 command buffer 已经把这部分吃掉了大半；单纯再减少 kernel 数量的空间不大。分析 profile 时要记得关掉 command buffer 才能拿到 `op_name`，但那时的绝对耗时不能当作真实成本。
+
+还量化了两个**尚未做**的候选（2026-08-01，按当前代码的 profile 定价）：
+
+- **cumprod/cumsum 换 `lax.associative_scan`**：优化后 HLO 里的 `reduce-window`（window=1x1x16x1、pad 15_0 的分块前缀积）就是 `_chunk_weights` 的 `jnp.cumprod`，当前占前向 0.68 ms/次 ≈ compositing 的 27%、整个前向的 17%，反向的后缀 cumsum 同类。树状 scan 大约能省其中一半，但它改变前向数值（重结合级，约 1–2 ulp）——会是第一个打破「每个切片 CPU loss 逐位不变」标准的改动，做之前需要明确接受。
+- **去掉外层 `jax.checkpoint(render_tile)`（保留内层）**：chunk 数降到 4 之后，让 scan 存每 chunk 的 carry 只要约 18 MB（此前 128 chunk 时约 600 MB，remat 因此而生）。省掉的是反向里对整个 tile 前向的那一次重算，预计反向 10–15%，语义无损。显存护栏（反向 temp 不随 tile 数增长）会随图像变大而重新收紧，改后必须重跑两个护栏。
 
 两条测量方法上的教训：
 
