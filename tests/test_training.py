@@ -286,6 +286,7 @@ def _constant_training_rasterization(
         "candidate_limit_exceeded": jnp.zeros(
             (camera_count, 1, 1), jnp.bool_
         ),
+        "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
         "intersection_overflow": jnp.zeros((camera_count,), jnp.bool_),
         "intersection_count": jnp.ones((camera_count,), jnp.int32),
         "intersection_required_count": jnp.ones(
@@ -343,6 +344,7 @@ def _pose_sensitive_training_rasterization(*, overflow=False):
             "candidate_limit_exceeded": jnp.zeros(
                 (camera_count, 1, 1), jnp.bool_
             ),
+            "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
             "intersection_overflow": jnp.full(
                 (camera_count,), overflow, jnp.bool_
             ),
@@ -831,6 +833,7 @@ def _selective_training_rasterization(
             "candidate_limit_exceeded": jnp.zeros(
                 (camera_count, 1, 1), dtype=jnp.bool_
             ),
+            "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
             "intersection_overflow": jnp.full(
                 (camera_count,), overflow, dtype=jnp.bool_
             ),
@@ -917,6 +920,7 @@ def _mcmc_ut_training_rasterization(*, with_ut: bool, with_eval3d: bool):
             "candidate_limit_exceeded": jnp.zeros(
                 (camera_count, 1, 1), dtype=jnp.bool_
             ),
+            "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
             "intersection_overflow": jnp.zeros(
                 (camera_count,), dtype=jnp.bool_
             ),
@@ -2467,6 +2471,7 @@ def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
                 "overflow_tiles": jnp.asarray(0),
                 "max_overflow_tiles": safety_state.max_overflow_tiles[...],
                 "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(0),
                 "intersection_overflow": jnp.asarray(False),
                 "intersection_overflow_seen": (
                     safety_state.intersection_overflow_seen[...]
@@ -2582,6 +2587,7 @@ def test_train_wires_dataset_index_pose_state_and_checkpoint_manifest(
                 "overflow_tiles": jnp.asarray(0),
                 "max_overflow_tiles": safety_state.max_overflow_tiles[...],
                 "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(0),
                 "intersection_overflow": jnp.asarray(False),
                 "intersection_overflow_seen": (
                     safety_state.intersection_overflow_seen[...]
@@ -2696,6 +2702,7 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
                 "overflow_tiles": jnp.asarray(0),
                 "max_overflow_tiles": safety_state.max_overflow_tiles[...],
                 "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(0),
                 "intersection_overflow": jnp.asarray(False),
                 "intersection_overflow_seen": (
                     safety_state.intersection_overflow_seen[...]
@@ -3035,6 +3042,7 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
                 "overflow_tiles": jnp.asarray(0),
                 "max_overflow_tiles": safety_state.max_overflow_tiles[...],
                 "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(0),
                 "intersection_overflow": jnp.asarray(False),
                 "intersection_overflow_seen": (
                     safety_state.intersection_overflow_seen[...]
@@ -3171,6 +3179,7 @@ def test_train_checks_sticky_overflow_before_final_checkpoint(
                 "overflow_tiles": jnp.asarray(0),
                 "max_overflow_tiles": safety_state.max_overflow_tiles[...],
                 "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(0),
                 "intersection_overflow": jnp.asarray(False),
                 "intersection_overflow_seen": (
                     safety_state.intersection_overflow_seen[...]
@@ -3286,6 +3295,7 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
                 "overflow_tiles": jnp.asarray(0),
                 "max_overflow_tiles": safety_state.max_overflow_tiles[...],
                 "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(0),
                 "intersection_overflow": jnp.asarray(overflow),
                 "intersection_overflow_seen": (
                     safety_state.intersection_overflow_seen[...]
@@ -3439,6 +3449,7 @@ def test_scheduled_mcmc_grows_before_forward_and_skips_host_refine(
                 "overflow_tiles": jnp.asarray(0),
                 "max_overflow_tiles": safety_state.max_overflow_tiles[...],
                 "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(0),
                 "intersection_overflow": jnp.asarray(False),
                 "intersection_overflow_seen": (
                     safety_state.intersection_overflow_seen[...]
@@ -3580,3 +3591,133 @@ def test_train_rejects_checkpoint_newer_than_target(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="checkpoint step 3"):
         training_module.train(config, resume_from=tmp_path / "checkpoint")
+
+
+def test_train_step_reports_the_busiest_tile_and_honours_a_candidate_bound():
+    # The bound is a static promise the caller makes; the metric is how a
+    # caller learns what to promise. Without the metric the only options are
+    # guessing or leaving the chunk loop sized for the worst case the shapes
+    # allow.
+    points = np.array([[0, 0, 3], [0.2, 0, 3], [-0.2, 0.1, 3]], np.float32)
+    model_config = ModelConfig(capacity=32, sh_degree=1, initial_scale=0.1)
+    optimizer_config = OptimizerConfig(max_steps=10)
+    strategy_config = StrategyConfig(refine_start=100, max_new_per_refine=4)
+
+    def run(bound):
+        config = TrainConfig(
+            model=model_config,
+            optimizer=optimizer_config,
+            strategy=strategy_config,
+            data=DataConfig(root="unused", patch_size=16, batch_size=1),
+            rasterizer=RasterizationConfig(
+                tile_size=8,
+                max_gaussians_per_tile=4,
+                tile_batch_size=2,
+                max_candidates_per_tile=bound,
+            ),
+            steps=1,
+            eval_every=0,
+            checkpoint_every=0,
+        )
+        model = GaussianModel.from_point_cloud(
+            points, np.eye(3, dtype=np.float32), model_config
+        )
+        optimizer = create_optimizer(model, optimizer_config)
+        state = DefaultStrategy(strategy_config).initialize_state(32)
+        return make_train_step(config)(
+            model,
+            optimizer,
+            state,
+            TrainingSafetyState(),
+            jnp.zeros((1, 32, 32, 3), jnp.float32),
+            jnp.array([[[30.0, 0, 16], [0, 30.0, 16], [0, 0, 1]]], jnp.float32),
+            jnp.eye(4, dtype=jnp.float32)[None],
+            jax.random.key(0),
+            jnp.asarray(1),
+        )
+
+    unbounded = run(None)
+    busiest = int(unbounded["busiest_tile_candidates"])
+    # Three Gaussians, so no tile can hold more; the metric reports the real
+    # occupancy rather than the loop's conservative length.
+    assert 0 < busiest <= 3
+    assert int(unbounded["overflow_tiles"]) == 0
+
+    # Promising exactly what the frame needs renders the same and stays clean.
+    bounded = run(busiest)
+    assert int(bounded["busiest_tile_candidates"]) == busiest
+    assert int(bounded["overflow_tiles"]) == 0
+    np.testing.assert_allclose(
+        float(bounded["loss"]), float(unbounded["loss"]), rtol=0.0, atol=1e-6
+    )
+
+
+@pytest.mark.parametrize("bound", [None, 128])
+def test_train_reports_the_busiest_tile_against_the_configured_bound(
+    monkeypatch, tmp_path, capsys, bound
+):
+    # A caller can only choose --max-candidates-per-tile by watching what the
+    # scene actually does, so the progress line has to show it. Against a
+    # configured bound it reads as a fraction; with no bound there is nothing
+    # to compare against and the raw count is all there is to report.
+    scene = SimpleNamespace(
+        points=np.array([[0.0, 0.0, 3.0]], np.float32),
+        points_rgb=np.array([[128, 128, 128]], np.uint8),
+        camtoworlds=np.eye(4, dtype=np.float32)[None],
+    )
+    batch = {
+        "image": np.zeros((4, 4, 3), np.float32),
+        "K": np.array([[10.0, 0, 2], [0, 10.0, 2], [0, 0, 1]], np.float32),
+        "w2c": np.eye(4, dtype=np.float32),
+    }
+    config = TrainConfig(
+        normalize_world_space=False,
+        model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
+        strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
+        rasterizer=RasterizationConfig(max_candidates_per_tile=bound),
+        steps=1,
+        checkpoint_every=0,
+        eval_every=0,
+        output_dir=str(tmp_path),
+    )
+
+    def fake_make_train_step(_config):
+        def fake_train_step(model, _optimizer, _strategy_state, _safety, *_args):
+            return {
+                "loss": jnp.asarray(0.0),
+                "l1": jnp.asarray(0.0),
+                "ssim": jnp.asarray(1.0),
+                "psnr": jnp.asarray(100.0),
+                "active_count": model.active_count,
+                "visible_count": jnp.asarray(1),
+                "overflow_tiles": jnp.asarray(0),
+                "max_overflow_tiles": jnp.asarray(0),
+                "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(37),
+                "intersection_overflow": jnp.asarray(False),
+                "intersection_overflow_seen": jnp.asarray(False),
+                "intersection_count": jnp.asarray(1),
+                "intersection_required_count": jnp.asarray(1),
+            }
+
+        return fake_train_step
+
+    monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
+    monkeypatch.setattr(
+        training_module, "create_grain_dataset", lambda *_a, **_k: [batch]
+    )
+    monkeypatch.setattr(training_module, "make_train_step", fake_make_train_step)
+    monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
+
+    training_module.train(config)
+
+    expected = "busiest_tile=37" if bound is None else "busiest_tile=37/128"
+    line = next(
+        text
+        for text in capsys.readouterr().out.splitlines()
+        if text.startswith("step=")
+    )
+    assert expected in line
+    # The count must stay a standalone field rather than run into the next one.
+    assert f"{expected} " in line

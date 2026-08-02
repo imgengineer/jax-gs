@@ -272,6 +272,16 @@ compositing 之外的阶段合计只占前向 0.44 ms（projection 0.12、SH 0.0
 
 真实场景 garden（138,766 高斯、640×360、camera 0、`--max-intersections 524288`，最忙 tile 2,003 个候选）给 `--max-candidates-per-tile 2048`，chunk 数 272 → 4：**前向 105.1 → 19.4 ms（5.4×）、反向 481.5 → 59.3 ms（8.1×）**。梯度在 CPU 上逐位相同，GPU 上相对 L2 差 2.8e-8（低于 float32 eps），loss 完全不变。
 
+这个上限此前只有**直接调用 rasterizer 的人**拿得到：`jax-gs train` 从不设置它，所以上面这些倍数一次真实训练都吃不到。现在 `jax-gs train` / `jax-gs render` 各有一个 `--max-candidates-per-tile`，写进 `TrainConfig.rasterizer` 后一路到达训练步（回归用例 `tests/test_cli.py::test_train_cli_exposes_the_per_tile_candidate_bound`、`tests/test_training.py::test_train_step_reports_the_busiest_tile_and_honours_a_candidate_bound`）。
+
+而**填多少仍然只能看数据**，所以训练步同时报一个 `busiest_tile_candidates`：本步最忙的 tile 到底有多少候选。分布式下它用 `jax.lax.pmax` 归约而不是各 rank 各报各的——上限是一个静态的全局数字，要装下的是全世界最忙的那个 tile。它直接印在训练进度行上（`busiest_tile=2003/2048`，没配上限时就是 `busiest_tile=2003`），先跑几步读这个数、留出余量、再填回去，就不必猜：
+
+```
+step=000100 loss=0.042 psnr=24.31 active=138766 storage=... overflow_tiles=0 busiest_tile=2003/2048 candidate_limit_exceeded=0 ...
+```
+
+**没做自动调参**（训练循环自己观测再收紧），两个原因：一是它要求 `tile_overflow` 从「致命」变成「可恢复」（扩容重放），否则某一步遇到比此前都忙的 tile，会从「能跑」变成「硬失败」，拿鲁棒性换速度；二是本机 GPU 被占满，热循环的改动量不出来。上面的倍数都是 **rasterizer 基准**的数字，带上限的端到端训练步本切片没有测过。
+
 wall-clock 的倍数小于循环步数的倍数（后者是 68×），因为省掉的是**空转的**步，而剩下的 4 个 chunk 每步都在满负荷算。收紧之后的前向阶段构成（同一配置，关掉 CUDA graph 后按 HLO `op_name` 逐 kernel 归属，12.96 ms GPU kernel time）：
 
 | 阶段 | ms/次 | 占比 |

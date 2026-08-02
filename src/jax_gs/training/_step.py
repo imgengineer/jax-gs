@@ -1333,6 +1333,12 @@ def _make_train_step(
         candidate_limit_exceeded_tiles = jnp.count_nonzero(
             info["candidate_limit_exceeded"]
         )
+        # What the compositor's chunk loop would have to cover. Without a
+        # RasterizationConfig.max_candidates_per_tile the loop is sized for
+        # the worst tile the shapes allow, which is far above what a real
+        # frame holds; reporting the real figure is what lets a caller choose
+        # that bound instead of guessing at it.
+        busiest_tile_candidates = jnp.max(info["candidate_counts"])
         intersection_count = jnp.sum(info["intersection_count"])
         intersection_required_count = jnp.max(
             info["intersection_required_count"]
@@ -1341,6 +1347,11 @@ def _make_train_step(
             assert distributed_axis_name is not None
             candidate_limit_exceeded_tiles = jax.lax.psum(
                 candidate_limit_exceeded_tiles, distributed_axis_name
+            )
+            # The bound is one static number for the world, so the world's
+            # busiest tile is what has to fit, not each rank's own.
+            busiest_tile_candidates = jax.lax.pmax(
+                busiest_tile_candidates, distributed_axis_name
             )
             intersection_count = jax.lax.psum(
                 intersection_count, distributed_axis_name
@@ -1364,6 +1375,7 @@ def _make_train_step(
             "overflow_tiles": overflow_tiles,
             "max_overflow_tiles": max_overflow_tiles,
             "candidate_limit_exceeded_tiles": candidate_limit_exceeded_tiles,
+            "busiest_tile_candidates": busiest_tile_candidates,
             "intersection_overflow": intersection_overflow,
             "intersection_overflow_seen": intersection_overflow_seen,
             "intersection_count": intersection_count,

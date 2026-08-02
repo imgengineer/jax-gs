@@ -67,6 +67,7 @@ def _overflow_rasterization(
         "candidate_limit_exceeded": jnp.zeros(
             (camera_count, 1, 1), jnp.bool_
         ),
+        "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
         "intersection_overflow": jnp.ones((camera_count,), jnp.bool_),
         "intersection_count": jnp.ones((camera_count,), jnp.int32),
         "intersection_required_count": jnp.full(

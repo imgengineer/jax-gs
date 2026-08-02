@@ -154,6 +154,14 @@ def _train_command(args: argparse.Namespace) -> None:
                 max_gaussians_per_tile=args.max_gaussians_per_tile,
             ),
         )
+    if args.max_candidates_per_tile is not None:
+        config = replace(
+            config,
+            rasterizer=replace(
+                config.rasterizer,
+                max_candidates_per_tile=args.max_candidates_per_tile,
+            ),
+        )
     if args.max_intersections is not None:
         config = replace(
             config,
@@ -247,6 +255,14 @@ def _render_command(args: argparse.Namespace) -> None:
             rasterizer=replace(
                 config.rasterizer,
                 max_gaussians_per_tile=args.max_gaussians_per_tile,
+            ),
+        )
+    if args.max_candidates_per_tile is not None:
+        config = replace(
+            config,
+            rasterizer=replace(
+                config.rasterizer,
+                max_candidates_per_tile=args.max_candidates_per_tile,
             ),
         )
     if args.max_intersections is not None:
@@ -523,6 +539,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     train_parser.add_argument("--max-gaussians-per-tile", type=int)
+    train_parser.add_argument(
+        "--max-candidates-per-tile",
+        type=int,
+        help=(
+            "static promise about the busiest tile's candidate count, "
+            "which sets the compositor chunk loop length. The training "
+            "metric busiest_tile_candidates reports what a run actually "
+            "needs. Too small only reports tile overflow"
+        ),
+    )
     train_parser.add_argument("--max-intersections", type=int)
     train_parser.add_argument("--intersection-bucket-min-capacity", type=int)
     train_parser.add_argument(
@@ -564,6 +590,7 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("--output", type=str, default="render.png")
     render_parser.add_argument("--alpha", type=str)
     render_parser.add_argument("--max-gaussians-per-tile", type=int)
+    render_parser.add_argument("--max-candidates-per-tile", type=int)
     render_parser.add_argument("--max-intersections", type=int)
     render_parser.add_argument(
         "--rasterizer-backend",

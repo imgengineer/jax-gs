@@ -853,6 +853,15 @@ def train(
                 if config.pose_opt and config.pose_noise > 0.0
                 else ""
             )
+            # How busy the worst tile actually got, against the bound the
+            # compositor's chunk loop was sized for. Reading it is how a
+            # caller learns what --max-candidates-per-tile to promise;
+            # without a bound there is nothing to compare it to.
+            candidate_bound = config.rasterizer.max_candidates_per_tile
+            busiest_tile_text = (
+                f"busiest_tile={int(last_metrics['busiest_tile_candidates'])}"
+                + (f"/{candidate_bound} " if candidate_bound is not None else " ")
+            )
             print(
                 f"step={step:06d} loss={last_metrics['loss']:.6f} "
                 f"psnr={last_metrics['psnr']:.2f} "
@@ -861,6 +870,7 @@ def train(
                 f"active={int(last_metrics['active_count'])} "
                 f"storage={model.capacity}/{model.max_capacity} "
                 f"overflow_tiles={int(last_metrics['overflow_tiles'])} "
+                f"{busiest_tile_text}"
                 f"candidate_limit_exceeded={int(last_metrics['candidate_limit_exceeded_tiles'])} "
                 f"intersection_overflow={bool(last_metrics['intersection_overflow'])} "
                 f"intersections={int(last_metrics['intersection_required_count'])}/"

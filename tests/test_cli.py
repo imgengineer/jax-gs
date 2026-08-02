@@ -414,3 +414,23 @@ def test_estimate_memory_cli_forwards_full_image_dimensions(monkeypatch):
     assert args.image_width == 640
     assert len(calls) == 2
     assert all(call[1:] == (480, 640) for call in calls)
+
+
+def test_train_cli_exposes_the_per_tile_candidate_bound(monkeypatch):
+    captured = {}
+
+    def fake_train(config, *, resume_from=None):
+        captured["config"] = config
+        return SimpleNamespace(checkpoint="unused")
+
+    monkeypatch.setattr(cli_module, "train", fake_train)
+    args = cli_module.build_parser().parse_args(
+        ["train", "--max-candidates-per-tile", "2048"]
+    )
+    args.func(args)
+    assert captured["config"].rasterizer.max_candidates_per_tile == 2048
+
+    # Omitting it keeps the conservative default rather than guessing a bound.
+    args = cli_module.build_parser().parse_args(["train"])
+    args.func(args)
+    assert captured["config"].rasterizer.max_candidates_per_tile is None

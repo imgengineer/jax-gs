@@ -260,6 +260,7 @@ def _rank_zero_overflow_rasterization(
         "candidate_limit_exceeded": jnp.zeros(
             (camera_count, 1, 1), dtype=jnp.bool_
         ),
+        "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
         "intersection_overflow": jnp.broadcast_to(
             rank_zero_overflow, (camera_count,)
         ),
@@ -371,6 +372,7 @@ def _screen_stats_rasterization(
         "candidate_limit_exceeded": jnp.zeros(
             (viewmats.shape[0], 1, 1), dtype=jnp.bool_
         ),
+        "candidate_counts": jnp.zeros((viewmats.shape[0], 1, 1), jnp.int32),
         "intersection_overflow": jnp.zeros(
             (viewmats.shape[0],), dtype=jnp.bool_
         ),
@@ -1687,6 +1689,7 @@ def _packed_rasterization(
         "projection_valid_count": jnp.asarray(global_capacity, jnp.int32),
         "tile_overflow": jnp.zeros((camera_count, 1, 1), jnp.bool_),
         "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), jnp.bool_),
+        "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
         "intersection_overflow": jnp.zeros((camera_count,), jnp.bool_),
         "intersection_count": jnp.ones((camera_count,), jnp.int32),
         "intersection_required_count": jnp.ones((camera_count,), jnp.int32),
