@@ -11,7 +11,10 @@ import numpy as np
 import pytest
 
 import jax_gs.training as training_module
-from jax_gs.capacity import resize_distributed_training_state
+from jax_gs.capacity import (
+    reshard_distributed_training_state,
+    resize_distributed_training_state,
+)
 from jax_gs.checkpoints import (
     load_distributed_checkpoint_manifest,
     restore_checkpoint,
@@ -2060,3 +2063,158 @@ def test_distributed_render_step_rejects_the_unsupported_combinations():
         make_distributed_render_step(
             replace(config, with_ut=True), 4, 4, world_size=2
         )
+
+
+def _global_rows(model):
+    """Every active row of a stacked world, in rank order."""
+
+    active = np.asarray(model.active_mask[...])
+    means = np.asarray(model.means[...])
+    return np.concatenate(
+        [means[rank][active[rank]] for rank in range(active.shape[0])], axis=0
+    )
+
+
+def _reshard(config, bundles, world_size, **kwargs):
+    return reshard_distributed_training_state(
+        bundles[0],
+        bundles[1],
+        bundles[2],
+        bundles[3],
+        world_size,
+        config.model,
+        config.optimizer,
+        **kwargs,
+    )
+
+
+def test_resharding_preserves_every_gaussian_and_its_state():
+    config = _topology_plan_config(capacity=8, bucket=4)
+    bundles = _two_rank_bundles(config)
+    model, _, strategy_state, _ = bundles
+    # Four Gaussians over two shards, each carrying distinct statistics.
+    model.active_mask[...] = jnp.asarray(
+        [[True, True, False, False], [True, True, False, False]]
+    )
+    model.means[...] = jnp.asarray(
+        [
+            [[0.0, 0, 3], [1.0, 0, 3], [0, 0, 0], [0, 0, 0]],
+            [[2.0, 0, 3], [3.0, 0, 3], [0, 0, 0], [0, 0, 0]],
+        ],
+        jnp.float32,
+    )
+    _set_owner_statistics(
+        strategy_state,
+        [[10.0, 11.0, 0.0, 0.0], [12.0, 13.0, 0.0, 0.0]],
+        [[0.1, 0.2, 0.0, 0.0], [0.3, 0.4, 0.0, 0.0]],
+    )
+    before = _global_rows(model)
+    assert before.shape == (4, 3)
+
+    grad_before = np.asarray(strategy_state.grad_accum[...])
+    owned = {
+        float(before[i, 0]): float(
+            grad_before[i // 2, i % 2]
+        )
+        for i in range(4)
+    }
+
+    wide = _reshard(config, bundles, 4)
+    assert wide[0].means[...].shape[0] == 4
+    after = _global_rows(wide[0])
+    # Every Gaussian survives, and contiguous blocks keep the global order.
+    np.testing.assert_array_equal(after, before)
+
+    # Each Gaussian's statistics travelled with its row, not with its rank.
+    active = np.asarray(wide[0].active_mask[...])
+    means = np.asarray(wide[0].means[...])
+    grads = np.asarray(wide[2].grad_accum[...])
+    for rank in range(4):
+        for row in np.flatnonzero(active[rank]):
+            assert grads[rank, row] == owned[float(means[rank, row, 0])]
+
+
+def test_resharding_round_trips_back_to_the_original_assignment():
+    # Contiguous blocks preserve the global sequence, so resharding composes:
+    # widening and narrowing again restores each rank's own rows.
+    config = _topology_plan_config(capacity=8, bucket=4)
+    bundles = _two_rank_bundles(config)
+    model = bundles[0]
+    model.active_mask[...] = jnp.asarray(
+        [[True, True, False, False], [True, True, False, False]]
+    )
+    model.means[...] = jnp.asarray(
+        [
+            [[0.0, 0, 3], [1.0, 0, 3], [0, 0, 0], [0, 0, 0]],
+            [[2.0, 0, 3], [3.0, 0, 3], [0, 0, 0], [0, 0, 0]],
+        ],
+        jnp.float32,
+    )
+    before = _global_rows(model)
+
+    wide = _reshard(config, bundles, 4)
+    narrow = _reshard(config, wide, 2, local_capacity=4)
+    np.testing.assert_array_equal(_global_rows(narrow[0]), before)
+
+
+def test_resharding_reduces_sticky_overflow_rather_than_dropping_it():
+    config = _topology_plan_config(capacity=8, bucket=4)
+    bundles = _two_rank_bundles(config)
+    safety = bundles[3]
+    # Only one rank saw the overflow; the world has still seen it.
+    safety.intersection_overflow_seen[...] = jnp.asarray([False, True])
+    safety.max_overflow_tiles[...] = jnp.asarray([3, 7], jnp.int32)
+
+    resharded = _reshard(config, bundles, 4)
+    np.testing.assert_array_equal(
+        resharded[3].intersection_overflow_seen[...], [True] * 4
+    )
+    np.testing.assert_array_equal(
+        resharded[3].max_overflow_tiles[...], [7] * 4
+    )
+
+
+def test_resharding_rejects_a_capacity_that_cannot_hold_a_shard():
+    config = _topology_plan_config(capacity=8, bucket=4)
+    bundles = _two_rank_bundles(config)
+    bundles[0].active_mask[...] = jnp.asarray(
+        [[True, True, True, True], [True, True, True, True]]
+    )
+    with pytest.raises(ValueError, match="cannot hold the busiest"):
+        _reshard(config, bundles, 2, local_capacity=1)
+    with pytest.raises(ValueError, match="world_size must be positive"):
+        _reshard(config, bundles, 0)
+
+
+def test_resharding_spreads_an_uneven_split_across_the_lowest_ranks():
+    config = _topology_plan_config(capacity=8, bucket=4)
+    bundles = _two_rank_bundles(config)
+    model = bundles[0]
+    # Five Gaussians over two shards: 3 and 2.
+    model.active_mask[...] = jnp.asarray(
+        [[True, True, True, False], [True, True, False, False]]
+    )
+    model.means[...] = jnp.asarray(
+        [
+            [[0.0, 0, 3], [1.0, 0, 3], [2.0, 0, 3], [0, 0, 0]],
+            [[3.0, 0, 3], [4.0, 0, 3], [0, 0, 0], [0, 0, 0]],
+        ],
+        jnp.float32,
+    )
+    before = _global_rows(model)
+    assert before.shape[0] == 5
+
+    resharded = _reshard(config, bundles, 3, local_capacity=4)
+    counts = np.asarray(
+        jnp.count_nonzero(resharded[0].active_mask[...], axis=1)
+    )
+    # Five across three ranks: sizes differ by at most one, remainder low.
+    np.testing.assert_array_equal(counts, [2, 2, 1])
+    np.testing.assert_array_equal(_global_rows(resharded[0]), before)
+
+    # Narrowing to one rank puts the whole scene on it, still in order.
+    single = _reshard(config, resharded, 1, local_capacity=8)
+    np.testing.assert_array_equal(
+        np.asarray(jnp.count_nonzero(single[0].active_mask[...], axis=1)), [5]
+    )
+    np.testing.assert_array_equal(_global_rows(single[0]), before)

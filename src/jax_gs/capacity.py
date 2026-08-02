@@ -299,3 +299,227 @@ __all__ = [
     "initial_physical_capacity",
     "resize_training_state",
 ]
+
+
+def _active_rows(state: Any, capacity: int, count: int) -> Any:
+    """Take the active prefix of every capacity-leading array in a state tree."""
+
+    def take(value: Any) -> Any:
+        if isinstance(value, jax.Array) and value.ndim > 0 and value.shape[0] == capacity:
+            return value[:count]
+        return value
+
+    return jax.tree.map(take, state)
+
+
+def _pad_rows(state: Any, count: int, capacity: int) -> Any:
+    """Pad every ``count``-leading array back out to the shard capacity."""
+
+    def pad(value: Any) -> Any:
+        if isinstance(value, jax.Array) and value.ndim > 0 and value.shape[0] == count:
+            padding = ((0, capacity - count),) + ((0, 0),) * (value.ndim - 1)
+            return jnp.pad(value, padding)
+        return value
+
+    return jax.tree.map(pad, state)
+
+
+def reshard_distributed_training_state(
+    model: GaussianModel,
+    optimizer: nnx.Optimizer,
+    strategy_state: StrategyState,
+    safety_state: Any,
+    world_size: int,
+    model_config: ModelConfig,
+    optimizer_config: OptimizerConfig,
+    *,
+    local_capacity: int | None = None,
+) -> tuple[GaussianModel, nnx.Optimizer, StrategyState, Any]:
+    """Redistribute a stacked training world across a different rank count.
+
+    Every other distributed primitive keeps the world size fixed, because the
+    mapped step is compiled for it; this is the one operation that changes it,
+    so it is host work between steps and never inside the map.
+
+    The active Gaussians are collected in rank order and dealt back out in
+    contiguous blocks, so reading the new world in rank order returns the same
+    global sequence that went in. That makes resharding composable: widening
+    and narrowing again restores the original assignment exactly, which
+    matters because this exists to move a checkpoint between world sizes and a
+    world may be resharded more than once. A strided deal, which is how a
+    fresh run splits its initial point cloud, would not compose that way,
+    since the sequence it produces is not the one it consumed. Remainders go
+    to the lowest ranks, so shard sizes differ by at most one.
+
+    Each Gaussian's optimizer moments and densification statistics travel with
+    its row, since they describe the Gaussian rather than the rank that
+    happened to hold it. Shards may hold different active counts before and
+    after; ``local_capacity`` defaults to the smallest configured bucket
+    covering the busiest new shard.
+
+    Sticky overflow state is reduced rather than dropped: a world that has seen
+    an intersection overflow still has, whichever rank saw it, so the flag is
+    OR-reduced and the tile high-water maximized, then replicated.
+    """
+
+    world_size = int(world_size)
+    if world_size <= 0:
+        raise ValueError("world_size must be positive")
+    old_world = _distributed_world_size(
+        model, optimizer, strategy_state, safety_state
+    )
+    old_capacity = _distributed_local_capacity(model, old_world)
+
+    # Compact first so each shard's active rows are a prefix we can slice.
+    shards = []
+    for rank in range(old_world):
+        shard = (
+            _unstack_graph(model, rank),
+            _unstack_graph(optimizer, rank),
+            _unstack_graph(strategy_state, rank),
+        )
+        count = int(compact_training_state(*shard))
+        shards.append((shard, count))
+
+    total = sum(count for _, count in shards)
+    block, remainder = divmod(total, world_size)
+    assignments = []
+    start = 0
+    for rank in range(world_size):
+        size = block + (1 if rank < remainder else 0)
+        assignments.append(list(range(start, start + size)))
+        start += size
+    new_counts = [len(rows) for rows in assignments]
+    busiest = max(new_counts) if new_counts else 0
+    if local_capacity is None:
+        local_capacity = model_config.bucket_capacity(busiest)
+    local_capacity = int(local_capacity)
+    if local_capacity < busiest:
+        raise ValueError(
+            f"local_capacity {local_capacity} cannot hold the busiest new "
+            f"shard's {busiest} Gaussians"
+        )
+
+    # Global row -> (old rank, row within that shard), in rank order.
+    origins: list[tuple[int, int]] = []
+    for rank, (_, count) in enumerate(shards):
+        origins.extend((rank, row) for row in range(count))
+
+    def gather(node_index: int, rows: list[tuple[int, int]]) -> Any:
+        states = [
+            _active_rows(
+                nnx.as_pure(nnx.state(shard[node_index])), old_capacity, count
+            )
+            for shard, count in shards
+        ]
+        if not rows:
+            # A rank with no Gaussians still needs the right tree shape.
+            return _active_rows(
+                nnx.as_pure(nnx.state(shards[0][0][node_index])),
+                old_capacity,
+                0,
+            )
+        selected = [states[rank] for rank, _ in rows]
+        indices = [row for _, row in rows]
+
+        def pick(*values: Any) -> Any:
+            first = values[0]
+            if not isinstance(first, jax.Array) or first.ndim == 0:
+                return first
+            return jnp.stack(
+                [value[index] for value, index in zip(values, indices, strict=True)]
+            )
+
+        return jax.tree.map(pick, *selected)
+
+    new_shards = []
+    for rank in range(world_size):
+        rows = [origins[index] for index in assignments[rank]]
+        count = new_counts[rank]
+        model_state = _pad_rows(gather(0, rows), count, local_capacity)
+        optimizer_state = _pad_rows(gather(1, rows), count, local_capacity)
+        strategy = _pad_rows(gather(2, rows), count, local_capacity)
+
+        new_model = _rebuilt_shard_model(
+            model_state,
+            count,
+            local_capacity,
+            model.has_appearance,
+            model.max_capacity,
+            model_config,
+        )
+        # Fresh containers: the old shards are still the source rows for the
+        # ranks built after this one.
+        new_optimizer = _unstack_graph(optimizer, 0)
+        nnx.update(new_optimizer, optimizer_state)
+        new_strategy = _unstack_graph(strategy_state, 0)
+        nnx.update(new_strategy, strategy)
+        new_shards.append((new_model, new_optimizer, new_strategy))
+
+    del optimizer_config
+    safety = _reduced_safety_state(safety_state, old_world, world_size)
+    return (
+        _stack_graphs([shard[0] for shard in new_shards]),
+        _stack_graphs([shard[1] for shard in new_shards]),
+        _stack_graphs([shard[2] for shard in new_shards]),
+        safety,
+    )
+
+
+def _rebuilt_shard_model(
+    state: Any,
+    count: int,
+    capacity: int,
+    has_appearance: bool,
+    max_capacity: int,
+    model_config: ModelConfig,
+) -> GaussianModel:
+    """Materialize one resharded model shard at ``capacity`` from gathered rows.
+
+    Built from the state rather than by updating a shard in place, because the
+    shards are still the source rows for the ranks not yet built. Slots past
+    the active prefix get the same fresh-slot values a capacity resize gives
+    them, so an inactive slot means the same thing however it came to exist.
+    """
+
+    log_scales = state["log_scales"].at[count:].set(
+        math.log(model_config.initial_scale)
+    )
+    quats = state["quats"].at[count:].set(0.0).at[count:, 0].set(1.0)
+    initial_opacity_logit = math.log(model_config.initial_opacity) - math.log1p(
+        -model_config.initial_opacity
+    )
+    opacity_logits = state["opacity_logits"].at[count:].set(
+        initial_opacity_logit
+    )
+    return GaussianModel(
+        state["means"],
+        log_scales,
+        quats,
+        opacity_logits,
+        None if has_appearance else state["sh0"],
+        None if has_appearance else state["sh_rest"],
+        jnp.arange(capacity) < count,
+        features=state["features"] if has_appearance else None,
+        colors=state["colors"] if has_appearance else None,
+        max_capacity=max_capacity,
+    )
+
+
+def _reduced_safety_state(safety_state: Any, old_world: int, world_size: int) -> Any:
+    """Carry sticky overflow across a reshard by reducing then replicating."""
+
+    shards = [_unstack_graph(safety_state, rank) for rank in range(old_world)]
+    tiles = jnp.max(
+        jnp.stack([shard.max_overflow_tiles[...] for shard in shards])
+    )
+    seen = jnp.any(
+        jnp.stack([shard.intersection_overflow_seen[...] for shard in shards])
+    )
+    replicas = []
+    for _ in range(world_size):
+        replica = _unstack_graph(safety_state, 0)
+        replica.max_overflow_tiles[...] = tiles
+        replica.intersection_overflow_seen[...] = seen
+        replicas.append(replica)
+    return _stack_graphs(replicas)
