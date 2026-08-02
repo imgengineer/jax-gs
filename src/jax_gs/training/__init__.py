@@ -59,6 +59,7 @@ from ._data import (
     _grain_iter_dataset,
     _infinite_batches,
     _sample_patches,
+    shard_camera_batch,
 )
 from ._loop import (
     TrainingResult,
@@ -218,6 +219,7 @@ __all__ = [
     "restore_checkpoint",
     "save_checkpoint",
     "scale_reg_loss",
+    "shard_camera_batch",
     "ssim",
     "synchronize_distributed_capacity",
     "train",

@@ -32,6 +32,7 @@ from jax_gs.strategy import DefaultStrategy, MCMCStrategy
 from jax_gs.training import (
     TrainingSafetyState,
     make_distributed_train_step,
+    shard_camera_batch,
     synchronize_distributed_capacity,
 )
 from jax_gs.training.pose import CameraOptModule
@@ -1869,3 +1870,78 @@ def test_host_capacity_synchronizer_grows_without_replay_after_commit_overflow()
     assert model.means[...].shape == (2, 4, 3)
     assert optimizer.step[...].shape == (2,)
     assert strategy_state.grad_accum[...].shape == (2, 4)
+
+
+def test_shard_camera_batch_deals_cameras_to_ranks_in_order():
+    batch = {
+        "image": np.arange(4 * 2 * 2 * 3, dtype=np.float32).reshape(4, 2, 2, 3),
+        "K": np.tile(np.eye(3, dtype=np.float32), (4, 1, 1)),
+        "image_id": np.asarray([10, 11, 12, 13], dtype=np.int64),
+        "image_name": ["a", "b", "c", "d"],
+    }
+    sharded = shard_camera_batch(batch, 2)
+    assert sharded["image"].shape == (2, 2, 2, 2, 3)
+    np.testing.assert_array_equal(sharded["image_id"], [[10, 11], [12, 13]])
+    assert sharded["image_name"].tolist() == [["a", "b"], ["c", "d"]]
+    np.testing.assert_array_equal(
+        sharded["image"][1, 0], batch["image"][2]
+    )
+
+    with pytest.raises(ValueError, match="does not split"):
+        shard_camera_batch({"image": np.zeros((3, 2, 2, 3))}, 2)
+    with pytest.raises(ValueError, match="while other fields carry"):
+        shard_camera_batch(
+            {"image": np.zeros((4, 2)), "K": np.zeros((2, 3))}, 2
+        )
+
+
+def test_sharded_camera_batch_drives_the_mapped_step_per_rank():
+    config = _topology_plan_config(capacity=4, bucket=2)
+    bundles = _two_rank_bundles(config)
+    train_step = make_distributed_train_step(config, world_size=2)
+
+    @nnx.vmap(
+        in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank"
+    )
+    def mapped_step(*args):
+        return train_step(*args)
+
+    # One host stream of world_size * B cameras; ranks must see their own.
+    host_batch = {
+        "image": np.stack(
+            (
+                np.zeros((4, 4, 3), np.float32),
+                np.ones((4, 4, 3), np.float32),
+            )
+        ),
+        "K": np.tile(
+            np.asarray(
+                [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]],
+                np.float32,
+            ),
+            (2, 1, 1),
+        ),
+        "w2c": np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)),
+    }
+    sharded = shard_camera_batch(host_batch, 2)
+    keys = jax.random.split(jax.random.key(0), 2)
+    sh_degrees = jnp.zeros((2,), jnp.int32)
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_statistics_rasterization
+    ):
+        metrics = mapped_step(
+            *bundles,
+            jnp.asarray(sharded["image"]),
+            jnp.asarray(sharded["K"]),
+            jnp.asarray(sharded["w2c"]),
+            keys,
+            sh_degrees,
+        )
+
+    # Rank 0 scored a black target and rank 1 a white one, so the rank-local
+    # losses must differ: each rank consumed its own cameras.
+    losses = np.asarray(metrics["l1"])
+    assert losses.shape == (2,)
+    assert abs(float(losses[0]) - float(losses[1])) > 1e-3
+    np.testing.assert_array_equal(bundles[1].step[...], [1, 1])
