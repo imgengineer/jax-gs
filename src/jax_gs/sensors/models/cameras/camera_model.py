@@ -590,12 +590,14 @@ class CameraModel(nnx.Module):
     def pixels_to_camera_rays(self, pixels: jax.Array) -> jax.Array:
         return self.image_points_to_camera_rays(self.pixels_to_image_points(pixels))
 
-    @staticmethod
-    def pixels_to_image_points(pixels: jax.Array) -> jax.Array:
+    def pixels_to_image_points(self, pixels: jax.Array) -> jax.Array:
+        """Convert pixel indices to continuous image coordinates (pixel centers)."""
+
         return jnp.asarray(pixels, dtype=jnp.float32) + 0.5
 
-    @staticmethod
-    def image_points_to_pixels(image_points: jax.Array) -> jax.Array:
+    def image_points_to_pixels(self, image_points: jax.Array) -> jax.Array:
+        """Convert continuous image coordinates to integer pixel indices."""
+
         return jnp.floor(image_points).astype(jnp.int32)
 
     def image_points_relative_frame_times(

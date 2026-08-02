@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import operator
+from typing import Any
+
 from flax import nnx
 import jax
 import jax.numpy as jnp
@@ -18,8 +21,14 @@ from .deformation import DeformationTable
 class DynamicStrategyState(StrategyState):
     """Default strategy statistics plus one fixed-capacity dynamic mask."""
 
-    def __init__(self, capacity: int, *, init_dynamic: bool = True) -> None:
-        super().__init__(capacity)
+    def __init__(
+        self,
+        capacity: int,
+        *,
+        init_dynamic: bool = True,
+        scene_scale: float = 1.0,
+    ) -> None:
+        super().__init__(capacity, scene_scale=scene_scale)
         self.dynamic_mask = nnx.Variable(
             jnp.full((capacity,), bool(init_dynamic), dtype=jnp.bool_)
         )
@@ -54,11 +63,39 @@ class DynamicStrategy(DefaultStrategy):
 
     def initialize_state(
         self,
-        capacity: int,
-        *,
+        scene_scale: float = 1.0,
+        num_gaussians: int = 0,
+        device: Any | None = None,
         init_dynamic: bool = True,
+        *,
+        capacity: int | None = None,
     ) -> DynamicStrategyState:
-        return DynamicStrategyState(capacity, init_dynamic=init_dynamic)
+        """Initialize dynamic state on the upstream calling surface.
+
+        Upstream sizes the mask by ``num_gaussians`` and places it on
+        ``device``; this port sizes fixed-capacity state by the trailing JAX
+        ``capacity`` extension and leaves placement to the caller, the same
+        adaptation :meth:`DefaultStrategy.initialize_state` documents. A first
+        positional integer keeps meaning the capacity, as it does there, so
+        existing jax-gs calls stay valid.
+        """
+
+        del device
+        if capacity is None:
+            try:
+                legacy_capacity = operator.index(scene_scale)
+            except TypeError:
+                pass
+            else:
+                capacity = legacy_capacity
+                scene_scale = 1.0
+        if capacity is None:
+            capacity = num_gaussians
+        return DynamicStrategyState(
+            capacity,
+            init_dynamic=init_dynamic,
+            scene_scale=scene_scale,
+        )
 
     def refine(
         self,
@@ -74,7 +111,7 @@ class DynamicStrategy(DefaultStrategy):
         if not isinstance(state, DynamicStrategyState):
             raise RuntimeError(
                 "DynamicStrategy.refine called without a dynamic state; "
-                "create it with strategy.initialize_state(capacity)."
+                "create it with strategy.initialize_state(capacity=...)."
             )
 
         scale = jnp.asarray(scene_scale, dtype=jnp.float32)

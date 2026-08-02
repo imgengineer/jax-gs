@@ -39,6 +39,28 @@ def test_dynamic_strategy_honors_static_initialization():
     assert not bool(jnp.any(state.dynamic_mask[...]))
 
 
+def test_dynamic_strategy_accepts_the_upstream_initialize_state_surface():
+    # Upstream's calling convention: scene_scale, num_gaussians, device,
+    # init_dynamic. The port sizes state by num_gaussians when no trailing
+    # capacity is given, ignores device, and stores scene_scale like the
+    # parent state does.
+    state = DynamicStrategy().initialize_state(2.0, 6, None, False)
+    assert state.dynamic_mask.shape == (6,)
+    assert not bool(jnp.any(state.dynamic_mask[...]))
+    assert float(state.scene_scale[...]) == 2.0
+
+    # The trailing JAX extension wins over num_gaussians when both are given.
+    state = DynamicStrategy().initialize_state(1.5, 3, capacity=7)
+    assert state.dynamic_mask.shape == (7,)
+    assert float(state.scene_scale[...]) == 1.5
+
+    # A first positional integer keeps meaning the capacity, matching
+    # DefaultStrategy's documented legacy form.
+    state = DynamicStrategy().initialize_state(5)
+    assert state.dynamic_mask.shape == (5,)
+    assert float(state.scene_scale[...]) == 1.0
+
+
 def test_dynamic_strategy_new_slots_inherit_dynamic_and_static_parents():
     _, _, model, optimizer = _training_state(capacity=6, active=2)
     model.means[:2] = jnp.asarray([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])

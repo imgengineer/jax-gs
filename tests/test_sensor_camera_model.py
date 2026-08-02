@@ -250,3 +250,23 @@ def test_camera_model_rejects_missing_concrete_components():
         CameraModel(None, NoExternalDistortion(), (100, 80), ShutterType.GLOBAL)
     with pytest.raises(TypeError, match="NoExternalDistortion"):
         CameraModel(_pinhole(), None, (100, 80), ShutterType.GLOBAL)
+
+
+def test_pixel_conversions_are_instance_methods_like_upstream():
+    # Upstream defines these as instance methods, so the explicit unbound form
+    # CameraModel.method(model, values) is a valid call. As staticmethods that
+    # form silently consumed the model as the coordinates.
+    model = CameraModel(
+        _pinhole(), NoExternalDistortion(), (100, 80), ShutterType.GLOBAL
+    )
+    pixels = jnp.asarray([[3, 4], [10, 20]], dtype=jnp.int32)
+    bound = model.pixels_to_image_points(pixels)
+    unbound = CameraModel.pixels_to_image_points(model, pixels)
+    np.testing.assert_array_equal(np.asarray(bound), np.asarray(unbound))
+    np.testing.assert_allclose(np.asarray(bound), np.asarray(pixels) + 0.5)
+
+    image_points = jnp.asarray([[3.7, 4.2]], dtype=jnp.float32)
+    np.testing.assert_array_equal(
+        np.asarray(model.image_points_to_pixels(image_points)),
+        np.asarray(CameraModel.image_points_to_pixels(model, image_points)),
+    )
