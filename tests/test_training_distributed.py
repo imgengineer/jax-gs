@@ -1263,8 +1263,14 @@ def test_distributed_restore_rejects_resharding(tmp_path):
         _rank_bundle(config, 0.08),
     )
 
-    with pytest.raises(ValueError, match="resharding is not supported"):
+    # Refusing by default is the point: a width that does not match the
+    # checkpoint is far more often a misconfigured run than a move.
+    with pytest.raises(ValueError, match="pass allow_reshard=True"):
         restore_distributed_checkpoint(path, *three_ranks)
+    with pytest.raises(ValueError, match="requires model_config"):
+        restore_distributed_checkpoint(
+            path, *three_ranks, allow_reshard=True
+        )
 
 
 def test_distributed_restore_rejects_a_different_shard_capacity(tmp_path):
@@ -1274,7 +1280,7 @@ def test_distributed_restore_rejects_a_different_shard_capacity(tmp_path):
         step=0,
     )
 
-    with pytest.raises(ValueError, match="shard capacity"):
+    with pytest.raises(ValueError, match="capacity"):
         restore_distributed_checkpoint(
             path, *_two_rank_bundles(_topology_plan_config(capacity=4))
         )
@@ -2218,3 +2224,80 @@ def test_resharding_spreads_an_uneven_split_across_the_lowest_ranks():
         np.asarray(jnp.count_nonzero(single[0].active_mask[...], axis=1)), [5]
     )
     np.testing.assert_array_equal(_global_rows(single[0]), before)
+
+
+def test_distributed_restore_reshards_when_asked(tmp_path):
+    config = _topology_plan_config(capacity=8, bucket=4)
+    saved = _two_rank_bundles(config)
+    model, optimizer, strategy_state, _ = saved
+    optimizer.step[...] = jnp.asarray([5, 5], optimizer.step[...].dtype)
+    model.active_mask[...] = jnp.asarray(
+        [[True, True, False, False], [True, True, False, False]]
+    )
+    model.means[...] = jnp.asarray(
+        [
+            [[0.0, 0, 3], [1.0, 0, 3], [0, 0, 0], [0, 0, 0]],
+            [[2.0, 0, 3], [3.0, 0, 3], [0, 0, 0], [0, 0, 0]],
+        ],
+        jnp.float32,
+    )
+    _set_owner_statistics(
+        strategy_state,
+        [[10.0, 11.0, 0.0, 0.0], [12.0, 13.0, 0.0, 0.0]],
+        [[0.1, 0.2, 0.0, 0.0], [0.3, 0.4, 0.0, 0.0]],
+    )
+    before = _global_rows(model)
+    path = save_distributed_checkpoint(tmp_path, *saved, step=5, config=config)
+
+    # A four-rank world reads a two-rank checkpoint.
+    target = _stack_graphs(*[_rank_bundle(config, 0.0) for _ in range(4)])
+    step = restore_distributed_checkpoint(
+        path,
+        *target,
+        config=config,
+        model_config=config.model,
+        optimizer_config=config.optimizer,
+        allow_reshard=True,
+    )
+    assert step == 5
+    assert target[0].means[...].shape[0] == 4
+    np.testing.assert_array_equal(_global_rows(target[0]), before)
+    # The optimizer step survived the move, on every new rank.
+    np.testing.assert_array_equal(target[1].step[...], [5, 5, 5, 5])
+
+    # Reading it back at the saved width restores the original assignment.
+    narrowed = _stack_graphs(*[_rank_bundle(config, 0.0) for _ in range(2)])
+    restore_distributed_checkpoint(
+        path,
+        *narrowed,
+        config=config,
+        model_config=config.model,
+        optimizer_config=config.optimizer,
+        allow_reshard=True,
+    )
+    np.testing.assert_array_equal(
+        np.asarray(narrowed[0].means[...]), np.asarray(model.means[...])
+    )
+
+
+def test_distributed_restore_refuses_a_target_that_cannot_hold_the_scene(
+    tmp_path,
+):
+    config = _topology_plan_config(capacity=8, bucket=4)
+    saved = _two_rank_bundles(config)
+    saved[0].active_mask[...] = jnp.asarray(
+        [[True, True, True, True], [True, True, True, True]]
+    )
+    path = save_distributed_checkpoint(tmp_path, *saved, step=0, config=config)
+
+    # Eight Gaussians cannot fit one shard of capacity four.
+    target = _stack_graphs(*[_rank_bundle(config, 0.0) for _ in range(1)])
+    with pytest.raises(ValueError, match="cannot hold the busiest"):
+        restore_distributed_checkpoint(
+            path,
+            *target,
+            config=config,
+            model_config=config.model,
+            optimizer_config=config.optimizer,
+            allow_reshard=True,
+        )

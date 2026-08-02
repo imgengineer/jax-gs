@@ -12,7 +12,13 @@ import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
 
-from .capacity import _distributed_local_capacity, _distributed_world_size
+from .capacity import (
+    _distributed_local_capacity,
+    _distributed_world_size,
+    _stack_graphs,
+    _unstack_graph,
+    reshard_distributed_training_state,
+)
 from .config import TrainConfig
 from .data.normalize import _as_similarity_matrix
 from .model import GaussianModel
@@ -256,6 +262,39 @@ def save_distributed_checkpoint(
     return checkpoint_path
 
 
+def _world_shaped_like(
+    node: Any, target_capacity: int, world_size: int, capacity: int
+) -> Any:
+    """Build a stacked node of the saved shape to restore a shard set into.
+
+    Only the shapes and dtypes matter: every value is overwritten by the
+    restore. Capacity-leading arrays are re-made at the saved per-shard
+    capacity and the shard is replicated to the saved world size, so a host
+    can read a checkpoint whose width it does not currently run at without
+    having to construct one by hand.
+    """
+
+    shard = _unstack_graph(node, 0)
+    state = _pure_state(shard)
+
+    def reshape(value: Any) -> Any:
+        if (
+            isinstance(value, jax.Array)
+            and value.ndim > 0
+            and value.shape[0] == target_capacity
+        ):
+            return jnp.zeros(
+                (capacity, *value.shape[1:]), dtype=value.dtype
+            )
+        return value
+
+    nnx.update(shard, jax.tree.map(reshape, state))
+    replicated = _stack_graphs([shard])
+    return _stack_graphs(
+        [_unstack_graph(replicated, 0) for _ in range(world_size)]
+    )
+
+
 def restore_distributed_checkpoint(
     checkpoint_path: str | Path,
     model: GaussianModel,
@@ -264,13 +303,24 @@ def restore_distributed_checkpoint(
     safety_state: Any,
     *,
     config: TrainConfig | None = None,
+    model_config: Any | None = None,
+    optimizer_config: Any | None = None,
+    allow_reshard: bool = False,
 ) -> int:
-    """Restore an indivisible shard set into equally shaped stacked nodes.
+    """Restore an indivisible shard set into the given stacked nodes.
 
-    Only an exact same-world-size, same-per-shard-capacity resume is
-    supported. Resharding a saved world across a different rank count needs
-    model, optimizer, and statistics to move together and is deliberately
-    rejected here rather than approximated.
+    By default only an exact same-world-size, same-per-shard-capacity resume
+    is accepted, because a width that does not match the checkpoint is far
+    more often a misconfigured run than a deliberate move, and that is worth
+    refusing loudly.
+
+    ``allow_reshard=True`` asks for the move instead: the shard set is
+    restored at its saved shape and then redistributed onto the width and
+    capacity of the nodes passed in, which then hold the result. That needs
+    ``model_config`` and ``optimizer_config`` to rebuild the shards, and the
+    target capacity has to fit the busiest new shard. See
+    :func:`jax_gs.capacity.reshard_distributed_training_state` for what moves
+    with each Gaussian and how the rows are dealt out.
     """
 
     metadata = _load_metadata(checkpoint_path)
@@ -283,16 +333,21 @@ def restore_distributed_checkpoint(
     )
     local_capacity = _distributed_local_capacity(model, world_size)
     saved_world_size = int(metadata["world_size"])
-    if saved_world_size != world_size:
-        raise ValueError(
-            f"checkpoint holds {saved_world_size} shards, target world size "
-            f"is {world_size}; resharding is not supported"
-        )
     saved_local_capacity = int(metadata["local_capacity"])
-    if saved_local_capacity != local_capacity:
+    reshaping = (
+        saved_world_size != world_size or saved_local_capacity != local_capacity
+    )
+    if reshaping and not allow_reshard:
         raise ValueError(
-            f"checkpoint shard capacity is {saved_local_capacity}, target "
-            f"shards have capacity {local_capacity}"
+            f"checkpoint holds {saved_world_size} shards of capacity "
+            f"{saved_local_capacity}, target world has {world_size} shards of "
+            f"capacity {local_capacity}; pass allow_reshard=True with "
+            "model_config and optimizer_config to redistribute it"
+        )
+    if reshaping and (model_config is None or optimizer_config is None):
+        raise ValueError(
+            "allow_reshard=True requires model_config and optimizer_config "
+            "to rebuild the shards"
         )
     saved_color_mode = metadata.get("model_color_mode", "sh")
     target_color_mode = "appearance" if model.has_appearance else "sh"
@@ -310,11 +365,22 @@ def restore_distributed_checkpoint(
                 "checkpoint was written with a different training config"
             )
 
+    # When resharding, restore into nodes of the saved shape first; the
+    # caller's nodes receive the redistributed world below.
+    if reshaping:
+        holders = tuple(
+            _world_shaped_like(
+                node, local_capacity, saved_world_size, saved_local_capacity
+            )
+            for node in (model, optimizer, strategy_state, safety_state)
+        )
+    else:
+        holders = (model, optimizer, strategy_state, safety_state)
     targets = {
-        "model": _pure_state(model),
-        "optimizer": _pure_state(optimizer),
-        "strategy": _pure_state(strategy_state),
-        "safety": _pure_state(safety_state),
+        "model": _pure_state(holders[0]),
+        "optimizer": _pure_state(holders[1]),
+        "strategy": _pure_state(holders[2]),
+        "safety": _pure_state(holders[3]),
     }
     target = {
         name: _encode_empty_arrays(state) for name, state in targets.items()
@@ -330,14 +396,28 @@ def restore_distributed_checkpoint(
     finally:
         checkpointer.close()
     for node, name in (
-        (model, "model"),
-        (optimizer, "optimizer"),
-        (strategy_state, "strategy"),
-        (safety_state, "safety"),
+        (holders[0], "model"),
+        (holders[1], "optimizer"),
+        (holders[2], "strategy"),
+        (holders[3], "safety"),
     ):
         nnx.update(
             node, _restore_empty_arrays(restored[name], targets[name])
         )
+    if reshaping:
+        resharded = reshard_distributed_training_state(
+            *holders,
+            world_size,
+            model_config,
+            optimizer_config,
+            local_capacity=local_capacity,
+        )
+        for node, source in zip(
+            (model, optimizer, strategy_state, safety_state),
+            resharded,
+            strict=True,
+        ):
+            nnx.update(node, _pure_state(source))
     return int(restored["step"])
 
 
