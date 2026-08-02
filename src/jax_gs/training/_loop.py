@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Hashable
 from dataclasses import dataclass
 import gc
+import operator
 from pathlib import Path
 import sys
 import time
@@ -155,6 +157,130 @@ def make_render_step(config: TrainConfig, width: int, height: int):
         )
 
     return render_step
+
+
+def make_distributed_render_step(
+    config: TrainConfig,
+    width: int,
+    height: int,
+    *,
+    world_size: int,
+    axis_name: Hashable = "rank",
+):
+    """Create the evaluation counterpart of :func:`make_distributed_train_step`.
+
+    Upstream does not shard evaluation cameras: every rank iterates the whole
+    validation set and renders it, because with Gaussians sharded the render
+    is itself the collective, and only rank zero keeps the metrics and writes
+    the images. This mirrors that. The returned step runs inside the same
+    ``nnx.pmap`` or ``nnx.vmap`` as training with ``axis_name`` bound, and is
+    given the same camera on every rank; the renderer gathers the shards, so
+    every rank comes back with the whole image and they must agree.
+
+    The distributed restrictions are the training slice's, so this rejects the
+    same combinations for the same reasons.
+    """
+
+    try:
+        world_size = operator.index(world_size)
+    except TypeError as exc:
+        raise TypeError("world_size must be an integer") from exc
+    if world_size <= 1:
+        raise ValueError("world_size must be greater than one")
+    if axis_name is None or not isinstance(axis_name, Hashable):
+        raise TypeError("axis_name must be hashable")
+    _validate_2dgs_mode(config)
+    if config.model_type != "3dgs":
+        raise NotImplementedError("distributed rendering does not support 2DGS")
+    if config.app_opt:
+        raise NotImplementedError(
+            "distributed appearance rendering requires gather-before-MLP "
+            "camera colors and is not part of this slice"
+        )
+    if (
+        config.with_ut
+        or config.with_eval3d
+        or config.camera_model != "pinhole"
+    ):
+        raise NotImplementedError(
+            "distributed rendering supports standard pinhole EWA "
+            "rasterization only"
+        )
+
+    @nnx.jit
+    def render_step(
+        model: GaussianModel,
+        viewmat: jax.Array,
+        K: jax.Array,
+        sh_degree: jax.Array,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+        if model.has_appearance != config.app_opt:
+            raise ValueError(
+                "model color representation must match config.app_opt"
+            )
+        parameters = model.activated(split_sh=True)
+        renders, alphas, info = _training.rasterization(
+            parameters["means"],
+            parameters["quats"],
+            parameters["scales"],
+            parameters["opacities"],
+            parameters["sh_coeffs"],
+            viewmat[None, ...],
+            K[None, ...],
+            width,
+            height,
+            active_mask=parameters["active_mask"],
+            sh_degree=sh_degree,
+            camera_model=config.camera_model,
+            distributed=True,
+            distributed_world_size=world_size,
+            distributed_axis_name=axis_name,
+            config=config.rasterizer,
+        )
+        return (
+            renders[0, ..., :3],
+            alphas[0],
+            info["tile_overflow"][0],
+            info["intersection_overflow"][0],
+        )
+
+    return render_step
+
+
+def reduce_distributed_render(
+    rendered: jax.Array,
+    *,
+    rank: int = 0,
+    atol: float = 0.0,
+) -> jax.Array:
+    """Take one rank's image out of a mapped render, checking the ranks agree.
+
+    Every rank renders the same camera against the same gathered scene, so
+    their images carry the same value and any disagreement beyond float
+    reassociation means the collective did not deliver the whole scene
+    somewhere. Checking that is cheap next to the render it follows, and a
+    silently rank-dependent evaluation is worth failing loudly for.
+    """
+
+    stacked = np.asarray(jax.device_get(rendered))
+    if stacked.ndim < 1 or stacked.shape[0] < 1:
+        raise ValueError("expected a rank-major stack of renders")
+    if not 0 <= rank < stacked.shape[0]:
+        raise IndexError(
+            f"rank {rank} is outside the world of {stacked.shape[0]}"
+        )
+    reference = stacked[rank]
+    for other in range(stacked.shape[0]):
+        if other == rank:
+            continue
+        if not np.allclose(stacked[other], reference, rtol=0.0, atol=atol):
+            worst = float(np.max(np.abs(stacked[other] - reference)))
+            raise ValueError(
+                f"distributed render disagrees between rank {rank} and rank "
+                f"{other} by {worst:.3e}; every rank renders the same camera "
+                "against the gathered scene, so they must match"
+            )
+    return jnp.asarray(reference)
 
 
 def _save_render(path: Path, image: jax.Array) -> None:

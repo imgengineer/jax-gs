@@ -64,7 +64,9 @@ from ._data import (
 from ._loop import (
     TrainingResult,
     _save_render,
+    make_distributed_render_step,
     make_render_step,
+    reduce_distributed_render,
     train,
 )
 from ._memory import (
@@ -204,6 +206,7 @@ __all__ = [
     "load_checkpoint_scene_transform",
     "load_checkpoint_storage_capacity",
     "load_colmap_scene",
+    "make_distributed_render_step",
     "make_distributed_train_step",
     "make_render_step",
     "make_train_step",
@@ -214,6 +217,7 @@ __all__ = [
     "psnr",
     "rasterization",
     "rasterization_2dgs",
+    "reduce_distributed_render",
     "reset_opacities",
     "resize_training_state",
     "restore_checkpoint",

@@ -1,3 +1,4 @@
+from dataclasses import replace
 import os
 import subprocess
 import sys
@@ -31,7 +32,10 @@ from jax_gs.optimizers import create_optimizer
 from jax_gs.strategy import DefaultStrategy, MCMCStrategy
 from jax_gs.training import (
     TrainingSafetyState,
+    make_distributed_render_step,
     make_distributed_train_step,
+    make_render_step,
+    reduce_distributed_render,
     shard_camera_batch,
     synchronize_distributed_capacity,
 )
@@ -144,6 +148,38 @@ def _rank_bundle(
         model.capacity
     )
     return model, optimizer, strategy_state, TrainingSafetyState()
+
+
+def _single_process_model_from_shards(config, stacked_model):
+    """Rebuild the whole scene as one unsharded model.
+
+    Every shard holds capacity rows of which the active ones are real, so the
+    equivalent single-process scene is the concatenation of the active rows.
+    """
+
+    world, capacity = stacked_model.active_mask[...].shape
+    active = np.asarray(stacked_model.active_mask[...])
+    means = np.asarray(stacked_model.means[...])
+    rows = np.concatenate(
+        [means[rank][active[rank]] for rank in range(world)], axis=0
+    )
+    colors = np.tile(np.asarray([[192, 128, 64]], np.uint8), (rows.shape[0], 1))
+    model_config = replace(config.model, capacity=world * capacity)
+    model = GaussianModel.from_point_cloud(rows, colors, model_config)
+    # Copy the sharded values verbatim so the comparison isolates the render.
+    count = rows.shape[0]
+    for name in ("means", "quats", "log_scales", "opacity_logits", "sh0"):
+        source = np.concatenate(
+            [
+                np.asarray(getattr(stacked_model, name)[...])[rank][active[rank]]
+                for rank in range(world)
+            ],
+            axis=0,
+        )
+        target = np.asarray(getattr(model, name)[...]).copy()
+        target[:count] = source
+        getattr(model, name)[...] = jnp.asarray(target)
+    return model
 
 
 def _zero_initialized_pose_module():
@@ -1945,3 +1981,82 @@ def test_sharded_camera_batch_drives_the_mapped_step_per_rank():
     assert losses.shape == (2,)
     assert abs(float(losses[0]) - float(losses[1])) > 1e-3
     np.testing.assert_array_equal(bundles[1].step[...], [1, 1])
+
+
+def test_distributed_render_matches_the_single_process_render():
+    # Evaluation cameras are replicated, not sharded: every rank renders the
+    # same camera against the gathered scene, so all ranks must agree and the
+    # result must be what one process rendering the whole scene produces.
+    config = _topology_plan_config(capacity=4, bucket=2)
+    bundles = _two_rank_bundles(config)
+    model = bundles[0]
+
+    render_step = make_distributed_render_step(
+        config, 4, 4, world_size=2, axis_name="rank"
+    )
+
+    @nnx.vmap(in_axes=(0, None, None, None), out_axes=0, axis_name="rank")
+    def mapped_render(shard, viewmat, K, sh_degree):
+        return render_step(shard, viewmat, K, sh_degree)
+
+    viewmat = jnp.eye(4, dtype=jnp.float32)
+    K = jnp.asarray(
+        [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
+    )
+    sh_degree = jnp.asarray(0, jnp.int32)
+
+    rendered, _, _, _ = mapped_render(model, viewmat, K, sh_degree)
+    assert rendered.shape == (2, 4, 4, 3)
+
+    # The ranks agree, so the reducer accepts and returns rank 0's image.
+    image = reduce_distributed_render(rendered)
+    assert image.shape == (4, 4, 3)
+    np.testing.assert_array_equal(np.asarray(image), np.asarray(rendered[0]))
+
+    # And that image is the whole scene, not one shard: build the equivalent
+    # single-process model by concatenating both shards' rows.
+    single = _single_process_model_from_shards(config, model)
+    single_render = make_render_step(config, 4, 4)
+    reference, _, _, _ = single_render(single, viewmat, K, sh_degree)
+    np.testing.assert_allclose(
+        np.asarray(image), np.asarray(reference), rtol=0.0, atol=2e-6
+    )
+
+
+def test_reduce_distributed_render_rejects_disagreeing_ranks():
+    stacked = jnp.stack(
+        (jnp.zeros((2, 2, 3), jnp.float32), jnp.ones((2, 2, 3), jnp.float32))
+    )
+    with pytest.raises(ValueError, match="disagrees between rank 0 and rank 1"):
+        reduce_distributed_render(stacked)
+    with pytest.raises(IndexError, match="outside the world"):
+        reduce_distributed_render(stacked, rank=2)
+    # Rank-selection works, and a tolerance admits reassociation-level drift.
+    near = jnp.stack(
+        (
+            jnp.zeros((2, 2, 3), jnp.float32),
+            jnp.full((2, 2, 3), 1e-9, jnp.float32),
+        )
+    )
+    np.testing.assert_array_equal(
+        np.asarray(reduce_distributed_render(near, atol=1e-6)),
+        np.zeros((2, 2, 3), np.float32),
+    )
+
+
+def test_distributed_render_step_rejects_the_unsupported_combinations():
+    config = _topology_plan_config(capacity=4, bucket=2)
+    with pytest.raises(ValueError, match="world_size must be greater"):
+        make_distributed_render_step(config, 4, 4, world_size=1)
+    with pytest.raises(NotImplementedError, match="2DGS"):
+        make_distributed_render_step(
+            replace(config, model_type="2dgs"), 4, 4, world_size=2
+        )
+    with pytest.raises(NotImplementedError, match="appearance"):
+        make_distributed_render_step(
+            replace(config, app_opt=True), 4, 4, world_size=2
+        )
+    with pytest.raises(NotImplementedError, match="pinhole"):
+        make_distributed_render_step(
+            replace(config, with_ut=True), 4, 4, world_size=2
+        )
