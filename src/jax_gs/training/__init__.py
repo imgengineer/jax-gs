@@ -68,6 +68,7 @@ from ._loop import (
 )
 from ._memory import (
     _check_bucket_transition_memory_budget,
+    _check_distributed_bucket_transition_memory_budget,
     _check_evaluation_memory_budget,
     _check_memory_budget,
     _device_memory_usage,
@@ -103,10 +104,12 @@ from ._setup import (
     _validate_camera_module_resume_config,
 )
 from ._state import (
+    DistributedCapacityDecision,
     _block_nnx_state,
     _grow_training_state,
     _initial_storage_capacity,
     _save_compacted_training_checkpoint,
+    synchronize_distributed_capacity,
 )
 from ._step import (
     TrainingSafetyState,
@@ -132,6 +135,7 @@ __all__ = [
     "ColmapScene",
     "DefaultStrategy",
     "DensificationStats",
+    "DistributedCapacityDecision",
     "GaussianModel",
     "MCMCStrategy",
     "RasterizationConfig",
@@ -147,6 +151,7 @@ __all__ = [
     "_automatic_intersection_capacity",
     "_block_nnx_state",
     "_check_bucket_transition_memory_budget",
+    "_check_distributed_bucket_transition_memory_budget",
     "_check_evaluation_memory_budget",
     "_check_memory_budget",
     "_create_pose_optimizer",
@@ -214,6 +219,7 @@ __all__ = [
     "save_checkpoint",
     "scale_reg_loss",
     "ssim",
+    "synchronize_distributed_capacity",
     "train",
     "transform_cameras",
     "transform_points",

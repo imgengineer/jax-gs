@@ -32,6 +32,7 @@ from jax_gs.strategy import DefaultStrategy, MCMCStrategy
 from jax_gs.training import (
     TrainingSafetyState,
     make_distributed_train_step,
+    synchronize_distributed_capacity,
 )
 from jax_gs.training.pose import CameraOptModule
 
@@ -1758,3 +1759,113 @@ def test_mcmc_shards_train_and_grow_owner_locally(monkeypatch):
     np.testing.assert_array_equal(
         np.asarray(model.active_mask[...]).sum(axis=1), [21, 21]
     )
+
+
+def test_host_capacity_synchronizer_grows_and_replays_the_frozen_step():
+    # The same chain test_growing_all_shards_lets_the_skipped_step_replay
+    # proves by hand, driven through the host half instead: read the step's
+    # metrics, grow every shard by the bucket rule, and replay because the
+    # frozen step committed nothing.
+    config = _topology_plan_config(
+        capacity=4,
+        bucket=2,
+        refine_scale2d_stop_iter=100,
+        grow_scale2d=0.05,
+    )
+    bundles = _two_rank_bundles(config)
+    _set_owner_statistics(
+        bundles[2], [[1.0, 0.0], [0.0, 0.0]], [[0.5, 0.0], [0.0, 0.0]]
+    )
+    train_step = make_distributed_train_step(config, world_size=2)
+
+    @nnx.vmap(
+        in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank"
+    )
+    def mapped_step(*args):
+        return train_step(*args)
+
+    images = jnp.zeros((2, 1, 4, 4, 3), jnp.float32)
+    intrinsics = jnp.broadcast_to(
+        jnp.asarray(
+            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
+        )[None, None],
+        (2, 1, 3, 3),
+    )
+    viewmats = jnp.broadcast_to(
+        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
+    )
+    keys = jax.random.split(jax.random.key(0), 2)
+    sh_degrees = jnp.zeros((2,), jnp.int32)
+
+    with mock.patch.object(
+        training_module, "rasterization", _no_statistics_rasterization
+    ):
+        metrics = mapped_step(
+            *bundles, images, intrinsics, viewmats, keys, sh_degrees
+        )
+        model, optimizer, strategy_state, decision = (
+            synchronize_distributed_capacity(
+                config, bundles[0], bundles[1], bundles[2], metrics
+            )
+        )
+        assert decision.grew and decision.replay_required
+        assert (decision.old_capacity, decision.new_capacity) == (2, 4)
+        assert model.means[...].shape == (2, 4, 3)
+
+        replayed = mapped_step(
+            model,
+            optimizer,
+            strategy_state,
+            bundles[3],
+            images,
+            intrinsics,
+            viewmats,
+            keys,
+            sh_degrees,
+        )
+
+    np.testing.assert_array_equal(
+        replayed["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(replayed["refine_new_count"], [2, 2])
+    np.testing.assert_array_equal(optimizer.step[...], [1, 1])
+
+    # After growth nothing is pending, so the synchronizer is a no-op.
+    _, _, _, after = synchronize_distributed_capacity(
+        config, model, optimizer, strategy_state, replayed
+    )
+    assert after == (False, False, 4, 4)
+
+
+def test_host_capacity_synchronizer_refuses_beyond_max_capacity():
+    config = _topology_plan_config(capacity=4, bucket=2)
+    bundles = _two_rank_bundles(config)
+    metrics = {
+        "refine_capacity_overflow": jnp.asarray([True, True]),
+        "refine_required_capacity": jnp.asarray([8, 8]),
+    }
+    with pytest.raises(RuntimeError, match="max_capacity is 4"):
+        synchronize_distributed_capacity(
+            config, bundles[0], bundles[1], bundles[2], metrics
+        )
+
+
+def test_host_capacity_synchronizer_grows_without_replay_after_commit_overflow():
+    # A commit overflow means the step already committed what fit, so the
+    # host only has to grow before the next refine.
+    config = _topology_plan_config(capacity=4, bucket=2)
+    bundles = _two_rank_bundles(config)
+    metrics = {
+        "refine_capacity_overflow": jnp.asarray([False, False]),
+        "refine_commit_overflow": jnp.asarray([True, False]),
+        "refine_required_capacity": jnp.asarray([4, 4]),
+    }
+    model, optimizer, strategy_state, decision = (
+        synchronize_distributed_capacity(
+            config, bundles[0], bundles[1], bundles[2], metrics
+        )
+    )
+    assert decision == (True, False, 2, 4)
+    assert model.means[...].shape == (2, 4, 3)
+    assert optimizer.step[...].shape == (2,)
+    assert strategy_state.grad_accum[...].shape == (2, 4)

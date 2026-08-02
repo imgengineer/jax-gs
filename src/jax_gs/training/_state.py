@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, NamedTuple
 
 from flax import nnx
 import jax
+import numpy as np
 
+from ..capacity import (
+    _distributed_local_capacity,
+    _distributed_world_size,
+    resize_distributed_training_state,
+)
 from ..config import TrainConfig
 from ..model import GaussianModel
 from ..strategy import (
@@ -111,4 +117,106 @@ def _save_compacted_training_checkpoint(
         appearance_module=appearance_module,
         appearance_optimizer=appearance_optimizer,
         appearance_image_names=appearance_image_names,
+    )
+
+
+class DistributedCapacityDecision(NamedTuple):
+    """What the host decided after reading one distributed step's metrics.
+
+    ``replay_required`` distinguishes the two overflow kinds. A refine that
+    would have truncated a gradient freezes the whole step on device, so after
+    growing, the host must run the same step again with the same inputs and
+    keys. A commit overflow only dropped growth the plan could not fit; the
+    step itself committed, so growing before the next refine is enough.
+    """
+
+    grew: bool
+    replay_required: bool
+    old_capacity: int
+    new_capacity: int
+
+
+def synchronize_distributed_capacity(
+    config: TrainConfig,
+    model: GaussianModel,
+    optimizer: nnx.Optimizer,
+    strategy_state: StrategyState,
+    metrics: dict[str, jax.Array],
+    *,
+    image_height: int | None = None,
+    image_width: int | None = None,
+) -> tuple[
+    GaussianModel, nnx.Optimizer, StrategyState, DistributedCapacityDecision
+]:
+    """Grow every shard when a distributed step reports a capacity overflow.
+
+    This is the host half of distributed refinement: the step synchronizes
+    ``refine_required_capacity`` across ranks with ``pmax`` and reports the
+    overflow kind, and this reads those metrics and applies the same bucket
+    rule the single-process trainer uses, growing all shards together so the
+    world keeps one static capacity. The next call of the mapped step retraces
+    for the new shapes on its own.
+
+    Growing changes every shard checkpoint's ``local_capacity``, so
+    checkpoints taken before and after cannot resume each other; a host that
+    keeps both must treat the pre-growth ones as superseded.
+
+    Raises ``RuntimeError`` when the requirement cannot be met at
+    ``max_capacity``, because replaying the frozen step at an unchanged
+    capacity would fail the same way forever.
+    """
+
+    world_size = _distributed_world_size(model, optimizer, strategy_state)
+    local_capacity = _distributed_local_capacity(model, world_size)
+    skip_overflow = bool(
+        np.any(np.asarray(metrics.get("refine_capacity_overflow", False)))
+    )
+    commit_overflow = bool(
+        np.any(np.asarray(metrics.get("refine_commit_overflow", False)))
+    )
+    if not skip_overflow and not commit_overflow:
+        return model, optimizer, strategy_state, DistributedCapacityDecision(
+            False, False, local_capacity, local_capacity
+        )
+
+    required = int(np.max(np.asarray(metrics["refine_required_capacity"])))
+    if skip_overflow and required > model.max_capacity:
+        raise RuntimeError(
+            "distributed refinement needs capacity "
+            f"{required} but max_capacity is {model.max_capacity}; the frozen "
+            "step would replay forever, so stop refinement or raise the limit"
+        )
+    bounded_required = min(required, model.max_capacity)
+    target_capacity = max(
+        local_capacity, config.model.bucket_capacity(bounded_required)
+    )
+    if target_capacity <= local_capacity:
+        if skip_overflow:
+            raise RuntimeError(
+                "a distributed step reported a refine capacity overflow but "
+                f"the bucket rule keeps capacity {local_capacity}; replaying "
+                "would fail the same way forever"
+            )
+        return model, optimizer, strategy_state, DistributedCapacityDecision(
+            False, False, local_capacity, local_capacity
+        )
+
+    _training._check_distributed_bucket_transition_memory_budget(
+        config,
+        world_size,
+        local_capacity,
+        target_capacity,
+        image_height=image_height,
+        image_width=image_width,
+    )
+    model, optimizer, strategy_state = resize_distributed_training_state(
+        model,
+        optimizer,
+        strategy_state,
+        target_capacity,
+        config.model,
+        config.optimizer,
+    )
+    return model, optimizer, strategy_state, DistributedCapacityDecision(
+        True, skip_overflow, local_capacity, target_capacity
     )

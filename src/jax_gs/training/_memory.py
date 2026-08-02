@@ -374,6 +374,55 @@ def _check_bucket_transition_memory_budget(
     return projected
 
 
+def _check_distributed_bucket_transition_memory_budget(
+    config: TrainConfig,
+    world_size: int,
+    old_capacity: int,
+    new_capacity: int,
+    *,
+    image_height: int | None = None,
+    image_width: int | None = None,
+) -> int:
+    """Preflight a whole-world bucket transition against the memory limit.
+
+    Every shard grows through the single-process rules, so the world needs
+    roughly ``world_size`` times the single-shard transition, and the resize
+    materializes the shards individually on top of the still-live world.
+    """
+
+    if world_size <= 0:
+        raise ValueError("world_size must be positive")
+    per_shard = estimate_bucket_transition_memory_bytes(
+        config,
+        old_capacity,
+        new_capacity,
+        image_height=image_height,
+        image_width=image_width,
+    )
+    estimate = world_size * per_shard
+    bytes_in_use, limit = _training._device_memory_usage()
+    resize_allocation = (
+        world_size * _training_state_bytes(config, new_capacity) + 256 * 2**20
+    )
+    projected = max(estimate, bytes_in_use + resize_allocation)
+    print(
+        f"estimated_distributed_transition_peak={projected / 2**30:.2f}GiB "
+        f"world_size={world_size} "
+        f"capacity_growth={old_capacity}->{new_capacity}",
+        flush=True,
+    )
+    if limit and projected > int(limit * 0.70):
+        raise MemoryError(
+            "distributed bucket growth was stopped before allocation because "
+            "the world's old and new training states would exceed 70% of "
+            f"JAX's device-memory limit ({projected / 2**30:.2f} GiB "
+            f"projected, {limit / 2**30:.2f} GiB limit). Lower the logical "
+            "capacity, bucket minimum, SH degree, or the world size per "
+            "device."
+        )
+    return projected
+
+
 def _device_memory_usage() -> tuple[int, int]:
     stats = jax.devices()[0].memory_stats() or {}
     return int(stats.get("bytes_in_use", 0) or 0), int(
