@@ -11,6 +11,7 @@ import sys
 _training = sys.modules[__package__]
 
 from dataclasses import replace
+from typing import NamedTuple
 import math
 
 import jax
@@ -79,6 +80,36 @@ def _training_config_with_intersection_capacity(
     )
 
 
+def _training_config_with_candidate_bound(
+    config: TrainConfig, bound: int
+) -> TrainConfig:
+    return replace(
+        config,
+        rasterizer=replace(
+            config.rasterizer, max_candidates_per_tile=int(bound)
+        ),
+    )
+
+
+def _candidate_bound_for_occupancy(
+    required: int, max_gaussians_per_tile: int
+) -> int:
+    """Return the bound covering ``required`` candidates in a tile.
+
+    The compositor's loop length is ``ceil(bound / max_gaussians_per_tile)``,
+    so only that quotient is observable and the bound is rounded to a whole
+    number of chunks. Rounding that count to a power of two costs at most one
+    surplus chunk but makes the sequence of bounds a doubling one, which is
+    what keeps a scene that densifies from recompiling at every step: the
+    occupancy has to double before the bound moves again.
+    """
+
+    required = max(int(required), 1)
+    per_tile = int(max_gaussians_per_tile)
+    chunks = math.ceil(required / per_tile)
+    return (1 << (chunks - 1).bit_length()) * per_tile
+
+
 def _mcmc_required_capacity(active_count: int, config: TrainConfig) -> int:
     """Return the scheduled MCMC population target from the active count."""
 
@@ -113,27 +144,42 @@ def _training_overflow_status(
     return int(max_overflow_tiles), bool(intersection_overflow_seen)
 
 
+class _PendingOverflow(NamedTuple):
+    """The earliest uncommitted step that overflowed, and what it needs."""
+
+    replay_start: int
+    kind: str
+    required: int
+
+
 def _pending_overflow_suffix(
     pending: list[_PendingTrainStep],
-) -> tuple[int, int]:
+) -> _PendingOverflow | None:
     values = jax.device_get(
         tuple(
             (
                 record.metrics["overflow_tiles"],
                 record.metrics["intersection_overflow"],
                 record.metrics["intersection_required_count"],
+                record.metrics["busiest_tile_candidates"],
             )
             for record in pending
         )
     )
-    for index, (overflow_tiles, intersection, required) in enumerate(values):
-        if int(overflow_tiles) > 0:
-            _raise_training_overflow(
-                np.asarray(overflow_tiles), np.asarray(intersection)
-            )
+    for index, (overflow_tiles, intersection, required, busiest) in enumerate(
+        values
+    ):
+        # An overflowing intersection buffer is resolved first even when the
+        # same step also truncated a tile: the candidate counts a tile bound
+        # would be grown from are themselves drawn from that buffer, so they
+        # under-report until it is large enough to hold the frame.
         if bool(intersection):
-            return index, int(required)
-    raise RuntimeError("sticky intersection overflow has no matching pending step")
+            return _PendingOverflow(index, "intersection", int(required))
+        if int(overflow_tiles) > 0:
+            return _PendingOverflow(index, "candidates", int(busiest))
+    # The sticky flag says a step overflowed and no step admits to it. There
+    # is nothing to grow from, so the caller falls back to refusing the run.
+    return None
 
 
 def estimate_rasterization_memory_bytes(

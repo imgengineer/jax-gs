@@ -3329,7 +3329,10 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
 
     result = training_module.train(config)
 
-    assert factory_capacities == [512, 1_024]
+    # The middle rebuild is the per-tile candidate bound being tuned from the
+    # first rendered frame, at an intersection capacity that has not moved.
+    # It replays nothing, so the key sequence below is unaffected by it.
+    assert factory_capacities == [512, 512, 1_024]
     assert len(keys_by_capacity[512]) == 4
     assert len(keys_by_capacity[1_024]) == 2
     np.testing.assert_array_equal(
@@ -3652,14 +3655,15 @@ def test_train_step_reports_the_busiest_tile_and_honours_a_candidate_bound():
     )
 
 
-@pytest.mark.parametrize("bound", [None, 128])
-def test_train_reports_the_busiest_tile_against_the_configured_bound(
-    monkeypatch, tmp_path, capsys, bound
+@pytest.mark.parametrize("bound,shown", [(None, 512), (128, 128)])
+def test_train_reports_the_busiest_tile_against_the_bound_in_effect(
+    monkeypatch, tmp_path, capsys, bound, shown
 ):
     # A caller can only choose --max-candidates-per-tile by watching what the
-    # scene actually does, so the progress line has to show it. Against a
-    # configured bound it reads as a fraction; with no bound there is nothing
-    # to compare against and the raw count is all there is to report.
+    # scene actually does, so the progress line has to show it -- against the
+    # bound the compositor is compiled for, which for an unset one is the
+    # value tuned from the first frame (37 candidates round up to one 512
+    # chunk), not the None that was configured.
     scene = SimpleNamespace(
         points=np.array([[0.0, 0.0, 3.0]], np.float32),
         points_rgb=np.array([[128, 128, 128]], np.uint8),
@@ -3712,7 +3716,7 @@ def test_train_reports_the_busiest_tile_against_the_configured_bound(
 
     training_module.train(config)
 
-    expected = "busiest_tile=37" if bound is None else "busiest_tile=37/128"
+    expected = f"busiest_tile=37/{shown}"
     line = next(
         text
         for text in capsys.readouterr().out.splitlines()
@@ -3721,3 +3725,159 @@ def test_train_reports_the_busiest_tile_against_the_configured_bound(
     assert expected in line
     # The count must stay a standalone field rather than run into the next one.
     assert f"{expected} " in line
+
+
+def test_candidate_bound_rounds_occupancy_to_a_doubling_chunk_count():
+    # Only ceil(bound / max_gaussians_per_tile) is observable, so the bound is
+    # a whole number of chunks, and that count is a power of two so a scene
+    # that densifies has to double its occupancy before recompiling again.
+    bound = training_module._candidate_bound_for_occupancy
+    assert bound(2_003, 512) == 2_048
+    assert bound(2_049, 512) == 4_096
+    assert bound(1, 512) == 512
+    assert bound(0, 512) == 512
+    # Exactly on a chunk boundary must not round up to a wasted chunk.
+    assert bound(1_024, 512) == 1_024
+
+
+def _bound_growth_scene_and_batch():
+    scene = SimpleNamespace(
+        points=np.array([[0.0, 0.0, 3.0]], np.float32),
+        points_rgb=np.array([[128, 128, 128]], np.uint8),
+        camtoworlds=np.eye(4, dtype=np.float32)[None],
+    )
+    batch = {
+        "image": np.zeros((4, 4, 3), np.float32),
+        "K": np.array([[10.0, 0, 2], [0, 10.0, 2], [0, 0, 1]], np.float32),
+        "w2c": np.eye(4, dtype=np.float32),
+    }
+    return scene, batch
+
+
+def _bound_growth_config(tmp_path, bound, *, steps=2):
+    return TrainConfig(
+        normalize_world_space=False,
+        model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
+        strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
+        rasterizer=RasterizationConfig(
+            max_gaussians_per_tile=512, max_candidates_per_tile=bound
+        ),
+        steps=steps,
+        checkpoint_every=0,
+        eval_every=0,
+        output_dir=str(tmp_path),
+    )
+
+
+def _bound_growth_factory(bounds, busiest, *, replays=None):
+    """A train step that overflows until the bound covers ``busiest``."""
+
+    def fake_make_train_step(config):
+        bound = config.rasterizer.max_candidates_per_tile
+        bounds.append(bound)
+
+        def fake_train_step(model, _optimizer, _strategy_state, safety, *_args):
+            if replays is not None:
+                replays.append(bound)
+            outgrown = bound is not None and bound < busiest
+            if outgrown:
+                safety.max_overflow_tiles[...] = 3
+            return {
+                "loss": jnp.asarray(0.0),
+                "l1": jnp.asarray(0.0),
+                "ssim": jnp.asarray(1.0),
+                "psnr": jnp.asarray(100.0),
+                "active_count": model.active_count,
+                "visible_count": jnp.asarray(1),
+                "overflow_tiles": jnp.asarray(3 if outgrown else 0),
+                "max_overflow_tiles": safety.max_overflow_tiles[...],
+                "candidate_limit_exceeded_tiles": jnp.asarray(0),
+                "busiest_tile_candidates": jnp.asarray(busiest),
+                "intersection_overflow": jnp.asarray(False),
+                "intersection_overflow_seen": jnp.asarray(False),
+                "intersection_count": jnp.asarray(1),
+                "intersection_required_count": jnp.asarray(1),
+            }
+
+        return fake_train_step
+
+    return fake_make_train_step
+
+
+def _patch_bound_growth_trainer(monkeypatch, scene, batch, factory):
+    monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
+    monkeypatch.setattr(
+        training_module, "create_grain_dataset", lambda *_a, **_k: [batch]
+    )
+    monkeypatch.setattr(training_module, "make_train_step", factory)
+    monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
+
+
+def test_train_grows_an_outgrown_candidate_bound_instead_of_failing(
+    monkeypatch, tmp_path
+):
+    # The bound is a promise about the busiest tile, and a scene that
+    # densifies outgrows it. Before this it killed the run; it now costs a
+    # recompile and a replay, exactly like an outgrown intersection buffer.
+    scene, batch = _bound_growth_scene_and_batch()
+    bounds, replays = [], []
+    _patch_bound_growth_trainer(
+        monkeypatch, scene, batch,
+        _bound_growth_factory(bounds, 900, replays=replays),
+    )
+
+    training_module.train(_bound_growth_config(tmp_path, 512))
+
+    # 900 candidates need two chunks of 512, so the bound doubles once.
+    assert bounds == [512, 1_024]
+    # The offending step is re-run under the grown bound rather than lost.
+    assert replays.count(1_024) >= 1
+
+
+def test_train_still_refuses_an_overflow_no_larger_bound_can_fix(
+    monkeypatch, tmp_path
+):
+    # A tile claiming fewer candidates than the bound already covers cannot be
+    # rescued by growing it: the input is malformed, and rendering it would
+    # truncate gradients silently. That case has to stay fatal.
+    scene, batch = _bound_growth_scene_and_batch()
+    bounds = []
+    factory = _bound_growth_factory(bounds, 100)
+
+    def always_overflowing(config):
+        inner = factory(config)
+
+        def step(model, optimizer, strategy_state, safety, *args):
+            metrics = inner(model, optimizer, strategy_state, safety, *args)
+            safety.max_overflow_tiles[...] = 3
+            return {**metrics, "overflow_tiles": jnp.asarray(3),
+                    "max_overflow_tiles": safety.max_overflow_tiles[...]}
+
+        return step
+
+    _patch_bound_growth_trainer(monkeypatch, scene, batch, always_overflowing)
+
+    with pytest.raises(RuntimeError, match="tiles=3"):
+        training_module.train(_bound_growth_config(tmp_path, 512))
+    # It refused rather than growing forever.
+    assert bounds == [512]
+
+
+def test_train_tunes_an_unset_candidate_bound_from_the_first_frame(
+    monkeypatch, tmp_path
+):
+    # Nothing tighter than the shape-derived bound is knowable before a frame
+    # has been rendered, so an unset bound starts loose and tightens once.
+    scene, batch = _bound_growth_scene_and_batch()
+    bounds = []
+    _patch_bound_growth_trainer(
+        monkeypatch, scene, batch, _bound_growth_factory(bounds, 900)
+    )
+
+    training_module.train(_bound_growth_config(tmp_path, None, steps=3))
+
+    # Loose to begin with, then tuned to cover the 900 it actually saw, and
+    # not touched again -- a bound that chased occupancy would recompile on
+    # every fluctuation.
+    assert bounds == [None, 1_024]

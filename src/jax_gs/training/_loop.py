@@ -26,11 +26,13 @@ from ..strategy import (
 )
 from ._data import _infinite_batches
 from ._memory import (
+    _candidate_bound_for_occupancy,
     _check_evaluation_memory_budget,
     _intersection_bucket_capacity,
     _mcmc_required_capacity,
     _pending_overflow_suffix,
     _raise_training_overflow,
+    _training_config_with_candidate_bound,
     _training_config_with_intersection_capacity,
     _training_intersection_limit,
     _training_overflow_status,
@@ -377,8 +379,26 @@ def train(
         minimum=config.intersection_bucket_min_capacity,
         maximum=intersection_limit,
     )
-    runtime_config = _training_config_with_intersection_capacity(
-        config, intersection_capacity
+    candidate_bound = config.rasterizer.max_candidates_per_tile
+
+    def _runtime_training_config(
+        intersection_capacity: int, candidate_bound: int | None
+    ) -> TrainConfig:
+        """Apply both grown quantities to the configuration as given.
+
+        Each is derived from ``config`` rather than from the last runtime
+        configuration, so growing one never silently discards the other.
+        """
+
+        runtime = _training_config_with_intersection_capacity(
+            config, intersection_capacity
+        )
+        if candidate_bound is None:
+            return runtime
+        return _training_config_with_candidate_bound(runtime, candidate_bound)
+
+    runtime_config = _runtime_training_config(
+        intersection_capacity, candidate_bound
     )
     _training._check_memory_budget(
         runtime_config,
@@ -578,6 +598,7 @@ def train(
     def synchronize_pending_steps() -> dict[str, jax.Array] | None:
         """Resolve sticky overflow and replay the uncommitted suffix."""
 
+        nonlocal candidate_bound
         nonlocal intersection_capacity
         nonlocal intersection_limit
         nonlocal runtime_config
@@ -586,58 +607,114 @@ def train(
 
         if not pending_steps:
             return None
+        tuned_bound = None
+        if candidate_bound is None:
+            # Nothing tighter than the shape-derived bound is knowable before
+            # a frame has been rendered, so a run starts loose and tightens
+            # once it has seen one. Only this first observation tightens;
+            # afterwards the bound only grows, because a scene that densifies
+            # gets busier and a bound chasing occupancy downward would
+            # recompile on every fluctuation.
+            tuned_bound = _candidate_bound_for_occupancy(
+                max(
+                    int(value)
+                    for value in jax.device_get(
+                        tuple(
+                            record.metrics["busiest_tile_candidates"]
+                            for record in pending_steps
+                        )
+                    )
+                ),
+                config.rasterizer.max_gaussians_per_tile,
+            )
+            candidate_bound = tuned_bound
         max_overflow_tiles, intersection_overflow_seen = (
             _training_overflow_status(safety_state)
         )
-        if max_overflow_tiles > 0:
-            _raise_training_overflow(
-                np.asarray(max_overflow_tiles),
-                np.asarray(intersection_overflow_seen),
-            )
-        while intersection_overflow_seen:
-            replay_start, required_intersections = _pending_overflow_suffix(
-                pending_steps
-            )
-            intersection_limit = _training_intersection_limit(
-                config,
-                model.capacity,
-                image_height=training_height,
-                image_width=training_width,
-            )
-            next_intersection_capacity = _intersection_bucket_capacity(
-                required_intersections,
-                minimum=config.intersection_bucket_min_capacity,
-                maximum=intersection_limit,
-            )
-            if next_intersection_capacity <= intersection_capacity:
-                raise RuntimeError(
-                    "intersection overflow did not request a larger capacity "
-                    f"({required_intersections} required, "
-                    f"{intersection_capacity} configured)"
+        while max_overflow_tiles > 0 or intersection_overflow_seen:
+            # Whatever the overflow turns out to be, its rebuild carries the
+            # freshly tuned bound too, so tuning never costs its own compile.
+            tuned_bound = None
+            overflow = _pending_overflow_suffix(pending_steps)
+            if overflow is None:
+                _raise_training_overflow(
+                    np.asarray(max_overflow_tiles),
+                    np.asarray(intersection_overflow_seen),
                 )
-            next_runtime_config = _training_config_with_intersection_capacity(
-                config, next_intersection_capacity
-            )
+            replay_start = overflow.replay_start
+            if overflow.kind == "candidates":
+                # The per-tile bound is a promise the run made about its own
+                # busiest tile, and a scene that densifies eventually outgrows
+                # it. Growing and replaying is the same answer the
+                # intersection buffer already gets, so an outgrown promise
+                # costs a recompile rather than the run.
+                next_candidate_bound = _candidate_bound_for_occupancy(
+                    overflow.required, config.rasterizer.max_gaussians_per_tile
+                )
+                if (
+                    candidate_bound is None
+                    or next_candidate_bound <= candidate_bound
+                ):
+                    # Nothing larger to ask for: the loop was already sized
+                    # for the worst tile the shapes admit, so the input claims
+                    # a tile holds more candidates than it has slots to
+                    # address, and no bound can render it whole.
+                    _raise_training_overflow(
+                        np.asarray(max_overflow_tiles),
+                        np.asarray(intersection_overflow_seen),
+                    )
+                next_runtime_config = _runtime_training_config(
+                    intersection_capacity, next_candidate_bound
+                )
+                growth_text = (
+                    f"candidate_bound_growth={candidate_bound}"
+                    f"->{next_candidate_bound} "
+                    f"required={overflow.required} "
+                )
+            else:
+                intersection_limit = _training_intersection_limit(
+                    config,
+                    model.capacity,
+                    image_height=training_height,
+                    image_width=training_width,
+                )
+                next_intersection_capacity = _intersection_bucket_capacity(
+                    overflow.required,
+                    minimum=config.intersection_bucket_min_capacity,
+                    maximum=intersection_limit,
+                )
+                if next_intersection_capacity <= intersection_capacity:
+                    raise RuntimeError(
+                        "intersection overflow did not request a larger "
+                        f"capacity ({overflow.required} required, "
+                        f"{intersection_capacity} configured)"
+                    )
+                next_candidate_bound = candidate_bound
+                next_runtime_config = _runtime_training_config(
+                    next_intersection_capacity, candidate_bound
+                )
+                growth_text = (
+                    "intersection_capacity_growth="
+                    f"{intersection_capacity}->{next_intersection_capacity} "
+                    f"required={overflow.required} "
+                )
+                intersection_capacity = next_intersection_capacity
             _training._check_memory_budget(
                 next_runtime_config,
                 physical_capacity=model.capacity,
-                label="intersection_bucket_growth",
+                label=f"{overflow.kind}_growth",
                 image_height=training_height,
                 image_width=training_width,
             )
-            old_intersection_capacity = intersection_capacity
             del train_step
             jax.clear_caches()
             gc.collect()
             runtime_config = next_runtime_config
-            intersection_capacity = next_intersection_capacity
+            candidate_bound = next_candidate_bound
             train_step = _training.make_train_step(runtime_config)
             safety_state = TrainingSafetyState()
             print(
-                "intersection_capacity_growth="
-                f"{old_intersection_capacity}->{intersection_capacity} "
-                f"required={required_intersections} "
-                f"replay_steps={len(pending_steps) - replay_start}",
+                growth_text + f"replay_steps={len(pending_steps) - replay_start}",
                 flush=True,
             )
             for record in pending_steps[replay_start:]:
@@ -662,11 +739,18 @@ def train(
             max_overflow_tiles, intersection_overflow_seen = (
                 _training_overflow_status(safety_state)
             )
-            if max_overflow_tiles > 0:
-                _raise_training_overflow(
-                    np.asarray(max_overflow_tiles),
-                    np.asarray(intersection_overflow_seen),
-                )
+        if tuned_bound is not None:
+            # The pending steps ran with the looser bound, which renders them
+            # correctly and only slowly, so tightening needs no replay -- only
+            # a step compiled for the tighter loop from here on.
+            runtime_config = _runtime_training_config(
+                intersection_capacity, tuned_bound
+            )
+            del train_step
+            jax.clear_caches()
+            gc.collect()
+            train_step = _training.make_train_step(runtime_config)
+            print(f"candidate_bound_tuned={tuned_bound}", flush=True)
         latest_metrics = pending_steps[-1].metrics
         pending_steps.clear()
         return latest_metrics
@@ -854,13 +938,12 @@ def train(
                 else ""
             )
             # How busy the worst tile actually got, against the bound the
-            # compositor's chunk loop was sized for. Reading it is how a
-            # caller learns what --max-candidates-per-tile to promise;
-            # without a bound there is nothing to compare it to.
-            candidate_bound = config.rasterizer.max_candidates_per_tile
+            # compositor's chunk loop is currently sized for -- the tuned or
+            # grown one, not the configured one, since that is the promise
+            # the number has to be read against.
             busiest_tile_text = (
                 f"busiest_tile={int(last_metrics['busiest_tile_candidates'])}"
-                + (f"/{candidate_bound} " if candidate_bound is not None else " ")
+                f"/{candidate_bound} "
             )
             print(
                 f"step={step:06d} loss={last_metrics['loss']:.6f} "

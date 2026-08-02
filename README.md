@@ -274,13 +274,19 @@ compositing 之外的阶段合计只占前向 0.44 ms（projection 0.12、SH 0.0
 
 这个上限此前只有**直接调用 rasterizer 的人**拿得到：`jax-gs train` 从不设置它，所以上面这些倍数一次真实训练都吃不到。现在 `jax-gs train` / `jax-gs render` 各有一个 `--max-candidates-per-tile`，写进 `TrainConfig.rasterizer` 后一路到达训练步（回归用例 `tests/test_cli.py::test_train_cli_exposes_the_per_tile_candidate_bound`、`tests/test_training.py::test_train_step_reports_the_busiest_tile_and_honours_a_candidate_bound`）。
 
-而**填多少仍然只能看数据**，所以训练步同时报一个 `busiest_tile_candidates`：本步最忙的 tile 到底有多少候选。分布式下它用 `jax.lax.pmax` 归约而不是各 rank 各报各的——上限是一个静态的全局数字，要装下的是全世界最忙的那个 tile。它直接印在训练进度行上（`busiest_tile=2003/2048`，没配上限时就是 `busiest_tile=2003`），先跑几步读这个数、留出余量、再填回去，就不必猜：
+而**填多少只能看数据**，所以训练步同时报一个 `busiest_tile_candidates`：本步最忙的 tile 到底有多少候选。分布式下它用 `jax.lax.pmax` 归约而不是各 rank 各报各的——上限是一个静态的全局数字，要装下的是全世界最忙的那个 tile。它直接印在训练进度行上，分母是**当前编译进去的**上限（调参/扩容之后的那个），不是配置里写的那个：
 
 ```
 step=000100 loss=0.042 psnr=24.31 active=138766 storage=... overflow_tiles=0 busiest_tile=2003/2048 candidate_limit_exceeded=0 ...
 ```
 
-**没做自动调参**（训练循环自己观测再收紧），两个原因：一是它要求 `tile_overflow` 从「致命」变成「可恢复」（扩容重放），否则某一步遇到比此前都忙的 tile，会从「能跑」变成「硬失败」，拿鲁棒性换速度；二是本机 GPU 被占满，热循环的改动量不出来。上面的倍数都是 **rasterizer 基准**的数字，带上限的端到端训练步本切片没有测过。
+既然这个数能读出来，就不该还要人去填，所以**训练循环自己调**：没配 `max_candidates_per_tile` 时先按宽松上限跑，第一次同步就用观测到的占用收紧一次，之后**只涨不跌**。前提是先把 `tile_overflow` 从「致命」改成「可恢复」——场景一直在稠密化，任何一开始合适的上限迟早会被撑破，如果撑破就是硬失败，那自动调参就是拿鲁棒性换速度。现在它走的是 intersection buffer 早就有的那条路：扩容、重编译、重放未提交的那一段。
+
+两处细节值得记下来。一是**同一步里 intersection 溢出优先于 tile 溢出**：上限要涨多少是从 `candidate_counts` 读的，而这个数本身来自 intersection buffer，buffer 不够大时它是少报的，先按少报的数去涨上限只会再撑破一次。二是**上限按 2 的幂个 chunk 取整**（`_candidate_bound_for_occupancy`）：只有 `ceil(bound / max_gaussians_per_tile)` 是可观测的，取整到 2 的幂最多浪费一个 chunk，但让上限序列变成倍增的——占用要翻倍才会再编译一次，否则稠密化过程中每步都在重编译。garden 的 2,003 正好落到 2,048，与之前手调出来的值相同。
+
+真正涨不动的情况仍然致命：算出来的新上限不比当前大，说明循环本来就按形状允许的最坏情况编的，是输入声称某个 tile 的候选比它能寻址的槽还多，扩容救不了，照旧拒绝而不是渲一半。
+
+自动调参每次运行会多一次编译（第一帧渲完才知道占用，这是这件事的固有代价）；如果那次同步本来就要因为溢出重编译，调参就搭同一趟车，不额外花钱。上面的倍数都是 **rasterizer 基准**的数字，带上限的端到端训练步在本机 GPU 被占满期间没有测过。
 
 wall-clock 的倍数小于循环步数的倍数（后者是 68×），因为省掉的是**空转的**步，而剩下的 4 个 chunk 每步都在满负荷算。收紧之后的前向阶段构成（同一配置，关掉 CUDA graph 后按 HLO `op_name` 逐 kernel 归属，12.96 ms GPU kernel time）：
 
