@@ -247,6 +247,13 @@ def _create_optimizer(
     optimizer._jax_gs_world_size = world_size
     optimizer._jax_gs_scene_scale = scene_scale
     optimizer._jax_gs_optimizer_config = config
+    optimizer._jax_gs_optimizer_kind = (
+        "visible_adam"
+        if row_selective and not bias_correction
+        else "row_selective_adam"
+        if row_selective
+        else "adam"
+    )
     return optimizer
 
 

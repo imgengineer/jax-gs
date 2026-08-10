@@ -546,7 +546,8 @@ def build_parser() -> argparse.ArgumentParser:
             "static promise about the busiest tile's candidate count, "
             "which sets the compositor chunk loop length. The training "
             "metric busiest_tile_candidates reports what a run actually "
-            "needs. Too small only reports tile overflow"
+            "needs. Training grows a too-small bound and replays the "
+            "uncommitted step"
         ),
     )
     train_parser.add_argument("--max-intersections", type=int)

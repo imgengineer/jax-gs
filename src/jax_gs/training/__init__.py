@@ -1,4 +1,4 @@
-"""Single-process trainer.
+"""Single-process trainer and distributed training primitives.
 
 The implementation lives in the private submodules imported at the bottom;
 this module is their public surface and every name they previously exported

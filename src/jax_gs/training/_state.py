@@ -151,15 +151,15 @@ def synchronize_distributed_capacity(
     """Grow every shard when a distributed step reports a capacity overflow.
 
     This is the host half of distributed refinement: the step synchronizes
-    ``refine_required_capacity`` across ranks with ``pmax`` and reports the
-    overflow kind, and this reads those metrics and applies the same bucket
-    rule the single-process trainer uses, growing all shards together so the
-    world keeps one static capacity. The next call of the mapped step retraces
-    for the new shapes on its own.
+    preflight and post-update ``refine_*_required_capacity`` across ranks with
+    ``pmax`` and reports the overflow kind, and this reads those metrics and
+    applies the same bucket rule the single-process trainer uses, growing all
+    shards together so the world keeps one static capacity. The next call of
+    the mapped step retraces for the new shapes on its own.
 
-    Growing changes every shard checkpoint's ``local_capacity``, so
-    checkpoints taken before and after cannot resume each other; a host that
-    keeps both must treat the pre-growth ones as superseded.
+    Growing changes every shard checkpoint's ``local_capacity``, so an exact
+    restore cannot cross the growth boundary; doing so requires the explicit
+    distributed checkpoint reshard path.
 
     Raises ``RuntimeError`` when the requirement cannot be met at
     ``max_capacity``, because replaying the frozen step at an unchanged
@@ -179,7 +179,16 @@ def synchronize_distributed_capacity(
             False, False, local_capacity, local_capacity
         )
 
-    required = int(np.max(np.asarray(metrics["refine_required_capacity"])))
+    required = max(
+        int(np.max(np.asarray(metrics["refine_required_capacity"]))),
+        int(
+            np.max(
+                np.asarray(
+                    metrics.get("refine_commit_required_capacity", 0)
+                )
+            )
+        ),
+    )
     if skip_overflow and required > model.max_capacity:
         raise RuntimeError(
             "distributed refinement needs capacity "

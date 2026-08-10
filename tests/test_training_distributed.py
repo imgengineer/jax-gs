@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 import os
 import subprocess
 import sys
@@ -31,7 +32,10 @@ from jax_gs.config import (
     TrainConfig,
 )
 from jax_gs.model import GaussianModel, inverse_sigmoid
-from jax_gs.optimizers import create_optimizer
+from jax_gs.optimizers import (
+    create_optimizer,
+    create_visible_adam_optimizer,
+)
 from jax_gs.strategy import DefaultStrategy, MCMCStrategy
 from jax_gs.training import (
     TrainingSafetyState,
@@ -132,6 +136,7 @@ def _rank_bundle(
     config: TrainConfig,
     x: float,
     *,
+    optimizer_batch_size: int | None = None,
     optimizer_world_size: int = 2,
     optimizer_scene_scale: float = 1.0,
 ):
@@ -140,10 +145,19 @@ def _rank_bundle(
         np.asarray([[192, 128, 64]], np.uint8),
         config.model,
     )
-    optimizer = create_optimizer(
+    optimizer_factory = (
+        create_visible_adam_optimizer
+        if config.visible_adam
+        else create_optimizer
+    )
+    optimizer = optimizer_factory(
         model,
         config.optimizer,
-        batch_size=config.data.batch_size,
+        batch_size=(
+            config.data.batch_size
+            if optimizer_batch_size is None
+            else optimizer_batch_size
+        ),
         world_size=optimizer_world_size,
         scene_scale=optimizer_scene_scale,
     )
@@ -230,7 +244,7 @@ def _rank_zero_overflow_rasterization(
     **kwargs,
 ):
     assert kwargs["distributed"]
-    assert kwargs["distributed_world_size"] == 2
+    assert kwargs["distributed_world_size"] > 1
     axis_name = kwargs["distributed_axis_name"]
     gathered_means = jax.lax.all_gather(
         means, axis_name, axis=0, tiled=True
@@ -291,6 +305,39 @@ def _no_overflow_rasterization(*args, **kwargs):
         ),
     }
     return renders, alphas, info
+
+
+def _opacity_growth_rasterization(
+    means,
+    quats,
+    scales,
+    opacities,
+    colors,
+    viewmats,
+    intrinsics,
+    width,
+    height,
+    **kwargs,
+):
+    renders, alphas, info = _no_overflow_rasterization(
+        means,
+        quats,
+        scales,
+        opacities,
+        colors,
+        viewmats,
+        intrinsics,
+        width,
+        height,
+        **kwargs,
+    )
+    gathered_opacities = jax.lax.all_gather(
+        opacities,
+        kwargs["distributed_axis_name"],
+        axis=0,
+        tiled=True,
+    )
+    return renders - 1.0e-3 * jnp.sum(gathered_opacities), alphas, info
 
 
 def _no_statistics_rasterization(*args, **kwargs):
@@ -910,6 +957,8 @@ def test_owner_commit_overflow_keeps_that_owner_unchanged():
     # This step's statistics push the rank-0 owner from one planned event to a
     # duplicate plus a radius split, which no longer fits its single free slot.
     config = _topology_plan_config(
+        capacity=4,
+        bucket=2,
         grow_grad2d=0.1,
         refine_scale2d_stop_iter=100,
         grow_scale2d=0.05,
@@ -925,7 +974,7 @@ def test_owner_commit_overflow_keeps_that_owner_unchanged():
     with mock.patch.object(
         training_module, "rasterization", _no_overflow_rasterization
     ):
-        model, _, strategy_state, _, metrics = _run_two_rank_update(
+        model, optimizer, strategy_state, _, metrics = _run_two_rank_update(
             nnx.vmap, config=config, prepare=prepare
         )
 
@@ -935,6 +984,9 @@ def test_owner_commit_overflow_keeps_that_owner_unchanged():
     )
     np.testing.assert_array_equal(
         metrics["refine_commit_overflow"], [True, True]
+    )
+    np.testing.assert_array_equal(
+        metrics["refine_commit_required_capacity"], [3, 3]
     )
     np.testing.assert_array_equal(metrics["refine_new_count"], [1, 1])
     # Only the owner that fits grows, resets opacities, and clears statistics.
@@ -959,6 +1011,12 @@ def test_owner_commit_overflow_keeps_that_owner_unchanged():
         ],
         rtol=1e-6,
     )
+
+    grown_model, _, _, decision = synchronize_distributed_capacity(
+        config, model, optimizer, strategy_state, metrics
+    )
+    assert decision == (True, False, 2, 4)
+    assert grown_model.means[...].shape == (2, 4, 3)
 
 
 def test_distributed_train_step_rejects_wrong_optimizer_world_size():
@@ -1236,6 +1294,13 @@ def test_distributed_checkpoint_round_trip(tmp_path):
     assert manifest["global_capacity"] == 4
     assert manifest["active_counts"] == [2, 1]
     assert manifest["active_prefix"] == [True, True]
+    assert manifest["optimizer_contract"] == {
+        "batch_size": 1,
+        "world_size": 2,
+        "scene_scale": 1.0,
+        "kind": "adam",
+        "config": config.to_dict()["optimizer"],
+    }
     assert manifest["components"] == [
         "model",
         "optimizer",
@@ -1302,6 +1367,74 @@ def test_distributed_restore_rejects_a_different_config(tmp_path):
         )
 
 
+def test_distributed_restore_validates_saved_optimizer_contract(tmp_path):
+    config = _topology_plan_config()
+    path = save_distributed_checkpoint(
+        tmp_path / "kind", *_two_rank_bundles(config), step=0
+    )
+    wrong_kind_ranks = []
+    for x in (-0.08, 0.08):
+        rank = _rank_bundle(config, x)
+        wrong_kind_ranks.append(
+            (
+                rank[0],
+                create_visible_adam_optimizer(
+                    rank[0],
+                    config.optimizer,
+                    batch_size=config.data.batch_size,
+                    world_size=2,
+                ),
+                rank[2],
+                rank[3],
+            )
+        )
+    wrong_kind = _stack_graphs(*wrong_kind_ranks)
+    with pytest.raises(ValueError, match="optimizer kind"):
+        restore_distributed_checkpoint(path, *wrong_kind)
+
+    path = save_distributed_checkpoint(
+        tmp_path / "scene",
+        *_two_rank_bundles(config, optimizer_scene_scale=1.0),
+        step=0,
+        config=config,
+    )
+    wrong_scene_scale = _two_rank_bundles(
+        config, optimizer_scene_scale=2.0
+    )
+    with pytest.raises(ValueError, match="optimizer scene_scale"):
+        restore_distributed_checkpoint(
+            path, *wrong_scene_scale, config=config
+        )
+
+
+def test_legacy_distributed_optimizer_contract_requires_config(tmp_path):
+    config = _topology_plan_config()
+    path = save_distributed_checkpoint(
+        tmp_path, *_two_rank_bundles(config), step=0, config=config
+    )
+    metadata_path = path / "jax_gs_checkpoint.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    del metadata["optimizer_contract"]
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="legacy.*requires config"):
+        restore_distributed_checkpoint(path, *_two_rank_bundles(config))
+    assert (
+        restore_distributed_checkpoint(
+            path, *_two_rank_bundles(config), config=config
+        )
+        == 0
+    )
+    metadata["config_fingerprint"] = None
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert (
+        restore_distributed_checkpoint(
+            path, *_two_rank_bundles(config), config=config
+        )
+        == 0
+    )
+
+
 def test_distributed_and_single_checkpoints_reject_each_other(tmp_path):
     config = _topology_plan_config()
     distributed_path = save_distributed_checkpoint(
@@ -1346,6 +1479,11 @@ def test_distributed_save_rejects_shards_at_different_steps(tmp_path):
 
     with pytest.raises(ValueError, match="disagree on the optimizer step"):
         save_distributed_checkpoint(tmp_path, *bundles, step=1)
+
+    with pytest.raises(ValueError, match="step argument"):
+        save_distributed_checkpoint(
+            tmp_path, *_two_rank_bundles(config), step=1
+        )
 
 
 def test_restored_shards_continue_distributed_training(tmp_path):
@@ -1715,11 +1853,11 @@ def test_packed_metadata_unpacks_against_the_gathered_scene(monkeypatch):
     assert np.all(np.asarray(strategy_state.grad_accum[...]) > 0.0)
 
 
-def _mcmc_config(capacity: int) -> TrainConfig:
+def _mcmc_config(capacity: int, *, bucket: int | None = None) -> TrainConfig:
     return _fixed_topology_config(
         model=ModelConfig(
             capacity=capacity,
-            bucket_min_capacity=capacity,
+            bucket_min_capacity=capacity if bucket is None else bucket,
             sh_degree=0,
             initial_scale=0.2,
         ),
@@ -1748,7 +1886,7 @@ def _mcmc_rank_bundle(config: TrainConfig, point_count: int):
         points,
         np.full((point_count, 3), 128, np.uint8),
         config.model,
-        physical_capacity=config.model.capacity,
+        physical_capacity=config.model.bucket_capacity(point_count),
     )
     optimizer = create_optimizer(
         model,
@@ -1808,6 +1946,44 @@ def test_mcmc_shards_train_and_grow_owner_locally(monkeypatch):
     np.testing.assert_array_equal(
         np.asarray(model.active_mask[...]).sum(axis=1), [21, 21]
     )
+
+
+def test_mcmc_post_update_overflow_reports_capacity_for_host_growth(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        training_module, "rasterization", _opacity_growth_rasterization
+    )
+    config = _mcmc_config(40, bucket=20)
+    bundles = _stack_graphs(
+        _mcmc_rank_bundle(config, 20), _mcmc_rank_bundle(config, 20)
+    )
+    bundles[0].opacity_logits[...] = inverse_sigmoid(0.0049)
+
+    model, optimizer, strategy_state, _, metrics = _run_two_rank_update(
+        nnx.vmap, config=config, bundles=bundles
+    )
+
+    np.testing.assert_array_equal(
+        metrics["refine_capacity_overflow"], [False, False]
+    )
+    np.testing.assert_array_equal(metrics["refine_required_capacity"], [20, 20])
+    np.testing.assert_array_equal(
+        metrics["refine_commit_overflow"], [True, True]
+    )
+    np.testing.assert_array_equal(
+        metrics["refine_commit_required_capacity"], [21, 21]
+    )
+    np.testing.assert_array_equal(optimizer.step[...], [1, 1])
+    np.testing.assert_array_equal(
+        strategy_state.capacity_overflow[...], [True, True]
+    )
+
+    grown_model, _, _, decision = synchronize_distributed_capacity(
+        config, model, optimizer, strategy_state, metrics
+    )
+    assert decision == (True, False, 20, 40)
+    assert grown_model.means[...].shape == (2, 40, 3)
 
 
 def test_host_capacity_synchronizer_grows_and_replays_the_frozen_step():
@@ -2143,6 +2319,91 @@ def test_resharding_preserves_every_gaussian_and_its_state():
             assert grads[rank, row] == owned[float(means[rank, row, 0])]
 
 
+@pytest.mark.parametrize("visible_adam", [False, True])
+def test_resharded_optimizer_uses_target_world_contract_and_can_train(
+    monkeypatch, visible_adam
+):
+    config = _topology_plan_config(
+        capacity=8,
+        bucket=4,
+        refine_start=3,
+        train={"visible_adam": visible_adam},
+    )
+    actual = _reshard(config, _two_rank_bundles(config), 4)
+    expected = _reshard(config, _two_rank_bundles(config), 4)
+    optimizer_factory = (
+        create_visible_adam_optimizer if visible_adam else create_optimizer
+    )
+    expected_optimizer = _stack_graphs(
+        *[
+            optimizer_factory(
+                _unstack_graph(expected[0], rank),
+                config.optimizer,
+                batch_size=config.data.batch_size,
+                world_size=4,
+            )
+            for rank in range(4)
+        ]
+    )
+    expected = (expected[0], expected_optimizer, expected[2], expected[3])
+    train_step = make_distributed_train_step(config, world_size=4)
+
+    @nnx.vmap(
+        in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0),
+        out_axes=0,
+        axis_name="rank",
+    )
+    def mapped_step(*args):
+        return train_step(*args)
+
+    images = jnp.zeros((4, 1, 4, 4, 3), jnp.float32)
+    intrinsics = jnp.broadcast_to(
+        jnp.asarray(
+            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]],
+            jnp.float32,
+        )[None, None],
+        (4, 1, 3, 3),
+    )
+    viewmats = jnp.broadcast_to(
+        jnp.eye(4, dtype=jnp.float32)[None, None], (4, 1, 4, 4)
+    )
+    keys = jax.random.split(jax.random.key(0), 4)
+    sh_degrees = jnp.zeros((4,), jnp.int32)
+
+    monkeypatch.setattr(
+        training_module, "rasterization", _no_overflow_rasterization
+    )
+    actual_metrics = mapped_step(
+        *actual, images, intrinsics, viewmats, keys, sh_degrees
+    )
+    expected_metrics = mapped_step(
+        *expected, images, intrinsics, viewmats, keys, sh_degrees
+    )
+
+    assert getattr(actual[1], "_jax_gs_world_size") == 4
+    np.testing.assert_array_equal(actual[1].step[...], [1, 1, 1, 1])
+    np.testing.assert_allclose(
+        actual_metrics["loss"], expected_metrics["loss"], rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        actual[0].means[...], expected[0].means[...], rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        _adam_means_moments(actual[1]),
+        _adam_means_moments(expected[1]),
+        rtol=1e-6,
+    )
+
+
+def test_resharding_rejects_divergent_source_optimizer_steps():
+    config = _topology_plan_config(capacity=8, bucket=4)
+    bundles = _two_rank_bundles(config)
+    bundles[1].step[...] = jnp.asarray([2, 3], bundles[1].step[...].dtype)
+
+    with pytest.raises(ValueError, match="optimizer step"):
+        _reshard(config, bundles, 4)
+
+
 def test_resharding_round_trips_back_to_the_original_assignment():
     # Contiguous blocks preserve the global sequence, so resharding composes:
     # widening and narrowing again restores each rank's own rows.
@@ -2252,8 +2513,76 @@ def test_distributed_restore_reshards_when_asked(tmp_path):
     before = _global_rows(model)
     path = save_distributed_checkpoint(tmp_path, *saved, step=5, config=config)
 
-    # A four-rank world reads a two-rank checkpoint.
-    target = _stack_graphs(*[_rank_bundle(config, 0.0) for _ in range(4)])
+    # A four-rank target must already own the target optimizer graph/tx;
+    # checkpoint state updates cannot replace static NNX graph attributes.
+    wrong_target = _stack_graphs(
+        *[_rank_bundle(config, 0.0) for _ in range(4)]
+    )
+    with pytest.raises(ValueError, match="target optimizer.*world_size=4"):
+        restore_distributed_checkpoint(
+            path,
+            *wrong_target,
+            config=config,
+            model_config=config.model,
+            optimizer_config=config.optimizer,
+            allow_reshard=True,
+        )
+
+    wrong_batch_target = _stack_graphs(
+        *[
+            _rank_bundle(
+                config,
+                0.0,
+                optimizer_batch_size=2,
+                optimizer_world_size=4,
+            )
+            for _ in range(4)
+        ]
+    )
+    with pytest.raises(ValueError, match="target optimizer.*batch_size=1"):
+        restore_distributed_checkpoint(
+            path,
+            *wrong_batch_target,
+            config=config,
+            model_config=config.model,
+            optimizer_config=config.optimizer,
+            allow_reshard=True,
+        )
+
+    wrong_kind_ranks = []
+    for _ in range(4):
+        rank = _rank_bundle(config, 0.0, optimizer_world_size=4)
+        wrong_kind_ranks.append(
+            (
+                rank[0],
+                create_visible_adam_optimizer(
+                    rank[0],
+                    config.optimizer,
+                    batch_size=config.data.batch_size,
+                    world_size=4,
+                ),
+                rank[2],
+                rank[3],
+            )
+        )
+    wrong_kind_target = _stack_graphs(*wrong_kind_ranks)
+    with pytest.raises(ValueError, match="target optimizer.*kind='adam'"):
+        restore_distributed_checkpoint(
+            path,
+            *wrong_kind_target,
+            config=config,
+            model_config=config.model,
+            optimizer_config=config.optimizer,
+            allow_reshard=True,
+        )
+
+    # A correctly constructed four-rank world reads a two-rank checkpoint.
+    target = _stack_graphs(
+        *[
+            _rank_bundle(config, 0.0, optimizer_world_size=4)
+            for _ in range(4)
+        ]
+    )
     step = restore_distributed_checkpoint(
         path,
         *target,
@@ -2294,7 +2623,9 @@ def test_distributed_restore_refuses_a_target_that_cannot_hold_the_scene(
     path = save_distributed_checkpoint(tmp_path, *saved, step=0, config=config)
 
     # Eight Gaussians cannot fit one shard of capacity four.
-    target = _stack_graphs(*[_rank_bundle(config, 0.0) for _ in range(1)])
+    target = _stack_graphs(
+        _rank_bundle(config, 0.0, optimizer_world_size=1)
+    )
     with pytest.raises(ValueError, match="cannot hold the busiest"):
         restore_distributed_checkpoint(
             path,

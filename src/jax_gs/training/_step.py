@@ -238,6 +238,8 @@ def _apply_topology_update(
     so it carries the same five traced arguments. Everything else the step
     settled before reaching here arrives by keyword.
     """
+    mcmc_commit_overflow = jnp.asarray(False)
+    mcmc_commit_required = jnp.asarray(0, dtype=jnp.int32)
     with jax.named_scope("optimizer_update"):
         if plan.row_selective_optimizer:
             current_optimizer.update(
@@ -258,6 +260,14 @@ def _apply_topology_update(
             step_number = current_optimizer.step[...]
             def refine(_model, _optimizer, _state):
                 assert plan.mcmc_strategy is not None
+                commit_required = jnp.asarray(0, dtype=jnp.int32)
+                if plan.distributed:
+                    commit_required = plan.mcmc_strategy.required_capacity(
+                        _model,
+                        _state,
+                        _state.scene_scale[...],
+                        step=step_number,
+                    )
                 refine_result = plan.mcmc_strategy.refine(
                     _model,
                     _state,
@@ -266,11 +276,17 @@ def _apply_topology_update(
                     _state.scene_scale[...],
                     step=step_number,
                 )
-                return refine_result["capacity_overflow"]
+                return (
+                    refine_result["capacity_overflow"],
+                    commit_required,
+                )
             def skip_refine(_model, _optimizer, _state):
                 del _model, _optimizer, _state
-                return jnp.asarray(False)
-            refine_overflow = nnx.cond(
+                return (
+                    jnp.asarray(False),
+                    jnp.asarray(0, dtype=jnp.int32),
+                )
+            mcmc_commit_overflow, mcmc_commit_required = nnx.cond(
                 mcmc_should_refine,
                 refine,
                 skip_refine,
@@ -299,7 +315,7 @@ def _apply_topology_update(
             noise_stop = config.strategy.noise_injection_stop_iter
             should_inject = (
                 ((noise_stop < 0) | (step_number < noise_stop))
-                & ~refine_overflow
+                & ~mcmc_commit_overflow
             )
             current_model.means[...] = jnp.where(
                 should_inject, perturbed_means, current_model.means[...]
@@ -326,6 +342,14 @@ def _apply_topology_update(
                 current_strategy_state.max_radii[...],
             )
     if plan.distributed_plan_strategy is None:
+        if plan.distributed and config.strategy.kind == "mcmc":
+            return (
+                jnp.asarray(0, dtype=jnp.int32),
+                jnp.asarray(0, dtype=jnp.int32),
+                mcmc_commit_overflow,
+                mcmc_commit_required,
+                jnp.asarray(False),
+            )
         return uncommitted_topology
     # current-main refines after the optimizer step and after this
     # step's statistics, so the owner-local commit recomputes its own
@@ -333,6 +357,12 @@ def _apply_topology_update(
     with jax.named_scope("topology_commit"):
         def commit_refine(_model, _optimizer, _state):
             assert plan.distributed_plan_strategy is not None
+            commit_plan = plan.distributed_plan_strategy.plan_refine(
+                _model,
+                _state,
+                distributed_scene_scale,
+                step=training_step,
+            )
             refine_result = plan.distributed_plan_strategy.refine(
                 _model,
                 _state,
@@ -345,11 +375,12 @@ def _apply_topology_update(
                 refine_result["new_count"],
                 refine_result["pruned_count"],
                 refine_result["capacity_overflow"],
+                commit_plan["required_capacity"],
             )
         def skip_commit_refine(_model, _optimizer, _state):
             del _model, _optimizer, _state
             return uncommitted_refine
-        new_count, pruned_count, commit_overflow = nnx.cond(
+        new_count, pruned_count, commit_overflow, commit_required = nnx.cond(
             refine_scheduled,
             commit_refine,
             skip_commit_refine,
@@ -376,7 +407,13 @@ def _apply_topology_update(
             current_model,
             current_optimizer,
         )
-    return (new_count, pruned_count, commit_overflow, opacity_reset)
+    return (
+        new_count,
+        pruned_count,
+        commit_overflow,
+        commit_required,
+        opacity_reset,
+    )
 
 
 class _ResolvedBatch(NamedTuple):
@@ -1219,6 +1256,7 @@ def _make_train_step(
             jnp.asarray(0, dtype=jnp.int32),
             jnp.asarray(0, dtype=jnp.int32),
             jnp.asarray(False),
+            jnp.asarray(0, dtype=jnp.int32),
         )
         uncommitted_topology = uncommitted_refine + (jnp.asarray(False),)
 
@@ -1249,6 +1287,7 @@ def _make_train_step(
             committed_new_count,
             committed_pruned_count,
             committed_overflow,
+            committed_required_capacity,
             committed_opacity_reset,
         ) = nnx.cond(
             has_overflow,
@@ -1262,6 +1301,13 @@ def _make_train_step(
         )
         if distributed_plan_strategy is not None:
             assert distributed_axis_name is not None
+            global_commit_overflow = (
+                jax.lax.pmax(
+                    committed_overflow.astype(jnp.int32),
+                    distributed_axis_name,
+                )
+                > 0
+            )
             plan_metrics = {
                 **plan_metrics,
                 "refine_new_count": jax.lax.psum(
@@ -1270,12 +1316,14 @@ def _make_train_step(
                 "refine_pruned_count": jax.lax.psum(
                     committed_pruned_count, distributed_axis_name
                 ),
-                "refine_commit_overflow": (
+                "refine_commit_overflow": global_commit_overflow,
+                "refine_commit_required_capacity": jnp.where(
+                    global_commit_overflow,
                     jax.lax.pmax(
-                        committed_overflow.astype(jnp.int32),
+                        committed_required_capacity,
                         distributed_axis_name,
-                    )
-                    > 0
+                    ),
+                    0,
                 ),
                 "opacity_reset": (
                     jax.lax.pmax(
@@ -1283,6 +1331,27 @@ def _make_train_step(
                         distributed_axis_name,
                     )
                     > 0
+                ),
+            }
+        elif distributed and mcmc_strategy is not None:
+            assert distributed_axis_name is not None
+            global_commit_overflow = (
+                jax.lax.pmax(
+                    committed_overflow.astype(jnp.int32),
+                    distributed_axis_name,
+                )
+                > 0
+            )
+            plan_metrics = {
+                **plan_metrics,
+                "refine_commit_overflow": global_commit_overflow,
+                "refine_commit_required_capacity": jnp.where(
+                    global_commit_overflow,
+                    jax.lax.pmax(
+                        committed_required_capacity,
+                        distributed_axis_name,
+                    ),
+                    0,
                 ),
             }
         if config.pose_opt:
@@ -1402,18 +1471,19 @@ def make_distributed_train_step(
     axis_name: Hashable = "rank",
     scene_scale: float = 1.0,
 ) -> Callable[..., dict[str, jax.Array]]:
-    """Create the first current-main Gaussian-sharded training slice.
+    """Create the current-main Gaussian-sharded training step.
 
     The returned stateful step must run inside ``nnx.pmap`` (or ``nnx.vmap``
-    for tests) with ``axis_name`` bound. This slice supports only dense,
-    pinhole 3DGS with SH colors. Host data sharding and distributed
-    checkpoints remain separate orchestration work, so :func:`train` continues
-    to fail fast for multiple JAX processes. ``scene_scale`` must match the
-    value passed to the Gaussian optimizer. A rank mismatch in optimizer step
-    or SH degree returns ``distributed_state_mismatch=True`` and atomically
-    skips the update. Signed screen-space statistics are reduced into each
-    Gaussian owner; current-main distributed rendering does not support
-    AbsGrad. Camera-pose optimization and pose noise are supported: the
+    for tests) with ``axis_name`` bound. It supports dense or packed pinhole
+    3DGS with SH colors. Host camera sharding, capacity synchronization,
+    checkpoint/reshard, and eval are separate primitives; the unified
+    :func:`train` loop still fails fast for multiple JAX processes.
+    ``scene_scale`` must match the value passed to the Gaussian optimizer. A
+    rank mismatch in optimizer step or SH degree returns
+    ``distributed_state_mismatch=True`` and atomically skips the update.
+    Signed screen-space statistics are reduced into each Gaussian owner;
+    current-main distributed rendering does not support AbsGrad. Camera-pose
+    optimization and pose noise are supported: the
     replicated module's gradient is averaged across ranks, matching the DDP
     wrapper current-main puts around it, while Gaussians keep their sharded
     sum. Packed projection, ``visible_adam``, and MCMC are supported too;
@@ -1430,9 +1500,11 @@ def make_distributed_train_step(
     the update each owner commits its own duplicate/split/prune and scheduled
     opacity reset with the ordinary :class:`DefaultStrategy`, matching
     current-main's post-optimizer callback order. Physical shard capacity
-    never changes here, so growing a bucket, resharding, and distributed
-    checkpoints remain host work. All collectives stay outside conditionals:
-    plan summaries are reduced before the update and commit counters after it.
+    never changes here; a commit that outgrows it reports the recomputed
+    ``refine_commit_required_capacity`` so the host can grow before the next
+    refine. Growing a bucket, resharding, and distributed checkpoints remain
+    host work. All collectives stay outside conditionals: plan summaries are
+    reduced before the update and commit counters after it.
     """
 
     try:
@@ -1461,7 +1533,7 @@ def make_distributed_train_step(
     if config.app_opt:
         raise NotImplementedError(
             "distributed appearance training requires gather-before-MLP "
-            "camera colors and is not part of the first slice"
+            "camera colors and has no upstream distributed route"
         )
     if config.sparse_grad:
         raise NotImplementedError(

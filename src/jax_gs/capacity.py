@@ -10,7 +10,12 @@ import jax.numpy as jnp
 
 from .config import ModelConfig, OptimizerConfig
 from .model import GaussianModel
-from .optimizers import reorder_optimizer_slots
+from .optimizers import (
+    create_optimizer,
+    create_row_selective_optimizer,
+    create_visible_adam_optimizer,
+    reorder_optimizer_slots,
+)
 from .strategy import StrategyState
 
 
@@ -355,7 +360,10 @@ def reshard_distributed_training_state(
     its row, since they describe the Gaussian rather than the rank that
     happened to hold it. Shards may hold different active counts before and
     after; ``local_capacity`` defaults to the smallest configured bucket
-    covering the busiest new shard.
+    covering the busiest new shard. Source optimizer steps must agree. A fresh
+    optimizer graph is built for the target world so current-main's
+    world-scaled learning rates, betas, and epsilon change with it; the step
+    and per-row moments are then loaded into that graph.
 
     Sticky overflow state is reduced rather than dropped: a world that has seen
     an intersection overflow still has, whichever rank saw it, so the flag is
@@ -369,6 +377,40 @@ def reshard_distributed_training_state(
         model, optimizer, strategy_state, safety_state
     )
     old_capacity = _distributed_local_capacity(model, old_world)
+    optimizer_steps = jax.device_get(optimizer.step[...])
+    if optimizer_steps.shape != (old_world,):
+        raise ValueError(
+            "distributed optimizer must hold one step counter per shard"
+        )
+    if not bool(jnp.all(optimizer_steps == optimizer_steps[0])):
+        raise ValueError(
+            "distributed shards disagree on the optimizer step: "
+            f"{optimizer_steps.tolist()}"
+        )
+
+    source_optimizer_config = getattr(
+        optimizer, "_jax_gs_optimizer_config", None
+    )
+    if source_optimizer_config != optimizer_config:
+        raise ValueError(
+            "optimizer_config must match the source optimizer contract"
+        )
+    optimizer_kind = getattr(optimizer, "_jax_gs_optimizer_kind", None)
+    optimizer_factories = {
+        "adam": create_optimizer,
+        "row_selective_adam": create_row_selective_optimizer,
+        "visible_adam": create_visible_adam_optimizer,
+    }
+    if optimizer_kind not in optimizer_factories:
+        raise ValueError(
+            "source optimizer does not record a supported optimizer kind"
+        )
+    optimizer_batch_size = getattr(
+        optimizer, "_jax_gs_batch_size", None
+    )
+    optimizer_scene_scale = getattr(
+        optimizer, "_jax_gs_scene_scale", None
+    )
 
     # Compact first so each shard's active rows are a prefix we can slice.
     shards = []
@@ -450,13 +492,18 @@ def reshard_distributed_training_state(
         )
         # Fresh containers: the old shards are still the source rows for the
         # ranks built after this one.
-        new_optimizer = _unstack_graph(optimizer, 0)
+        new_optimizer = optimizer_factories[optimizer_kind](
+            new_model,
+            optimizer_config,
+            batch_size=optimizer_batch_size,
+            world_size=world_size,
+            scene_scale=optimizer_scene_scale,
+        )
         nnx.update(new_optimizer, optimizer_state)
         new_strategy = _unstack_graph(strategy_state, 0)
         nnx.update(new_strategy, strategy)
         new_shards.append((new_model, new_optimizer, new_strategy))
 
-    del optimizer_config
     safety = _reduced_safety_state(safety_state, old_world, world_size)
     return (
         _stack_graphs([shard[0] for shard in new_shards]),

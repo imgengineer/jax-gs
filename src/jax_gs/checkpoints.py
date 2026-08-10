@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import asdict
 import hashlib
 import json
 from pathlib import Path
@@ -19,7 +20,7 @@ from .capacity import (
     _unstack_graph,
     reshard_distributed_training_state,
 )
-from .config import TrainConfig
+from .config import OptimizerConfig, TrainConfig
 from .data.normalize import _as_similarity_matrix
 from .model import GaussianModel
 from .strategy import StrategyState
@@ -170,6 +171,47 @@ def _config_fingerprint(config: TrainConfig) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _optimizer_kind_for_config(config: TrainConfig) -> str:
+    if config.sparse_grad:
+        return "row_selective_adam"
+    if config.visible_adam:
+        return "visible_adam"
+    return "adam"
+
+
+def _distributed_optimizer_contract(
+    optimizer: nnx.Optimizer,
+) -> dict[str, Any]:
+    batch_size = getattr(optimizer, "_jax_gs_batch_size", None)
+    world_size = getattr(optimizer, "_jax_gs_world_size", None)
+    scene_scale = getattr(optimizer, "_jax_gs_scene_scale", None)
+    optimizer_config = getattr(
+        optimizer, "_jax_gs_optimizer_config", None
+    )
+    kind = getattr(optimizer, "_jax_gs_optimizer_kind", None)
+    if (
+        not isinstance(batch_size, int)
+        or batch_size <= 0
+        or not isinstance(world_size, int)
+        or world_size <= 0
+        or not isinstance(scene_scale, (int, float))
+        or not np.isfinite(scene_scale)
+        or scene_scale < 0.0
+        or not isinstance(optimizer_config, OptimizerConfig)
+        or kind not in {"adam", "row_selective_adam", "visible_adam"}
+    ):
+        raise ValueError(
+            "distributed optimizer does not record a valid static contract"
+        )
+    return {
+        "batch_size": batch_size,
+        "world_size": world_size,
+        "scene_scale": float(scene_scale),
+        "kind": kind,
+        "config": asdict(optimizer_config),
+    }
+
+
 def save_distributed_checkpoint(
     directory: str | Path,
     model: GaussianModel,
@@ -187,13 +229,29 @@ def save_distributed_checkpoint(
     ``nnx.pmap`` maps over. They are written together because a shard's
     parameters, Adam moments, densification statistics, and sticky overflow
     state are only consistent as a set. The manifest records the world size,
-    per-shard and global capacity, per-shard slot layout, and a configuration
-    fingerprint so a resume cannot silently change the sharded contract.
+    per-shard and global capacity, per-shard slot layout, optimizer static
+    contract, and a configuration fingerprint so a resume cannot silently
+    change the sharded contract.
     """
 
     world_size = _distributed_world_size(
         model, optimizer, strategy_state, safety_state
     )
+    optimizer_contract = _distributed_optimizer_contract(optimizer)
+    if optimizer_contract["world_size"] != world_size:
+        raise ValueError(
+            "distributed optimizer must be created with "
+            f"world_size={world_size}; got "
+            f"world_size={optimizer_contract['world_size']}"
+        )
+    if config is not None and (
+        optimizer_contract["batch_size"] != config.data.batch_size
+        or optimizer_contract["kind"] != _optimizer_kind_for_config(config)
+        or optimizer_contract["config"] != asdict(config.optimizer)
+    ):
+        raise ValueError(
+            "distributed optimizer does not match the checkpoint TrainConfig"
+        )
     local_capacity = _distributed_local_capacity(model, world_size)
     optimizer_steps = np.asarray(jax.device_get(optimizer.step[...]))
     if optimizer_steps.shape != (world_size,):
@@ -204,6 +262,11 @@ def save_distributed_checkpoint(
         raise ValueError(
             "distributed shards disagree on the optimizer step: "
             f"{optimizer_steps.tolist()}"
+        )
+    if int(optimizer_steps[0]) != step:
+        raise ValueError(
+            f"checkpoint step argument {step} does not match distributed "
+            f"optimizer step {int(optimizer_steps[0])}"
         )
     active_counts = np.asarray(
         jax.device_get(jnp.count_nonzero(model.active_mask[...], axis=1))
@@ -252,6 +315,7 @@ def save_distributed_checkpoint(
         "max_capacity": model.max_capacity,
         "active_counts": [int(count) for count in active_counts],
         "active_prefix": [bool(value) for value in active_prefix],
+        "optimizer_contract": optimizer_contract,
         "config_fingerprint": (
             None if config is None else _config_fingerprint(config)
         ),
@@ -320,7 +384,13 @@ def restore_distributed_checkpoint(
     ``model_config`` and ``optimizer_config`` to rebuild the shards, and the
     target capacity has to fit the busiest new shard. See
     :func:`jax_gs.capacity.reshard_distributed_training_state` for what moves
-    with each Gaussian and how the rows are dealt out.
+    with each Gaussian and how the rows are dealt out. Optimizer transforms
+    and static contract fields are not checkpoint Variables, so the target
+    optimizer must already be constructed for the target world, batch,
+    configuration, scene scale, and dense/row-selective kind. Legacy
+    distributed manifests without that optimizer contract require ``config``
+    as an explicit caller assertion; their original config and scene scale may
+    not be verifiable.
     """
 
     metadata = _load_metadata(checkpoint_path)
@@ -349,6 +419,71 @@ def restore_distributed_checkpoint(
             "allow_reshard=True requires model_config and optimizer_config "
             "to rebuild the shards"
         )
+    target_optimizer_contract = _distributed_optimizer_contract(optimizer)
+    if target_optimizer_contract["world_size"] != world_size:
+        raise ValueError(
+            "target optimizer must be created with "
+            f"world_size={world_size}; got "
+            f"world_size={target_optimizer_contract['world_size']!r}"
+        )
+    if config is not None:
+        expected_optimizer_kind = _optimizer_kind_for_config(config)
+        if (
+            target_optimizer_contract["batch_size"]
+            != config.data.batch_size
+            or target_optimizer_contract["config"]
+            != asdict(config.optimizer)
+            or target_optimizer_contract["kind"]
+            != expected_optimizer_kind
+        ):
+            raise ValueError(
+                "target optimizer must be created with "
+                f"batch_size={config.data.batch_size}, "
+                "the checkpoint TrainConfig's OptimizerConfig, and "
+                f"kind={expected_optimizer_kind!r}; got "
+                f"batch_size={target_optimizer_contract['batch_size']!r} "
+                f"and kind={target_optimizer_contract['kind']!r}"
+            )
+    saved_optimizer_contract = metadata.get("optimizer_contract")
+    if saved_optimizer_contract is None:
+        if config is None:
+            raise ValueError(
+                "legacy distributed checkpoint without an optimizer "
+                "contract requires config to validate the target optimizer"
+            )
+    else:
+        required_contract_fields = {
+            "batch_size",
+            "world_size",
+            "scene_scale",
+            "kind",
+            "config",
+        }
+        if not isinstance(saved_optimizer_contract, dict) or not (
+            required_contract_fields <= saved_optimizer_contract.keys()
+        ):
+            raise ValueError(
+                "checkpoint optimizer contract is missing required fields"
+            )
+        if saved_optimizer_contract["world_size"] != saved_world_size:
+            raise ValueError(
+                "checkpoint optimizer world_size disagrees with its shard "
+                "manifest"
+            )
+        for field, label in (
+            ("batch_size", "batch_size"),
+            ("scene_scale", "scene_scale"),
+            ("kind", "kind"),
+            ("config", "OptimizerConfig"),
+        ):
+            if (
+                saved_optimizer_contract[field]
+                != target_optimizer_contract[field]
+            ):
+                raise ValueError(
+                    f"checkpoint optimizer {label} does not match the "
+                    "target optimizer"
+                )
     saved_color_mode = metadata.get("model_color_mode", "sh")
     target_color_mode = "appearance" if model.has_appearance else "sh"
     if saved_color_mode != target_color_mode:
@@ -358,9 +493,15 @@ def restore_distributed_checkpoint(
         )
     if config is not None:
         saved_fingerprint = metadata.get("config_fingerprint")
-        if saved_fingerprint is None:
+        if (
+            saved_fingerprint is None
+            and saved_optimizer_contract is not None
+        ):
             raise ValueError("checkpoint does not record a config fingerprint")
-        if saved_fingerprint != _config_fingerprint(config):
+        if (
+            saved_fingerprint is not None
+            and saved_fingerprint != _config_fingerprint(config)
+        ):
             raise ValueError(
                 "checkpoint was written with a different training config"
             )
