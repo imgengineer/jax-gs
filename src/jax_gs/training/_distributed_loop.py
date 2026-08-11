@@ -57,6 +57,11 @@ from ._state import (
     synchronize_distributed_capacity,
 )
 from ._step import TrainingSafetyState
+from .appearance import (
+    APPEARANCE_FEATURE_DIM,
+    AppearanceOptModule,
+    create_appearance_optimizer,
+)
 from .pose import CameraOptModule
 
 
@@ -171,13 +176,24 @@ def _initialize_distributed_training_state(
         points, config.model.initial_scale
     )
     bundles = []
-    for indices in owner_indices:
+    appearance_feature_key = jax.random.fold_in(
+        jax.random.key(config.seed), 0x41505046
+    )
+    for rank, indices in enumerate(owner_indices):
         model = GaussianModel.from_point_cloud(
             points[indices],
             colors[indices],
             config.model,
             physical_capacity=local_capacity,
             num_workers=config.data.num_workers,
+            appearance_feature_dim=(
+                APPEARANCE_FEATURE_DIM if config.app_opt else None
+            ),
+            feature_key=(
+                jax.random.fold_in(appearance_feature_key, rank)
+                if config.app_opt
+                else None
+            ),
             initial_log_scales=initial_log_scales[indices],
         )
         optimizer = _create_training_optimizer(
@@ -207,7 +223,11 @@ def _empty_distributed_training_state(
     bundles = []
     for _ in range(world_size):
         model = GaussianModel.empty(
-            config.model, physical_capacity=local_capacity
+            config.model,
+            physical_capacity=local_capacity,
+            appearance_feature_dim=(
+                APPEARANCE_FEATURE_DIM if config.app_opt else None
+            ),
         )
         optimizer = _create_training_optimizer(
             model,
@@ -266,6 +286,34 @@ def _initialize_distributed_pose_state(
             perturbations.append(module)
         pose_perturb = _stack_graphs(perturbations)
     return pose_adjust, pose_optimizer, pose_perturb
+
+
+def _initialize_distributed_appearance_state(
+    config: TrainConfig,
+    *,
+    world_size: int,
+    camera_count: int,
+):
+    if not config.app_opt:
+        return None, None
+    pairs = []
+    for _ in range(world_size):
+        module = AppearanceOptModule(
+            camera_count,
+            APPEARANCE_FEATURE_DIM,
+            config.app_embed_dim,
+            config.model.sh_degree,
+            rngs=nnx.Rngs(
+                jax.random.fold_in(
+                    jax.random.key(config.seed), 0x4150504D
+                )
+            ),
+        )
+        pairs.append((module, create_appearance_optimizer(module, config)))
+    return (
+        _stack_graphs([pair[0] for pair in pairs]),
+        _stack_graphs([pair[1] for pair in pairs]),
+    )
 
 
 def _runtime_training_config(
@@ -348,7 +396,9 @@ def train_distributed(
 
     devices = _resolve_local_distributed_devices(devices)
     world_size = len(devices)
-    uses_pose_modules = config.pose_opt or config.pose_noise > 0.0
+    uses_camera_modules = (
+        config.pose_opt or config.pose_noise > 0.0 or config.app_opt
+    )
     if config.data.batch_size * world_size > 10:
         raise ValueError(
             "current-main Adam requires distributed effective batch size <= 10"
@@ -378,7 +428,7 @@ def train_distributed(
     )
     camera_image_names: tuple[str, ...] | None = None
     camera_count = 0
-    if uses_pose_modules:
+    if uses_camera_modules:
         camera_indices = scene.indices("train", config.data.test_every)
         camera_image_names = tuple(
             scene.images[int(index)].name for index in camera_indices
@@ -386,7 +436,7 @@ def train_distributed(
         camera_count = len(camera_image_names)
         if camera_count == 0:
             raise ValueError(
-                "camera-pose training requires a non-empty training split"
+                "camera-dependent training requires a non-empty training split"
             )
     training_height, training_width = _scene_training_render_size(scene, config)
     saved_scene = (
@@ -410,6 +460,13 @@ def train_distributed(
 
     pose_adjust, pose_optimizer, pose_perturb = (
         _initialize_distributed_pose_state(
+            config,
+            world_size=world_size,
+            camera_count=camera_count,
+        )
+    )
+    appearance_module, appearance_optimizer = (
+        _initialize_distributed_appearance_state(
             config,
             world_size=world_size,
             camera_count=camera_count,
@@ -446,7 +503,14 @@ def train_distributed(
             pose_module=pose_adjust,
             pose_optimizer=pose_optimizer,
             pose_image_names=(
-                camera_image_names if uses_pose_modules else None
+                camera_image_names
+                if config.pose_opt or config.pose_noise > 0.0
+                else None
+            ),
+            appearance_module=appearance_module,
+            appearance_optimizer=appearance_optimizer,
+            appearance_image_names=(
+                camera_image_names if config.app_opt else None
             ),
         )
         if start_step > config.steps:
@@ -467,6 +531,10 @@ def train_distributed(
     if pose_perturb is not None:
         (pose_perturb,) = _place_distributed_state(
             (pose_perturb,), devices
+        )
+    if appearance_module is not None:
+        appearance_module, appearance_optimizer = _place_distributed_state(
+            (appearance_module, appearance_optimizer), devices
         )
 
     local_capacity = _distributed_local_capacity(model, world_size)
@@ -537,13 +605,15 @@ def train_distributed(
             scene_scale=scene_scale,
         )
         camera_in_axes = ()
-        if uses_pose_modules:
+        if uses_camera_modules:
             camera_in_axes = (
                 0 if config.pose_opt else None,
                 0 if config.pose_opt else None,
                 0 if config.pose_noise > 0.0 else None,
                 0,
                 0,
+                0 if config.app_opt else None,
+                0 if config.app_opt else None,
             )
 
         @nnx.pmap(
@@ -553,7 +623,7 @@ def train_distributed(
             devices=devices,
         )
         def mapped_step(*args):
-            if not uses_pose_modules:
+            if not uses_camera_modules:
                 return device_step(*args)
             return device_step(
                 *args[:10],
@@ -562,6 +632,8 @@ def train_distributed(
                 pose_perturb=args[12],
                 camtoworlds=args[13],
                 image_ids=args[14],
+                appearance_module=args[15],
+                appearance_optimizer=args[16],
             )
 
         return mapped_step
@@ -597,13 +669,31 @@ def train_distributed(
         )
 
         @nnx.pmap(
-            in_axes=(0, None, None, None),
+            in_axes=(
+                0,
+                0 if config.app_opt else None,
+                None,
+                None,
+                None,
+            ),
             out_axes=0,
             axis_name=_RANK_AXIS,
             devices=devices,
         )
-        def mapped_render_step(current_model, viewmat, K, sh_degree):
-            return render_step(current_model, viewmat, K, sh_degree)
+        def mapped_render_step(
+            current_model,
+            current_appearance,
+            viewmat,
+            K,
+            sh_degree,
+        ):
+            return render_step(
+                current_model,
+                viewmat,
+                K,
+                sh_degree,
+                appearance_module=current_appearance,
+            )
 
     def reset_safety_state() -> None:
         safety_state.max_overflow_tiles[...] = jnp.zeros_like(
@@ -630,7 +720,7 @@ def train_distributed(
                 )
             ):
                 raise RuntimeError(
-                    "distributed optimizer step or SH degree differs across "
+                    "distributed optimizer state or SH degree differs across "
                     "ranks"
                 )
             overflow_tiles, intersection_seen = _training_overflow_status(
@@ -705,7 +795,7 @@ def train_distributed(
         )
         camtoworlds_np = None
         image_ids_np = None
-        if uses_pose_modules:
+        if uses_camera_modules:
             camtoworlds_np = np.linalg.inv(viewmats_np).astype(np.float32)
             image_ids_np = np.asarray(
                 sharded["dataset_index"], dtype=np.int32
@@ -736,13 +826,15 @@ def train_distributed(
             strategy_keys,
         )
         camera_inputs = ()
-        if uses_pose_modules:
+        if uses_camera_modules:
             camera_inputs = (
                 pose_adjust,
                 pose_optimizer,
                 pose_perturb,
                 jnp.asarray(camtoworlds_np),
                 jnp.asarray(image_ids_np),
+                appearance_module,
+                appearance_optimizer,
             )
 
         def run_step():
@@ -884,7 +976,14 @@ def train_distributed(
                 pose_module=pose_adjust,
                 pose_optimizer=pose_optimizer,
                 pose_image_names=(
-                    camera_image_names if uses_pose_modules else None
+                    camera_image_names
+                    if config.pose_opt or config.pose_noise > 0.0
+                    else None
+                ),
+                appearance_module=appearance_module,
+                appearance_optimizer=appearance_optimizer,
+                appearance_image_names=(
+                    camera_image_names if config.app_opt else None
                 ),
             )
             last_checkpoint_step = step
@@ -900,6 +999,7 @@ def train_distributed(
             viewmat = transform.world_to_camera(evaluation_example["w2c"])
             rendered, _, overflow, intersection_overflow = mapped_render_step(
                 model,
+                appearance_module,
                 jnp.asarray(viewmat),
                 jnp.asarray(evaluation_example["K"]),
                 jnp.asarray(config.model.sh_degree, jnp.int32),
@@ -937,7 +1037,14 @@ def train_distributed(
             pose_module=pose_adjust,
             pose_optimizer=pose_optimizer,
             pose_image_names=(
-                camera_image_names if uses_pose_modules else None
+                camera_image_names
+                if config.pose_opt or config.pose_noise > 0.0
+                else None
+            ),
+            appearance_module=appearance_module,
+            appearance_optimizer=appearance_optimizer,
+            appearance_image_names=(
+                camera_image_names if config.app_opt else None
             ),
         )
 
@@ -951,4 +1058,5 @@ def train_distributed(
         checkpoint=last_checkpoint,
         metrics=last_metrics,
         pose_adjust=pose_adjust,
+        appearance=appearance_module,
     )

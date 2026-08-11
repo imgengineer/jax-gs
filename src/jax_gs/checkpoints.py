@@ -157,6 +157,50 @@ def _validate_distributed_pose_arguments(
     return pose
 
 
+def _validate_distributed_appearance_arguments(
+    appearance_module: Any | None,
+    appearance_optimizer: nnx.Optimizer | None,
+    appearance_image_names: Sequence[str] | None,
+    *,
+    world_size: int,
+    require_equal_replicas: bool,
+) -> tuple[tuple[str, ...], int] | None:
+    provided = (
+        appearance_module is not None,
+        appearance_optimizer is not None,
+        appearance_image_names is not None,
+    )
+    if any(provided) and not all(provided):
+        raise ValueError(
+            "appearance_module, appearance_optimizer, and "
+            "appearance_image_names must be provided together"
+        )
+    if not any(provided):
+        return None
+
+    appearance_world_size = _distributed_world_size(
+        appearance_module, appearance_optimizer
+    )
+    if appearance_world_size != world_size:
+        raise ValueError(
+            "distributed appearance state must match the Gaussian world "
+            f"size {world_size}; got {appearance_world_size}"
+        )
+    appearance = _validate_appearance_arguments(
+        _unstack_graph(appearance_module, 0),
+        _unstack_graph(appearance_optimizer, 0),
+        appearance_image_names,
+    )
+    if require_equal_replicas:
+        _validate_replicated_state(
+            appearance_module, world_size, "appearance module"
+        )
+        _validate_replicated_state(
+            appearance_optimizer, world_size, "appearance optimizer"
+        )
+    return appearance
+
+
 def _validate_appearance_arguments(
     appearance_module: Any | None,
     appearance_optimizer: nnx.Optimizer | None,
@@ -297,6 +341,32 @@ def _distributed_pose_optimizer_contract(
     }
 
 
+def _distributed_appearance_optimizer_contract(
+    optimizer: nnx.Optimizer,
+) -> dict[str, Any]:
+    contract = getattr(optimizer, "_jax_gs_appearance_contract", None)
+    if (
+        not isinstance(contract, tuple)
+        or len(contract) != 4
+        or contract[0] != "appearance_multi_adam_v1"
+        or not isinstance(contract[1], int)
+        or contract[1] <= 0
+        or not all(isinstance(value, float) for value in contract[2:])
+        or not all(np.isfinite(value) for value in contract[2:])
+        or any(value < 0.0 for value in contract[2:])
+    ):
+        raise ValueError(
+            "distributed appearance optimizer does not record a valid "
+            "static contract"
+        )
+    return {
+        "kind": contract[0],
+        "batch_size": contract[1],
+        "learning_rate": contract[2],
+        "regularization": contract[3],
+    }
+
+
 def save_distributed_checkpoint(
     directory: str | Path,
     model: GaussianModel,
@@ -313,6 +383,9 @@ def save_distributed_checkpoint(
     pose_module: Any | None = None,
     pose_optimizer: nnx.Optimizer | None = None,
     pose_image_names: Sequence[str] | None = None,
+    appearance_module: Any | None = None,
+    appearance_optimizer: nnx.Optimizer | None = None,
+    appearance_image_names: Sequence[str] | None = None,
     force: bool = True,
 ) -> Path:
     """Save one indivisible set of Gaussian-sharded training shards.
@@ -320,10 +393,11 @@ def save_distributed_checkpoint(
     All four nodes must be the stacked ``[world, ...]`` objects a bound
     ``nnx.pmap`` maps over. They are written together because a shard's
     parameters, Adam moments, densification statistics, and sticky overflow
-    state are only consistent as a set. Replicated pose state is checked for
-    exact rank agreement and stored once in canonical form. The manifest
-    records the world size, per-shard and global capacity, per-shard slot
-    layout, optimizer static contracts, optional scene/runtime capacities,
+    state are only consistent as a set. Replicated pose and appearance states
+    are checked for exact rank agreement and stored once in canonical form.
+    The manifest records the world size, per-shard and global capacity,
+    per-shard slot layout, optimizer static contracts, optional scene/runtime
+    capacities,
     and a configuration fingerprint so a resume cannot silently change the
     sharded contract.
     """
@@ -360,6 +434,13 @@ def save_distributed_checkpoint(
         world_size=world_size,
         require_equal_replicas=True,
     )
+    appearance = _validate_distributed_appearance_arguments(
+        appearance_module,
+        appearance_optimizer,
+        appearance_image_names,
+        world_size=world_size,
+        require_equal_replicas=True,
+    )
     if config is not None:
         if config.pose_opt != (pose_module is not None):
             raise ValueError(
@@ -387,6 +468,52 @@ def save_distributed_checkpoint(
         if pose_optimizer_contract != expected_pose_contract:
             raise ValueError(
                 "distributed pose optimizer does not match TrainConfig"
+            )
+    appearance_optimizer_contract = None
+    if config is not None:
+        if model.has_appearance != config.app_opt:
+            raise ValueError(
+                "distributed model color representation does not match "
+                "TrainConfig.app_opt"
+            )
+        if config.app_opt != (appearance_module is not None):
+            raise ValueError(
+                "distributed appearance state does not match "
+                "TrainConfig.app_opt"
+            )
+    if appearance_optimizer is not None:
+        if config is None:
+            raise ValueError(
+                "distributed appearance checkpoints require TrainConfig"
+            )
+        if not model.has_appearance:
+            raise ValueError(
+                "distributed appearance state requires an appearance model"
+            )
+        feature_dim = int(model.features.shape[-1])
+        if (
+            appearance_module.feature_dim != feature_dim
+            or appearance_module.embed_dim != config.app_embed_dim
+            or appearance_module.sh_degree != config.model.sh_degree
+        ):
+            raise ValueError(
+                "distributed appearance module does not match the model or "
+                "TrainConfig"
+            )
+        appearance_optimizer_contract = (
+            _distributed_appearance_optimizer_contract(
+                appearance_optimizer
+            )
+        )
+        expected_appearance_contract = {
+            "kind": "appearance_multi_adam_v1",
+            "batch_size": config.data.batch_size,
+            "learning_rate": float(config.app_opt_lr),
+            "regularization": float(config.app_opt_reg),
+        }
+        if appearance_optimizer_contract != expected_appearance_contract:
+            raise ValueError(
+                "distributed appearance optimizer does not match TrainConfig"
             )
     optimizer_contract = _distributed_optimizer_contract(optimizer)
     if optimizer_contract["world_size"] != world_size:
@@ -441,6 +568,20 @@ def save_distributed_checkpoint(
                 "distributed pose optimizer step must match checkpoint step; "
                 f"got {pose_optimizer_steps.tolist()} and step {step}"
             )
+    if appearance_optimizer is not None:
+        appearance_optimizer_steps = np.asarray(
+            jax.device_get(appearance_optimizer.step[...])
+        )
+        if appearance_optimizer_steps.shape != (world_size,):
+            raise ValueError(
+                "distributed appearance optimizer must hold one step per rank"
+            )
+        if not np.all(appearance_optimizer_steps == step):
+            raise ValueError(
+                "distributed appearance optimizer step must match checkpoint "
+                f"step; got {appearance_optimizer_steps.tolist()} and step "
+                f"{step}"
+            )
     active_counts = np.asarray(
         jax.device_get(jnp.count_nonzero(model.active_mask[...], axis=1))
     )
@@ -474,6 +615,15 @@ def save_distributed_checkpoint(
                 _pure_state(_unstack_graph(pose_optimizer, 0))
             ),
         }
+    if appearance_module is not None:
+        payload["appearance"] = {
+            "module": _encode_empty_arrays(
+                _pure_state(_unstack_graph(appearance_module, 0))
+            ),
+            "optimizer": _encode_empty_arrays(
+                _pure_state(_unstack_graph(appearance_optimizer, 0))
+            ),
+        }
     checkpoint_path = directory / f"step_{step:08d}"
     checkpointer = ocp.StandardCheckpointer()
     try:
@@ -489,6 +639,8 @@ def save_distributed_checkpoint(
     components = ["model", "optimizer", "strategy", "safety"]
     if pose_module is not None:
         components.append("pose")
+    if appearance_module is not None:
+        components.append("appearance")
     if scene_metadata is not None:
         components.append("scene")
     metadata = {
@@ -509,6 +661,10 @@ def save_distributed_checkpoint(
     }
     if pose_optimizer_contract is not None:
         metadata["pose_optimizer_contract"] = pose_optimizer_contract
+    if appearance_optimizer_contract is not None:
+        metadata["appearance_optimizer_contract"] = (
+            appearance_optimizer_contract
+        )
     if intersection_capacity is not None:
         metadata["intersection_capacity"] = intersection_capacity
     if candidate_bound is not None:
@@ -517,6 +673,14 @@ def save_distributed_checkpoint(
         names, camera_count = pose
         metadata["pose_camera_count"] = camera_count
         metadata["pose_image_names"] = list(names)
+    if model.has_appearance:
+        metadata["appearance_feature_dim"] = int(
+            model.features.shape[-1]
+        )
+    if appearance is not None:
+        names, camera_count = appearance
+        metadata["appearance_camera_count"] = camera_count
+        metadata["appearance_image_names"] = list(names)
     if scene_metadata is not None:
         metadata["scene"] = scene_metadata
     (checkpoint_path / _CHECKPOINT_METADATA).write_text(
@@ -572,6 +736,9 @@ def restore_distributed_checkpoint(
     pose_module: Any | None = None,
     pose_optimizer: nnx.Optimizer | None = None,
     pose_image_names: Sequence[str] | None = None,
+    appearance_module: Any | None = None,
+    appearance_optimizer: nnx.Optimizer | None = None,
+    appearance_image_names: Sequence[str] | None = None,
 ) -> int:
     """Restore an indivisible shard set into the given stacked nodes.
 
@@ -594,7 +761,9 @@ def restore_distributed_checkpoint(
     as an explicit caller assertion; their original config and scene scale may
     not be verifiable. Optional replicated pose state is restored from one
     canonical copy and broadcast to the target world, including when Gaussian
-    state is resharded.
+    state is resharded. Replicated appearance state follows the same canonical
+    restore rule, while its Gaussian features and color logits remain part of
+    the owner-sharded model.
     """
 
     metadata = _load_metadata(checkpoint_path)
@@ -609,6 +778,13 @@ def restore_distributed_checkpoint(
         pose_module,
         pose_optimizer,
         pose_image_names,
+        world_size=world_size,
+        require_equal_replicas=False,
+    )
+    appearance = _validate_distributed_appearance_arguments(
+        appearance_module,
+        appearance_optimizer,
+        appearance_image_names,
         world_size=world_size,
         require_equal_replicas=False,
     )
@@ -698,6 +874,8 @@ def restore_distributed_checkpoint(
     components = metadata.get("components", ())
     has_pose_state = "pose" in components
     wants_pose_state = pose_module is not None
+    has_appearance_state = "appearance" in components
+    wants_appearance_state = appearance_module is not None
     if wants_pose_state and not has_pose_state:
         raise ValueError("checkpoint does not contain pose state")
     if wants_pose_state:
@@ -739,6 +917,79 @@ def restore_distributed_checkpoint(
         if tuple(saved_names) != names:
             raise ValueError(
                 "checkpoint pose image names do not match target"
+            )
+    if wants_appearance_state and not has_appearance_state:
+        raise ValueError("checkpoint does not contain appearance state")
+    if wants_appearance_state:
+        saved_appearance_optimizer_contract = metadata.get(
+            "appearance_optimizer_contract"
+        )
+        target_appearance_optimizer_contract = (
+            _distributed_appearance_optimizer_contract(
+                appearance_optimizer
+            )
+        )
+        if (
+            saved_appearance_optimizer_contract
+            != target_appearance_optimizer_contract
+        ):
+            raise ValueError(
+                "checkpoint appearance optimizer contract does not match "
+                "target"
+            )
+        if config is None:
+            raise ValueError(
+                "restoring distributed appearance state requires TrainConfig"
+            )
+        expected_appearance_optimizer_contract = {
+            "kind": "appearance_multi_adam_v1",
+            "batch_size": config.data.batch_size,
+            "learning_rate": float(config.app_opt_lr),
+            "regularization": float(config.app_opt_reg),
+        }
+        if (
+            target_appearance_optimizer_contract
+            != expected_appearance_optimizer_contract
+        ):
+            raise ValueError(
+                "target appearance optimizer does not match TrainConfig"
+            )
+        if not model.has_appearance:
+            raise ValueError(
+                "target appearance state requires an appearance model"
+            )
+        target_feature_dim = int(model.features.shape[-1])
+        if (
+            appearance_module.feature_dim != target_feature_dim
+            or appearance_module.embed_dim != config.app_embed_dim
+            or appearance_module.sh_degree != config.model.sh_degree
+        ):
+            raise ValueError(
+                "target appearance module does not match the model or "
+                "TrainConfig"
+            )
+        saved_feature_dim = metadata.get("appearance_feature_dim")
+        if (
+            saved_feature_dim is None
+            or int(saved_feature_dim) != target_feature_dim
+        ):
+            raise ValueError(
+                "checkpoint appearance feature dimension does not match target"
+            )
+    if appearance is not None:
+        names, camera_count = appearance
+        saved_count = metadata.get("appearance_camera_count")
+        saved_names = metadata.get("appearance_image_names")
+        if saved_count is None or saved_names is None:
+            raise ValueError("checkpoint appearance metadata is incomplete")
+        if int(saved_count) != camera_count:
+            raise ValueError(
+                f"checkpoint appearance camera count is {saved_count}, "
+                f"target has {camera_count}"
+            )
+        if tuple(saved_names) != names:
+            raise ValueError(
+                "checkpoint appearance image names do not match target"
             )
     saved_color_mode = metadata.get("model_color_mode", "sh")
     target_color_mode = "appearance" if model.has_appearance else "sh"
@@ -796,7 +1047,28 @@ def restore_distributed_checkpoint(
             "module": _encode_empty_arrays(pose_module_target),
             "optimizer": _encode_empty_arrays(pose_optimizer_target),
         }
-    partial_restore = has_pose_state and not wants_pose_state
+    appearance_module_holder = None
+    appearance_optimizer_holder = None
+    appearance_module_target = None
+    appearance_optimizer_target = None
+    if wants_appearance_state:
+        appearance_module_holder = _unstack_graph(appearance_module, 0)
+        appearance_optimizer_holder = _unstack_graph(
+            appearance_optimizer, 0
+        )
+        appearance_module_target = _pure_state(appearance_module_holder)
+        appearance_optimizer_target = _pure_state(
+            appearance_optimizer_holder
+        )
+        target["appearance"] = {
+            "module": _encode_empty_arrays(appearance_module_target),
+            "optimizer": _encode_empty_arrays(
+                appearance_optimizer_target
+            ),
+        }
+    partial_restore = (has_pose_state and not wants_pose_state) or (
+        has_appearance_state and not wants_appearance_state
+    )
     checkpointer = (
         ocp.PyTreeCheckpointer()
         if partial_restore
@@ -847,6 +1119,37 @@ def restore_distributed_checkpoint(
         restored_pose_optimizer = _stack_graphs(
             [pose_optimizer_holder for _ in range(world_size)]
         )
+    restored_appearance_module = None
+    restored_appearance_optimizer = None
+    if wants_appearance_state:
+        nnx.update(
+            appearance_module_holder,
+            _restore_empty_arrays(
+                restored["appearance"]["module"], appearance_module_target
+            ),
+        )
+        nnx.update(
+            appearance_optimizer_holder,
+            _restore_empty_arrays(
+                restored["appearance"]["optimizer"],
+                appearance_optimizer_target,
+            ),
+        )
+        restored_appearance_step = int(
+            appearance_optimizer_holder.step[...]
+        )
+        restored_step = int(restored["step"])
+        if restored_appearance_step != restored_step:
+            raise ValueError(
+                "checkpoint appearance optimizer step does not match its "
+                "host step"
+            )
+        restored_appearance_module = _stack_graphs(
+            [appearance_module_holder for _ in range(world_size)]
+        )
+        restored_appearance_optimizer = _stack_graphs(
+            [appearance_optimizer_holder for _ in range(world_size)]
+        )
 
     for node, name in (
         (holders[0], "model"),
@@ -874,6 +1177,14 @@ def restore_distributed_checkpoint(
     if wants_pose_state:
         nnx.update(pose_module, _pure_state(restored_pose_module))
         nnx.update(pose_optimizer, _pure_state(restored_pose_optimizer))
+    if wants_appearance_state:
+        nnx.update(
+            appearance_module, _pure_state(restored_appearance_module)
+        )
+        nnx.update(
+            appearance_optimizer,
+            _pure_state(restored_appearance_optimizer),
+        )
     return int(restored["step"])
 
 

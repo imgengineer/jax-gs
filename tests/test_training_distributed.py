@@ -153,6 +153,14 @@ def _rank_bundle(
         np.asarray([[x, 0.0, 3.0]], np.float32),
         np.asarray([[192, 128, 64]], np.uint8),
         config.model,
+        appearance_feature_dim=(
+            training_module.APPEARANCE_FEATURE_DIM
+            if config.app_opt
+            else None
+        ),
+        feature_key=(
+            jax.random.key(17) if config.app_opt else None
+        ),
     )
     optimizer_factory = (
         create_visible_adam_optimizer
@@ -227,6 +235,36 @@ def _replicated_pose_training_state(
         module = CameraOptModule(camera_count, rngs=nnx.Rngs(7))
         module.zero_init()
         optimizer = training_module._create_pose_optimizer(module, config)
+        gradients = jax.tree.map(
+            jnp.ones_like, nnx.state(module, nnx.Param)
+        )
+        for _ in range(steps):
+            optimizer.update(module, gradients)
+        modules.append(module)
+        optimizers.append(optimizer)
+    return _stack_graphs(*modules), _stack_graphs(*optimizers)
+
+
+def _replicated_appearance_training_state(
+    config: TrainConfig,
+    *,
+    camera_count: int = 3,
+    world_size: int = 2,
+    steps: int = 0,
+):
+    modules = []
+    optimizers = []
+    for _ in range(world_size):
+        module = training_module.AppearanceOptModule(
+            camera_count,
+            training_module.APPEARANCE_FEATURE_DIM,
+            config.app_embed_dim,
+            config.model.sh_degree,
+            rngs=nnx.Rngs(19),
+        )
+        optimizer = training_module.create_appearance_optimizer(
+            module, config
+        )
         gradients = jax.tree.map(
             jnp.ones_like, nnx.state(module, nnx.Param)
         )
@@ -566,10 +604,6 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
     with pytest.raises(ValueError, match="world_size must be greater than one"):
         make_distributed_train_step(
             _fixed_topology_config(), world_size=1
-        )
-    with pytest.raises(NotImplementedError, match="appearance"):
-        make_distributed_train_step(
-            _fixed_topology_config(app_opt=True), world_size=2
         )
     with pytest.raises(NotImplementedError, match="2DGS"):
         make_distributed_train_step(
@@ -1564,12 +1598,13 @@ def _run_local_device_distributed_pose_host_loop():
     scene = SimpleNamespace(
         points=points,
         points_rgb=np.full((2, 3), 128, np.uint8),
-        camtoworlds=np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)),
+        camtoworlds=np.tile(np.eye(4, dtype=np.float32), (3, 1, 1)),
         images=(
             SimpleNamespace(name="first.png"),
             SimpleNamespace(name="second.png"),
+            SimpleNamespace(name="third.png"),
         ),
-        indices=lambda split, test_every: np.asarray([0, 1]),
+        indices=lambda split, test_every: np.asarray([0, 1, 2]),
     )
     K = np.asarray(
         [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]],
@@ -1580,13 +1615,25 @@ def _run_local_device_distributed_pose_host_loop():
             "image": np.full((2, 4, 4, 3), value, np.float32),
             "K": np.tile(K, (2, 1, 1)),
             "w2c": np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)),
-            "dataset_index": np.asarray([0, 1], np.int32),
+            "dataset_index": indices,
         }
-        for value in (0.0, 0.1)
+        for value, indices in (
+            (0.0, np.asarray([0, 1], np.int32)),
+            (0.1, np.asarray([2, 0], np.int32)),
+        )
     ]
+    evaluation = {
+        "image": np.zeros((4, 4, 3), np.float32),
+        "K": K,
+        "w2c": np.eye(4, dtype=np.float32),
+        "dataset_index": np.asarray(0, np.int32),
+    }
     dataset_batch_sizes = []
 
     def create_dataset(_scene, *, split, batch_size, **_kwargs):
+        if split == "test":
+            assert batch_size is None
+            return [evaluation]
         assert split == "train"
         dataset_batch_sizes.append(batch_size)
         return batches
@@ -1598,6 +1645,10 @@ def _run_local_device_distributed_pose_host_loop():
             pose_opt_lr=0.1,
             pose_opt_reg=0.0,
             pose_noise=0.01,
+            app_opt=True,
+            app_embed_dim=2,
+            app_opt_lr=0.1,
+            app_opt_reg=0.0,
             model=ModelConfig(
                 capacity=2,
                 bucket_min_capacity=2,
@@ -1621,7 +1672,7 @@ def _run_local_device_distributed_pose_host_loop():
             ),
             steps=2,
             checkpoint_every=1,
-            eval_every=0,
+            eval_every=1,
             output_dir=directory,
             ssim_lambda=0.0,
         )
@@ -1637,7 +1688,7 @@ def _run_local_device_distributed_pose_host_loop():
             mock.patch.object(
                 training_module,
                 "rasterization",
-                _pose_sensitive_rasterization,
+                _camera_module_sensitive_rasterization,
             ),
         ):
             uninterrupted = training_module.train(config, distributed=True)
@@ -1652,6 +1703,9 @@ def _run_local_device_distributed_pose_host_loop():
             uninterrupted_pose = np.asarray(
                 uninterrupted.pose_adjust.embeds.embedding[...]
             ).copy()
+            uninterrupted_appearance = _snapshot_graph_arrays(
+                uninterrupted.appearance
+            )
             resumed = training_module.train(
                 config, resume_from=step_one, distributed=True
             )
@@ -1660,6 +1714,7 @@ def _run_local_device_distributed_pose_host_loop():
                 replace(
                     config,
                     pose_noise=0.0,
+                    app_opt=False,
                     steps=1,
                     optimizer=one_step_optimizer,
                     output_dir=os.path.join(directory, "opt_only"),
@@ -1670,28 +1725,52 @@ def _run_local_device_distributed_pose_host_loop():
                 replace(
                     config,
                     pose_opt=False,
+                    app_opt=False,
                     steps=1,
                     optimizer=one_step_optimizer,
                     output_dir=os.path.join(directory, "noise_only"),
                 ),
                 distributed=True,
             )
+            appearance_only = training_module.train(
+                replace(
+                    config,
+                    pose_opt=False,
+                    pose_noise=0.0,
+                    steps=1,
+                    optimizer=one_step_optimizer,
+                    output_dir=os.path.join(directory, "appearance_only"),
+                ),
+                distributed=True,
+            )
 
-        assert dataset_batch_sizes == [2, 2, 2, 2]
+        assert dataset_batch_sizes == [2, 2, 2, 2, 2]
         assert opt_only.pose_adjust is not None
         assert noise_only.pose_adjust is None
-        assert uninterrupted_pose.shape == (2, 2, 9)
+        assert appearance_only.pose_adjust is None
+        assert appearance_only.appearance is not None
+        assert uninterrupted_pose.shape == (2, 3, 9)
         np.testing.assert_array_equal(
             uninterrupted_pose[0], uninterrupted_pose[1]
         )
         assert np.any(uninterrupted_pose[0, 0] != 0.0)
         assert np.any(uninterrupted_pose[0, 1] != 0.0)
+        assert np.any(uninterrupted_pose[0, 2] != 0.0)
         assert "P('rank'" in str(
             resumed.pose_adjust.embeds.embedding[...].sharding
         )
         np.testing.assert_array_equal(
             resumed.pose_adjust.embeds.embedding[...], uninterrupted_pose
         )
+        assert "P('rank'" in str(
+            resumed.appearance.embeds.embedding[...].sharding
+        )
+        for expected, actual in zip(
+            uninterrupted_appearance,
+            _snapshot_graph_arrays(resumed.appearance),
+            strict=True,
+        ):
+            np.testing.assert_array_equal(actual, expected)
         for expected, actual in zip(
             uninterrupted_model,
             _snapshot_graph_arrays(resumed.model),
@@ -1700,11 +1779,18 @@ def _run_local_device_distributed_pose_host_loop():
             np.testing.assert_array_equal(actual, expected)
         manifest = load_distributed_checkpoint_manifest(resumed.checkpoint)
         assert "pose" in manifest["components"]
-        assert manifest["pose_camera_count"] == 2
+        assert "appearance" in manifest["components"]
+        assert manifest["pose_camera_count"] == 3
+        assert manifest["appearance_camera_count"] == 3
         assert manifest["pose_image_names"] == [
             "first.png",
             "second.png",
+            "third.png",
         ]
+        assert manifest["appearance_image_names"] == (
+            manifest["pose_image_names"]
+        )
+        assert (resumed.output_dir / "renders" / "step_00000002.png").is_file()
 
 
 def test_two_virtual_cpu_distributed_host_loop_smoke():
@@ -2086,6 +2172,197 @@ def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
             pose_module=one_rank_pose[0],
             pose_optimizer=one_rank_pose[1],
             pose_image_names=names,
+        )
+    for node, expected_state in zip(targets, before_failure, strict=True):
+        for actual, expected in zip(
+            _snapshot_graph_arrays(node), expected_state, strict=True
+        ):
+            np.testing.assert_array_equal(actual, expected)
+
+
+def test_distributed_checkpoint_round_trips_canonical_appearance_state(
+    tmp_path,
+):
+    config = _topology_plan_config(
+        train={"app_opt": True, "app_embed_dim": 0}
+    )
+    saved = _two_rank_bundles(config)
+    saved[0].active_mask[...] = jnp.ones_like(saved[0].active_mask[...])
+    saved[1].step[...] = jnp.asarray([1, 1], saved[1].step[...].dtype)
+    appearance, appearance_optimizer = (
+        _replicated_appearance_training_state(config, steps=1)
+    )
+    names = ("first.png", "second.png", "third.png")
+    with pytest.raises(ValueError, match="color representation"):
+        save_distributed_checkpoint(
+            tmp_path / "wrong_color_mode",
+            *saved,
+            step=1,
+            config=replace(config, app_opt=False),
+        )
+    path = save_distributed_checkpoint(
+        tmp_path,
+        *saved,
+        step=1,
+        config=config,
+        appearance_module=appearance,
+        appearance_optimizer=appearance_optimizer,
+        appearance_image_names=names,
+    )
+
+    manifest = load_distributed_checkpoint_manifest(path)
+    assert "appearance" in manifest["components"]
+    assert manifest["appearance_camera_count"] == 3
+    assert manifest["appearance_image_names"] == list(names)
+    assert (
+        manifest["appearance_feature_dim"]
+        == training_module.APPEARANCE_FEATURE_DIM
+    )
+
+    core_only = _two_rank_bundles(config)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        assert (
+            restore_distributed_checkpoint(path, *core_only, config=config)
+            == 1
+        )
+
+    restored = _two_rank_bundles(config)
+    restored_appearance = _replicated_appearance_training_state(config)
+    assert (
+        restore_distributed_checkpoint(
+            path,
+            *restored,
+            config=config,
+            appearance_module=restored_appearance[0],
+            appearance_optimizer=restored_appearance[1],
+            appearance_image_names=names,
+        )
+        == 1
+    )
+    for original, target in (
+        (appearance, restored_appearance[0]),
+        (appearance_optimizer, restored_appearance[1]),
+    ):
+        for before, after in zip(
+            _snapshot_graph_arrays(original),
+            _snapshot_graph_arrays(target),
+            strict=True,
+        ):
+            np.testing.assert_array_equal(after, before)
+
+    with pytest.raises(ValueError, match="appearance image names"):
+        restore_distributed_checkpoint(
+            path,
+            *_two_rank_bundles(config),
+            config=config,
+            appearance_module=restored_appearance[0],
+            appearance_optimizer=restored_appearance[1],
+            appearance_image_names=tuple(reversed(names)),
+        )
+
+    four_rank_core = _stack_graphs(
+        *[
+            _rank_bundle(config, 0.0, optimizer_world_size=4)
+            for _ in range(4)
+        ]
+    )
+    four_rank_appearance = _replicated_appearance_training_state(
+        config, world_size=4
+    )
+    restore_distributed_checkpoint(
+        path,
+        *four_rank_core,
+        config=config,
+        model_config=config.model,
+        optimizer_config=config.optimizer,
+        allow_reshard=True,
+        appearance_module=four_rank_appearance[0],
+        appearance_optimizer=four_rank_appearance[1],
+        appearance_image_names=names,
+    )
+    for source, target in (
+        (appearance, four_rank_appearance[0]),
+        (appearance_optimizer, four_rank_appearance[1]),
+    ):
+        expected = _snapshot_graph_arrays(_unstack_graph(source, 0))
+        for rank in range(4):
+            actual = _snapshot_graph_arrays(_unstack_graph(target, rank))
+            for actual_leaf, expected_leaf in zip(
+                actual, expected, strict=True
+            ):
+                np.testing.assert_array_equal(actual_leaf, expected_leaf)
+
+    divergent_appearance = _replicated_appearance_training_state(
+        config, steps=1
+    )
+    divergent_appearance[0].color_head[-1].bias[1, 0] += 1.0
+    with pytest.raises(
+        ValueError, match="appearance module replicas disagree"
+    ):
+        save_distributed_checkpoint(
+            tmp_path / "divergent",
+            *saved,
+            step=1,
+            config=config,
+            appearance_module=divergent_appearance[0],
+            appearance_optimizer=divergent_appearance[1],
+            appearance_image_names=names,
+        )
+
+    divergent_appearance = _replicated_appearance_training_state(
+        config, steps=1
+    )
+    divergent_appearance[1].step[1] = 0
+    with pytest.raises(
+        ValueError, match="appearance optimizer replicas disagree"
+    ):
+        save_distributed_checkpoint(
+            tmp_path / "divergent_optimizer",
+            *saved,
+            step=1,
+            config=config,
+            appearance_module=divergent_appearance[0],
+            appearance_optimizer=divergent_appearance[1],
+            appearance_image_names=names,
+        )
+
+    wrong_contract = _replicated_appearance_training_state(
+        replace(config, app_opt_lr=config.app_opt_lr * 2.0), steps=1
+    )
+    with pytest.raises(ValueError, match="does not match TrainConfig"):
+        save_distributed_checkpoint(
+            tmp_path / "wrong_contract",
+            *saved,
+            step=1,
+            config=config,
+            appearance_module=wrong_contract[0],
+            appearance_optimizer=wrong_contract[1],
+            appearance_image_names=names,
+        )
+
+    # A failed Gaussian redistribution must not partially restore appearance.
+    one_rank_core = _stack_graphs(
+        _rank_bundle(config, 0.0, optimizer_world_size=1)
+    )
+    one_rank_appearance = _replicated_appearance_training_state(
+        config, world_size=1
+    )
+    targets = (*one_rank_core, *one_rank_appearance)
+    before_failure = tuple(
+        _snapshot_graph_arrays(node) for node in targets
+    )
+    with pytest.raises(ValueError, match="cannot hold the busiest"):
+        restore_distributed_checkpoint(
+            path,
+            *one_rank_core,
+            config=config,
+            model_config=config.model,
+            optimizer_config=config.optimizer,
+            allow_reshard=True,
+            appearance_module=one_rank_appearance[0],
+            appearance_optimizer=one_rank_appearance[1],
+            appearance_image_names=names,
         )
     for node, expected_state in zip(targets, before_failure, strict=True):
         for actual, expected in zip(
@@ -2504,6 +2781,216 @@ def _pose_sensitive_rasterization(*args, **kwargs):
     return renders, alphas, info
 
 
+def _appearance_sensitive_rasterization(
+    means,
+    _quats,
+    _scales,
+    _opacities,
+    colors,
+    viewmats,
+    _intrinsics,
+    width,
+    height,
+    **kwargs,
+):
+    """Render rank-local cameras from already-gathered appearance colors."""
+
+    assert not kwargs["distributed"]
+    camera_count = viewmats.shape[0]
+    global_capacity = means.shape[0]
+    assert colors.shape == (camera_count, global_capacity, 3)
+    assert kwargs["active_mask"].shape == (global_capacity,)
+    screen_probe = kwargs.get("_means2d_offset")
+    if screen_probe is not None:
+        assert screen_probe.shape == (camera_count, global_capacity, 2)
+    active = kwargs["active_mask"].astype(means.dtype)
+    weights = active / jnp.maximum(jnp.sum(active), 1.0)
+    signal = jnp.einsum("cnd,n->cd", colors, weights)
+    renders = jnp.broadcast_to(
+        signal[:, None, None, :],
+        (camera_count, height, width, 3),
+    )
+    alphas = jnp.ones(
+        (camera_count, height, width, 1), dtype=means.dtype
+    )
+    visible = jnp.broadcast_to(
+        kwargs["active_mask"][None, :],
+        (camera_count, global_capacity),
+    )
+    info = {
+        "radii": jnp.ones(
+            (camera_count, global_capacity, 2), dtype=means.dtype
+        ),
+        "valid": visible,
+        "tile_overflow": jnp.zeros(
+            (camera_count, 1, 1), dtype=jnp.bool_
+        ),
+        "candidate_limit_exceeded": jnp.zeros(
+            (camera_count, 1, 1), dtype=jnp.bool_
+        ),
+        "candidate_counts": jnp.zeros(
+            (camera_count, 1, 1), dtype=jnp.int32
+        ),
+        "intersection_overflow": jnp.zeros(
+            (camera_count,), dtype=jnp.bool_
+        ),
+        "intersection_count": jnp.ones(
+            (camera_count,), dtype=jnp.int32
+        ),
+        "intersection_required_count": jnp.ones(
+            (camera_count,), dtype=jnp.int32
+        ),
+    }
+    return renders, alphas, info
+
+
+def _pose_and_appearance_sensitive_rasterization(*args, **kwargs):
+    renders, alphas, info = _appearance_sensitive_rasterization(
+        *args, **kwargs
+    )
+    viewmats = args[5]
+    pose_signal = jax.nn.sigmoid(viewmats[:, 0, 3])
+    return (
+        renders + pose_signal[:, None, None, None],
+        alphas,
+        info,
+    )
+
+
+def _camera_module_sensitive_rasterization(*args, **kwargs):
+    if kwargs["distributed"]:
+        return _pose_sensitive_rasterization(*args, **kwargs)
+    return _pose_and_appearance_sensitive_rasterization(*args, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "initial_appearance_steps", [(0, 0), (0, 1)]
+)
+def test_named_two_rank_appearance_uses_global_gaussians_and_ddp_gradients(
+    initial_appearance_steps,
+):
+    config = _topology_plan_config(
+        refine_start=4,
+        train={
+            "app_opt": True,
+            "app_embed_dim": 1,
+            "app_opt_lr": 0.1,
+            "app_opt_reg": 0.0,
+        },
+    )
+    bundles = _two_rank_bundles(config)
+    appearance, appearance_optimizer = (
+        _replicated_appearance_training_state(config)
+    )
+    appearance_optimizer.step[...] = jnp.asarray(
+        initial_appearance_steps, appearance_optimizer.step[...].dtype
+    )
+    appearance.embeds.embedding[...] = jnp.broadcast_to(
+        jnp.asarray([[1.0], [2.0], [3.0]], jnp.float32),
+        (2, 3, 1),
+    )
+    for index in (0, 2, 4):
+        appearance.color_head[index].kernel[...] = 0.0
+        appearance.color_head[index].bias[...] = 0.0
+        appearance.color_head[index].kernel[:, 0, 0] = 1.0
+    before_embedding = np.asarray(
+        appearance.embeds.embedding[...]
+    ).copy()
+    before_colors = np.asarray(bundles[0].colors[...]).copy()
+    train_step = make_distributed_train_step(config, world_size=2)
+
+    @nnx.vmap(in_axes=(0,) * 13, out_axes=0, axis_name="rank")
+    def mapped_step(
+        model,
+        optimizer,
+        strategy_state,
+        safety_state,
+        images,
+        intrinsics,
+        viewmats,
+        key,
+        sh_degree,
+        current_appearance,
+        current_appearance_optimizer,
+        camtoworlds,
+        image_ids,
+    ):
+        return train_step(
+            model,
+            optimizer,
+            strategy_state,
+            safety_state,
+            images,
+            intrinsics,
+            viewmats,
+            key,
+            sh_degree,
+            appearance_module=current_appearance,
+            appearance_optimizer=current_appearance_optimizer,
+            camtoworlds=camtoworlds,
+            image_ids=image_ids,
+        )
+
+    images = jnp.zeros((2, 1, 4, 4, 3), jnp.float32)
+    intrinsics = jnp.broadcast_to(
+        jnp.asarray(
+            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]],
+            jnp.float32,
+        )[None, None],
+        (2, 1, 3, 3),
+    )
+    camtoworlds = jnp.broadcast_to(
+        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
+    )
+    image_ids = jnp.asarray([[0], [1]], jnp.int32)
+    with mock.patch.object(
+        training_module,
+        "rasterization",
+        _appearance_sensitive_rasterization,
+    ):
+        metrics = mapped_step(
+            *bundles,
+            images,
+            intrinsics,
+            camtoworlds,
+            jax.random.split(jax.random.key(5), 2),
+            jnp.zeros((2,), jnp.int32),
+            appearance,
+            appearance_optimizer,
+            camtoworlds,
+            image_ids,
+        )
+
+    np.testing.assert_array_equal(
+        metrics["distributed_state_mismatch"],
+        [initial_appearance_steps == (0, 1)] * 2,
+    )
+    if initial_appearance_steps == (0, 1):
+        np.testing.assert_array_equal(
+            appearance.embeds.embedding[...], before_embedding
+        )
+        np.testing.assert_array_equal(bundles[0].colors[...], before_colors)
+        np.testing.assert_array_equal(bundles[1].step[...], [0, 0])
+        np.testing.assert_array_equal(
+            appearance_optimizer.step[...], [0, 1]
+        )
+        return
+    np.testing.assert_array_equal(
+        appearance.embeds.embedding[0], appearance.embeds.embedding[1]
+    )
+    assert np.any(
+        np.asarray(appearance.embeds.embedding[0, :2])
+        != before_embedding[0, :2]
+    )
+    np.testing.assert_array_equal(
+        appearance.embeds.embedding[0, 2], before_embedding[0, 2]
+    )
+    np.testing.assert_array_equal(
+        appearance_optimizer.step[...], [1, 1]
+    )
+    assert np.any(np.asarray(bundles[0].colors[...]) != before_colors)
+
+
 def _run_two_rank_pose_update(
     map_transform, *, initial_pose_steps=(0, 0)
 ):
@@ -2620,12 +3107,7 @@ def test_distributed_pose_step_mismatch_atomically_skips_update():
     np.testing.assert_array_equal(pose_steps, [0, 1])
 
 
-def test_distributed_train_step_still_rejects_appearance_and_2dgs():
-    with pytest.raises(NotImplementedError, match="appearance"):
-        make_distributed_train_step(
-            _topology_plan_config(refine_start=4, train={"app_opt": True}),
-            world_size=2,
-        )
+def test_distributed_train_step_still_rejects_2dgs():
     with pytest.raises(NotImplementedError, match="2DGS"):
         make_distributed_train_step(
             _topology_plan_config(
@@ -3235,14 +3717,95 @@ def test_distributed_render_step_rejects_the_unsupported_combinations():
         make_distributed_render_step(
             replace(config, model_type="2dgs"), 4, 4, world_size=2
         )
-    with pytest.raises(NotImplementedError, match="appearance"):
-        make_distributed_render_step(
-            replace(config, app_opt=True), 4, 4, world_size=2
-        )
     with pytest.raises(NotImplementedError, match="pinhole"):
         make_distributed_render_step(
             replace(config, with_ut=True), 4, 4, world_size=2
         )
+
+
+def test_distributed_appearance_render_uses_the_global_scene(monkeypatch):
+    config = _topology_plan_config(
+        capacity=4,
+        bucket=2,
+        train={"app_opt": True, "app_embed_dim": 1},
+    )
+    bundles = _two_rank_bundles(config)
+    appearance, _ = _replicated_appearance_training_state(config)
+    render_step = make_distributed_render_step(
+        config, 4, 4, world_size=2, axis_name="rank"
+    )
+
+    @nnx.vmap(
+        in_axes=(0, 0, None, None, None),
+        out_axes=0,
+        axis_name="rank",
+    )
+    def mapped_render(model, module, viewmat, K, sh_degree):
+        return render_step(
+            model,
+            viewmat,
+            K,
+            sh_degree,
+            appearance_module=module,
+        )
+
+    monkeypatch.setattr(
+        training_module,
+        "rasterization",
+        _appearance_sensitive_rasterization,
+    )
+    viewmat = jnp.eye(4, dtype=jnp.float32)
+    K = jnp.asarray(
+        [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]],
+        jnp.float32,
+    )
+    rendered, _, _, _ = mapped_render(
+        bundles[0], appearance, viewmat, K, jnp.asarray(0, jnp.int32)
+    )
+
+    np.testing.assert_allclose(rendered[0], rendered[1], rtol=1e-6)
+
+
+def test_distributed_appearance_render_runs_the_reference_rasterizer():
+    config = _topology_plan_config(
+        capacity=4,
+        bucket=2,
+        train={"app_opt": True, "app_embed_dim": 1},
+    )
+    bundles = _two_rank_bundles(config)
+    appearance, _ = _replicated_appearance_training_state(config)
+    render_step = make_distributed_render_step(
+        config, 4, 4, world_size=2, axis_name="rank"
+    )
+
+    @nnx.vmap(
+        in_axes=(0, 0, None, None, None),
+        out_axes=0,
+        axis_name="rank",
+    )
+    def mapped_render(model, module, viewmat, K, sh_degree):
+        return render_step(
+            model,
+            viewmat,
+            K,
+            sh_degree,
+            appearance_module=module,
+        )
+
+    viewmat = jnp.eye(4, dtype=jnp.float32)
+    K = jnp.asarray(
+        [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]],
+        jnp.float32,
+    )
+    rendered, _, overflow, intersection_overflow = mapped_render(
+        bundles[0], appearance, viewmat, K, jnp.asarray(0, jnp.int32)
+    )
+
+    assert rendered.shape == (2, 4, 4, 3)
+    assert bool(jnp.all(jnp.isfinite(rendered)))
+    np.testing.assert_allclose(rendered[0], rendered[1], rtol=1e-6)
+    assert not bool(jnp.any(overflow))
+    assert not bool(jnp.any(intersection_overflow))
 
 
 def _global_rows(model):

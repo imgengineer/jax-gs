@@ -479,6 +479,16 @@ def _training_loss(
             config.model_type == "3dgs" and not config.app_opt
         )
     )
+    raster_distributed = plan.distributed
+    if plan.distributed and config.app_opt:
+        assert distributed_axis_name is not None
+        parameters = jax.tree.map(
+            lambda value: jax.lax.all_gather(
+                value, distributed_axis_name, axis=0, tiled=True
+            ),
+            parameters,
+        )
+        raster_distributed = False
     if config.app_opt:
         assert current_appearance_module is not None
         assert adjusted_camtoworlds is not None
@@ -569,7 +579,7 @@ def _training_loss(
             camera_model=config.camera_model,
             with_ut=config.with_ut,
             with_eval3d=config.with_eval3d,
-            distributed=plan.distributed,
+            distributed=raster_distributed,
             distributed_world_size=distributed_world_size,
             distributed_axis_name=distributed_axis_name,
             config=plan.rasterizer_config,
@@ -866,6 +876,40 @@ def _make_train_step(
                 | (minimum_pose_step != maximum_pose_step)
                 | (pose_optimizer_step != optimizer_step)
             )
+        if distributed and config.app_opt:
+            assert distributed_axis_name is not None
+            assert appearance_optimizer is not None
+            expected_appearance_contract = (
+                "appearance_multi_adam_v1",
+                config.data.batch_size,
+                float(config.app_opt_lr),
+                float(config.app_opt_reg),
+            )
+            if (
+                getattr(
+                    appearance_optimizer,
+                    "_jax_gs_appearance_contract",
+                    None,
+                )
+                != expected_appearance_contract
+            ):
+                raise ValueError(
+                    "distributed appearance optimizer does not match the "
+                    "train step's batch size, learning rate, or "
+                    "regularization"
+                )
+            appearance_optimizer_step = appearance_optimizer.step[...]
+            minimum_appearance_step = jax.lax.pmin(
+                appearance_optimizer_step, distributed_axis_name
+            )
+            maximum_appearance_step = jax.lax.pmax(
+                appearance_optimizer_step, distributed_axis_name
+            )
+            distributed_state_mismatch = (
+                distributed_state_mismatch
+                | (minimum_appearance_step != maximum_appearance_step)
+                | (appearance_optimizer_step != optimizer_step)
+            )
         patch_key, background_key = jax.random.split(key)
         if strategy_key is None:
             strategy_key = jax.random.fold_in(key, 0x53545241)
@@ -998,6 +1042,15 @@ def _make_train_step(
             # the replicated gradient across ranks. Gaussians stay sharded and
             # keep the owner-scattered sum instead.
             pose_grads = jax.lax.pmean(pose_grads, distributed_axis_name)
+        if distributed and config.app_opt:
+            assert distributed_axis_name is not None
+            assert appearance_grads is not None
+            # The appearance module is replicated with DDP semantics. Its
+            # Gaussian feature inputs remain owner-sharded and are already
+            # sum-scattered by the all-gather transpose above.
+            appearance_grads = jax.lax.pmean(
+                appearance_grads, distributed_axis_name
+            )
         active_mask = model.active_mask[...]
         with jax.named_scope("inactive_grad_mask"):
             grads = jax.lax.cond(
@@ -1507,7 +1560,8 @@ def make_distributed_train_step(
 
     The returned stateful step must run inside ``nnx.pmap`` (or ``nnx.vmap``
     for tests) with ``axis_name`` bound. It supports dense or packed pinhole
-    3DGS with SH colors. Host camera sharding, capacity synchronization,
+    3DGS with SH or learned appearance colors. Host camera sharding, capacity
+    synchronization,
     checkpoint/reshard, and eval are separate primitives; the local-device
     :func:`train_distributed` loop wires them together, while multiple JAX
     processes still fail fast.
@@ -1519,12 +1573,15 @@ def make_distributed_train_step(
     optimization and pose noise are supported: the
     replicated module's gradient is averaged across ranks, matching the DDP
     wrapper current-main puts around it, while Gaussians keep their sharded
-    sum. Packed projection, ``visible_adam``, and MCMC are supported too;
+    sum. Appearance uses the same ownership rule: gathered Gaussian features
+    are evaluated against each rank's cameras, while the replicated MLP's
+    gradient is averaged. Packed projection, ``visible_adam``, and MCMC are
+    supported too;
     packed metadata indexes the gathered scene, so it unpacks globally before
     the owner slice, and every MCMC shard caps and grows its own rows the way
-    an independent upstream rank does. Appearance and ``sparse_grad`` remain
-    conservative implementation boundaries of this JAX slice; current-main's
-    trainer can orchestrate more distributed combinations than this step.
+    an independent upstream rank does. ``sparse_grad`` remains a conservative
+    implementation boundary of this JAX slice; current-main's trainer can
+    orchestrate more distributed combinations than this step.
 
     Refinement is planned, preflighted, and committed inside the step. Before
     the update every rank plans duplicate/split/prune events for the rows it
@@ -1563,11 +1620,6 @@ def make_distributed_train_step(
     if config.model_type != "3dgs":
         raise NotImplementedError(
             "distributed training does not support 2DGS"
-        )
-    if config.app_opt:
-        raise NotImplementedError(
-            "distributed appearance training requires gather-before-MLP "
-            "camera colors and has no upstream distributed route"
         )
     if config.sparse_grad:
         raise NotImplementedError(

@@ -2208,6 +2208,117 @@ def test_memory_estimate_accounts_for_dense_projection_camera_batch():
     )
 
 
+def test_memory_estimate_accounts_for_distributed_appearance_mlp_workspace():
+    physical_capacity = 8
+    render_capacity = 24
+    appearance = TrainConfig(
+        app_opt=True,
+        app_embed_dim=5,
+        model=ModelConfig(
+            capacity=32, bucket_min_capacity=8, sh_degree=2
+        ),
+        data=DataConfig(root="unused", patch_size=16, batch_size=3),
+    )
+    sh = replace(appearance, app_opt=False)
+
+    appearance_estimate = estimate_training_memory_bytes(
+        appearance,
+        physical_capacity=physical_capacity,
+        render_capacity=render_capacity,
+    )
+    sh_estimate = estimate_training_memory_bytes(
+        sh,
+        physical_capacity=physical_capacity,
+        render_capacity=render_capacity,
+    )
+
+    basis_count = (appearance.model.sh_degree + 1) ** 2
+    mlp_input_width = appearance.app_embed_dim + 32 + basis_count
+    floats_per_camera_gaussian = (
+        3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
+    )
+    expected_workspace = (
+        render_capacity
+        * appearance.data.batch_size
+        * floats_per_camera_gaussian
+        * 4
+        * 2
+    )
+    appearance_color_floats = 32 + 3
+    sh_color_floats = basis_count * 3
+    expected_model_delta = (
+        physical_capacity
+        * (appearance_color_floats - sh_color_floats)
+        * 4
+        * 6
+    )
+
+    assert appearance_estimate - sh_estimate == (
+        expected_model_delta + expected_workspace
+    )
+
+
+def test_sh_memory_estimate_ignores_appearance_only_configuration():
+    config = TrainConfig(
+        model=ModelConfig(capacity=16, bucket_min_capacity=16, sh_degree=1),
+        data=DataConfig(root="unused", patch_size=16, batch_size=2),
+    )
+    changed_appearance_fields = replace(
+        config,
+        app_embed_dim=config.app_embed_dim + 7,
+        app_opt_lr=config.app_opt_lr * 2.0,
+        app_opt_reg=config.app_opt_reg * 3.0,
+    )
+
+    assert estimate_training_memory_bytes(
+        changed_appearance_fields,
+        physical_capacity=16,
+        render_capacity=32,
+    ) == estimate_training_memory_bytes(
+        config,
+        physical_capacity=16,
+        render_capacity=32,
+    )
+
+
+def test_evaluation_memory_estimate_accounts_for_appearance_mlp(monkeypatch):
+    physical_capacity = 24
+    appearance = TrainConfig(
+        app_opt=True,
+        app_embed_dim=5,
+        model=ModelConfig(
+            capacity=32, bucket_min_capacity=8, sh_degree=2
+        ),
+        data=DataConfig(root="unused", patch_size=16),
+    )
+    sh = replace(appearance, app_opt=False)
+    monkeypatch.setattr(
+        training_module, "_device_memory_usage", lambda: (0, 0)
+    )
+
+    appearance_estimate = _check_evaluation_memory_budget(
+        appearance,
+        physical_capacity=physical_capacity,
+        width=16,
+        height=16,
+    )
+    sh_estimate = _check_evaluation_memory_budget(
+        sh,
+        physical_capacity=physical_capacity,
+        width=16,
+        height=16,
+    )
+
+    basis_count = (appearance.model.sh_degree + 1) ** 2
+    mlp_input_width = appearance.app_embed_dim + 32 + basis_count
+    floats_per_gaussian = (
+        3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
+    )
+    assert appearance_estimate - sh_estimate == (
+        physical_capacity * floats_per_gaussian * 4
+    )
+
+
 def test_full_image_memory_estimate_requires_and_uses_rectangular_dimensions():
     config = TrainConfig(
         model=ModelConfig(capacity=100, bucket_min_capacity=100, sh_degree=1),

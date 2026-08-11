@@ -179,8 +179,11 @@ def make_distributed_render_step(
     given the same camera on every rank; the renderer gathers the shards, so
     every rank comes back with the whole image and they must agree.
 
-    The distributed restrictions are the training slice's, so this rejects the
-    same combinations for the same reasons.
+    SH colors use the distributed rasterizer directly. Learned appearance
+    gathers the Gaussian inputs first, evaluates the replicated MLP with the
+    held-out camera and a zero embedding, then runs the ordinary local
+    rasterizer on the resulting global scene. Other distributed restrictions
+    are the training slice's.
     """
 
     try:
@@ -194,11 +197,6 @@ def make_distributed_render_step(
     _validate_2dgs_mode(config)
     if config.model_type != "3dgs":
         raise NotImplementedError("distributed rendering does not support 2DGS")
-    if config.app_opt:
-        raise NotImplementedError(
-            "distributed appearance rendering requires gather-before-MLP "
-            "camera colors and is not part of this slice"
-        )
     if (
         config.with_ut
         or config.with_eval3d
@@ -215,26 +213,56 @@ def make_distributed_render_step(
         viewmat: jax.Array,
         K: jax.Array,
         sh_degree: jax.Array,
+        *,
+        appearance_module: AppearanceOptModule | None = None,
     ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
         if model.has_appearance != config.app_opt:
             raise ValueError(
                 "model color representation must match config.app_opt"
             )
-        parameters = model.activated(split_sh=True)
+        parameters = model.activated(split_sh=not config.app_opt)
+        raster_distributed = True
+        if config.app_opt:
+            if appearance_module is None:
+                raise ValueError(
+                    "app_opt=True requires appearance_module for rendering"
+                )
+            parameters = jax.tree.map(
+                lambda value: jax.lax.all_gather(
+                    value, axis_name, axis=0, tiled=True
+                ),
+                parameters,
+            )
+            camtoworld = _invert_rigid_transforms(viewmat[None, ...])
+            directions = (
+                parameters["means"][None, :, :]
+                - camtoworld[:, None, :3, 3]
+            )
+            corrections = appearance_module(
+                parameters["features"], None, directions, sh_degree
+            )
+            render_colors = jax.nn.sigmoid(
+                parameters["colors"][None, :, :] + corrections
+            )
+            raster_sh_degree = None
+            raster_distributed = False
+        else:
+            render_colors = parameters["sh_coeffs"]
+            raster_sh_degree = sh_degree
         renders, alphas, info = _training.rasterization(
             parameters["means"],
             parameters["quats"],
             parameters["scales"],
             parameters["opacities"],
-            parameters["sh_coeffs"],
+            render_colors,
             viewmat[None, ...],
             K[None, ...],
             width,
             height,
             active_mask=parameters["active_mask"],
-            sh_degree=sh_degree,
+            sh_degree=raster_sh_degree,
             camera_model=config.camera_model,
-            distributed=True,
+            distributed=raster_distributed,
             distributed_world_size=world_size,
             distributed_axis_name=axis_name,
             config=config.rasterizer,

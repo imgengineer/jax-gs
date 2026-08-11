@@ -210,11 +210,18 @@ def create_appearance_optimizer(
         raise KeyError(f"unexpected appearance parameter path {path!r}")
 
     labels = jax.tree_util.tree_map_with_path(label, parameters)
-    return nnx.Optimizer(
+    optimizer = nnx.Optimizer(
         module,
         optax.multi_transform(transforms, labels),
         wrt=nnx.Param,
     )
+    optimizer._jax_gs_appearance_contract = (
+        "appearance_multi_adam_v1",
+        config.data.batch_size,
+        float(config.app_opt_lr),
+        float(config.app_opt_reg),
+    )
+    return optimizer
 
 
 def bake_appearance_sh(

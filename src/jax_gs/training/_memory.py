@@ -247,6 +247,36 @@ def _training_state_bytes(config: TrainConfig, physical_capacity: int) -> int:
     return parameter_bytes * 3 + strategy_bytes
 
 
+def _appearance_mlp_workspace_bytes(
+    config: TrainConfig,
+    gaussian_capacity: int,
+    camera_count: int,
+    *,
+    reverse_mode: bool,
+) -> int:
+    """Conservatively count materialized appearance tensors."""
+
+    if not config.app_opt:
+        return 0
+    basis_count = (config.model.sh_degree + 1) ** 2
+    mlp_input_width = (
+        config.app_embed_dim + APPEARANCE_FEATURE_DIM + basis_count
+    )
+    # Directions and bases, concatenated input, two 64-wide hidden layers,
+    # correction/corrected logits/direct RGB. Training reserves the same space
+    # again for reverse-mode residuals and cotangents.
+    floats_per_camera_gaussian = (
+        3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
+    )
+    return (
+        gaussian_capacity
+        * camera_count
+        * floats_per_camera_gaussian
+        * 4
+        * (2 if reverse_mode else 1)
+    )
+
+
 def estimate_training_memory_bytes(
     config: TrainConfig,
     *,
@@ -320,6 +350,14 @@ def estimate_training_memory_bytes(
             * 12
             * config.data.batch_size
         )
+    # Distributed training passes global render_capacity while camera_count
+    # remains the rank-local batch size.
+    appearance_workspace = _appearance_mlp_workspace_bytes(
+        config,
+        render_capacity,
+        config.data.batch_size,
+        reverse_mode=True,
+    )
     return int(
         model_working_set
         + projection_working_set
@@ -327,6 +365,7 @@ def estimate_training_memory_bytes(
         + raster_workspace
         + intersection_workspace
         + ut_workspace
+        + appearance_workspace
         + 512 * 2**20
     )
 
@@ -555,6 +594,9 @@ def _check_evaluation_memory_budget(
 
     workspace = estimate_rasterization_memory_bytes(
         physical_capacity, width, height, config.rasterizer
+    )
+    workspace += _appearance_mlp_workspace_bytes(
+        config, physical_capacity, 1, reverse_mode=False
     )
     samples = _device_memory_samples(devices)
     projections = [
