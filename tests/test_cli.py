@@ -1,12 +1,121 @@
 from types import SimpleNamespace
 
 from flax import nnx
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import jax_gs.cli as cli_module
+from jax_gs.checkpoints import save_distributed_checkpoint
 from jax_gs.config import ModelConfig, TrainConfig
+from jax_gs.exporter import load_ply_to_splats
+from jax_gs.optimizers import create_optimizer
+from jax_gs.strategy import DefaultStrategy
+from jax_gs.training import TrainingSafetyState
+
+
+def _stack_graphs(*graphs):
+    graphdef, first_state = nnx.split(graphs[0])
+    states = [first_state, *(nnx.split(graph)[1] for graph in graphs[1:])]
+    return nnx.merge(
+        graphdef, jax.tree.map(lambda *values: jnp.stack(values), *states)
+    )
+
+
+def _write_distributed_cli_checkpoint(
+    tmp_path, config, *, include_scene: bool = True
+):
+    models = []
+    optimizers = []
+    strategies = []
+    safety_states = []
+    masks = np.asarray([[False, True, False], [True, False, True]])
+    for rank in range(2):
+        model = cli_module.GaussianModel.empty(
+            config.model,
+            physical_capacity=3,
+            appearance_feature_dim=32 if config.app_opt else None,
+        )
+        model.active_mask[...] = jnp.asarray(masks[rank])
+        model.means[...] = jnp.asarray(
+            [
+                [rank * 10.0 + slot, rank + slot, 3.0]
+                for slot in range(3)
+            ],
+            jnp.float32,
+        )
+        if config.app_opt:
+            model.features[...] = rank + jnp.arange(
+                3 * 32, dtype=jnp.float32
+            ).reshape(3, 32)
+            model.colors[...] = jnp.asarray(
+                [[-1.0, 0.0, 1.0], [0.25, -0.5, 0.75], [1.0, 0.5, -1.0]]
+            ) + rank
+        else:
+            model.sh0[...] = rank + jnp.arange(
+                9, dtype=jnp.float32
+            ).reshape(3, 1, 3)
+            model.sh_rest[...] = rank + jnp.arange(
+                model.sh_rest[...].size, dtype=jnp.float32
+            ).reshape(model.sh_rest[...].shape)
+        models.append(model)
+        optimizers.append(
+            create_optimizer(
+                model,
+                config.optimizer,
+                batch_size=config.data.batch_size,
+                world_size=2,
+                scene_scale=1.0,
+            )
+        )
+        strategies.append(
+            DefaultStrategy(config.strategy).initialize_state(model.capacity)
+        )
+        safety_states.append(TrainingSafetyState())
+
+    stacked_model = _stack_graphs(*models)
+    save_kwargs = {}
+    if config.app_opt:
+        names = ("a.png", "b.png", "c.png")
+        modules = [
+            cli_module.AppearanceOptModule(
+                len(names),
+                32,
+                config.app_embed_dim,
+                config.model.sh_degree,
+                rngs=nnx.Rngs(7),
+            )
+            for _ in range(2)
+        ]
+        appearance_optimizers = [
+            cli_module.create_appearance_optimizer(module, config)
+            for module in modules
+        ]
+        save_kwargs = {
+            "appearance_module": _stack_graphs(*modules),
+            "appearance_optimizer": _stack_graphs(*appearance_optimizers),
+            "appearance_image_names": names,
+        }
+    checkpoint = save_distributed_checkpoint(
+        tmp_path,
+        stacked_model,
+        _stack_graphs(*optimizers),
+        _stack_graphs(*strategies),
+        _stack_graphs(*safety_states),
+        step=0,
+        config=config,
+        scene_transform=(
+            np.eye(4, dtype=np.float32) if include_scene else None
+        ),
+        scene_scale=1.0 if include_scene else None,
+        **save_kwargs,
+    )
+    means = np.asarray(stacked_model.means[...])
+    expected_means = np.concatenate(
+        [means[rank][masks[rank]] for rank in range(2)], axis=0
+    )
+    return checkpoint, expected_means
 
 
 def test_train_cli_exposes_2dgs_and_upstream_regularizers(monkeypatch):
@@ -271,6 +380,60 @@ def test_checkpoint_loader_reconstructs_appearance_graph_and_manifest(
     assert step == 7
 
 
+def test_checkpoint_loader_materializes_distributed_inference_model(
+    monkeypatch, tmp_path
+):
+    config = TrainConfig(
+        app_opt=True,
+        app_embed_dim=4,
+        model=ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=2),
+    )
+    inference_config = ModelConfig(
+        capacity=4, bucket_min_capacity=4, sh_degree=2
+    )
+    inference_model = cli_module.GaussianModel.empty(
+        inference_config, appearance_feature_dim=32
+    )
+    captured = {}
+    monkeypatch.setattr(cli_module, "load_checkpoint_config", lambda _p: config)
+    monkeypatch.setattr(cli_module, "is_distributed_checkpoint", lambda _p: True)
+    monkeypatch.setattr(
+        cli_module,
+        "load_checkpoint_appearance_image_names",
+        lambda _p: ("a.png", "b.png"),
+    )
+
+    def fake_load(_checkpoint, source_config, **kwargs):
+        captured["config"] = source_config
+        captured.update(kwargs)
+        return inference_model, 9
+
+    monkeypatch.setattr(
+        cli_module, "load_distributed_inference_checkpoint", fake_load
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "load_checkpoint_storage_capacity",
+        lambda _p: pytest.fail("generic capacity loader must not run"),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "restore_checkpoint",
+        lambda *_a, **_k: pytest.fail("generic restore must not run"),
+    )
+
+    loaded_config, model, appearance, step = cli_module._load_training_objects(
+        tmp_path
+    )
+
+    assert captured["config"] is config
+    assert captured["appearance_module"] is appearance
+    assert captured["appearance_image_names"] == ("a.png", "b.png")
+    assert loaded_config.model.capacity == 4
+    assert model is inference_model
+    assert step == 9
+
+
 @pytest.mark.parametrize("has_scene_metadata", [True, False])
 def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     monkeypatch, tmp_path, has_scene_metadata: bool
@@ -312,7 +475,7 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
         lambda _path: (matrix, 1.25) if has_scene_metadata else None,
     )
     monkeypatch.setattr(
-        cli_module, "estimate_rasterization_memory_bytes", lambda *_args: 0
+        cli_module, "_check_evaluation_memory_budget", lambda *_args, **_kwargs: 0
     )
 
     def fake_render_step(_config, _width, _height):
@@ -342,6 +505,105 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     )
     expected = expected_transform.world_to_camera(example["w2c"])
     np.testing.assert_allclose(captured["viewmat"], expected)
+
+
+@pytest.mark.parametrize("app_opt", [False, True])
+def test_render_cli_materializes_real_distributed_checkpoint(
+    monkeypatch, tmp_path, app_opt: bool
+):
+    config = TrainConfig(
+        app_opt=app_opt,
+        app_embed_dim=0,
+        model=ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=1),
+    )
+    checkpoint, expected_means = _write_distributed_cli_checkpoint(
+        tmp_path / ("render_appearance" if app_opt else "render_sh"), config
+    )
+    camtoworlds = np.broadcast_to(
+        np.eye(4, dtype=np.float32), (2, 4, 4)
+    ).copy()
+    scene = SimpleNamespace(camtoworlds=camtoworlds)
+    example = {
+        "image": np.zeros((2, 3, 3), dtype=np.float32),
+        "K": np.eye(3, dtype=np.float32),
+        "w2c": np.eye(4, dtype=np.float32),
+        "image_name": "frame.png",
+    }
+    captured = {}
+    monkeypatch.setattr(
+        cli_module, "load_colmap_scene", lambda *_args, **_kwargs: scene
+    )
+    monkeypatch.setattr(
+        cli_module, "create_grain_dataset", lambda *_args, **_kwargs: [example]
+    )
+
+    def fake_memory_budget(_config, **kwargs):
+        captured["memory_capacity"] = kwargs["physical_capacity"]
+        return 0
+
+    monkeypatch.setattr(
+        cli_module, "_check_evaluation_memory_budget", fake_memory_budget
+    )
+    monkeypatch.setattr(cli_module, "_save_render", lambda *_args: None)
+
+    def fake_render_step(_config, _width, _height):
+        def render(model, _viewmat, _K, _degree, *, appearance_module=None):
+            captured["model"] = model
+            captured["appearance"] = appearance_module
+            return (
+                jnp.zeros((2, 3, 3), jnp.float32),
+                jnp.zeros((2, 3, 1), jnp.float32),
+                jnp.zeros((1,), jnp.bool_),
+                jnp.asarray(False),
+            )
+
+        return render
+
+    monkeypatch.setattr(cli_module, "make_render_step", fake_render_step)
+    args = cli_module.build_parser().parse_args(
+        ["render", str(checkpoint), "--data", "unused"]
+    )
+
+    args.func(args)
+
+    assert captured["model"].capacity == 3
+    assert captured["memory_capacity"] == 3
+    np.testing.assert_array_equal(
+        captured["model"].means[...], expected_means
+    )
+    assert (captured["appearance"] is not None) is app_opt
+
+
+def test_render_cli_rejects_distributed_checkpoint_without_scene(
+    monkeypatch, tmp_path
+):
+    config = TrainConfig(
+        model=ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=0)
+    )
+    checkpoint, _ = _write_distributed_cli_checkpoint(
+        tmp_path / "missing_scene", config, include_scene=False
+    )
+    scene = SimpleNamespace(
+        camtoworlds=np.eye(4, dtype=np.float32)[None, ...]
+    )
+    example = {
+        "image": np.zeros((2, 3, 3), dtype=np.float32),
+        "K": np.eye(3, dtype=np.float32),
+        "w2c": np.eye(4, dtype=np.float32),
+        "image_name": "frame.png",
+    }
+    monkeypatch.setattr(
+        cli_module, "load_colmap_scene", lambda *_args, **_kwargs: scene
+    )
+    monkeypatch.setattr(
+        cli_module, "create_grain_dataset", lambda *_args, **_kwargs: [example]
+    )
+    args = cli_module.build_parser().parse_args(
+        ["render", str(checkpoint), "--data", "unused"]
+    )
+
+    with pytest.raises(ValueError, match="requires checkpoint scene metadata"):
+        args.func(args)
 
 
 def test_cli_export_bakes_appearance_to_degree_zero_sh(monkeypatch, tmp_path):
@@ -378,6 +640,30 @@ def test_cli_export_bakes_appearance_to_degree_zero_sh(monkeypatch, tmp_path):
     assert "colors" not in captured["splats"]
     assert captured["splats"]["sh0"].shape == (2, 1, 3)
     assert captured["splats"]["sh_rest"].shape == (2, 0, 3)
+
+
+@pytest.mark.parametrize("app_opt", [False, True])
+def test_cli_export_materializes_real_distributed_checkpoint(
+    tmp_path, app_opt: bool
+):
+    config = TrainConfig(
+        app_opt=app_opt,
+        app_embed_dim=0,
+        model=ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=1),
+    )
+    checkpoint, expected_means = _write_distributed_cli_checkpoint(
+        tmp_path / ("appearance" if app_opt else "sh"), config
+    )
+    output = tmp_path / ("appearance.ply" if app_opt else "sh.ply")
+
+    cli_module._export_command(
+        SimpleNamespace(checkpoint=str(checkpoint), output=output)
+    )
+
+    restored = load_ply_to_splats(output)
+    np.testing.assert_array_equal(restored["means"], expected_means)
+    assert restored["means"].shape == (3, 3)
+    assert restored["shN"].shape == (3, 0 if app_opt else 3, 3)
 
 
 def test_train_cli_defaults_to_full_images_and_preserves_explicit_patch(monkeypatch):

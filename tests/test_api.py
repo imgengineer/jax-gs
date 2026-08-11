@@ -6,7 +6,11 @@ import jax.numpy as jnp
 import pytest
 
 from jax_gs import PaddedProjection, fully_fused_projection
-from jax_gs.checkpoints import load_checkpoint_scene_transform
+from jax_gs.checkpoints import (
+    is_distributed_checkpoint,
+    load_checkpoint_scene_transform,
+    load_distributed_inference_checkpoint,
+)
 from jax_gs.two_dgs import fully_fused_projection_2dgs
 
 
@@ -28,6 +32,13 @@ def test_public_scene_normalization_and_checkpoint_exports():
         is load_checkpoint_scene_transform
     )
     assert "load_checkpoint_scene_transform" in jax_gs.__all__
+    assert jax_gs.is_distributed_checkpoint is is_distributed_checkpoint
+    assert (
+        jax_gs.load_distributed_inference_checkpoint
+        is load_distributed_inference_checkpoint
+    )
+    assert "is_distributed_checkpoint" in jax_gs.__all__
+    assert "load_distributed_inference_checkpoint" in jax_gs.__all__
 
     normalization_helpers = (
         "align_principal_axes",

@@ -11,10 +11,12 @@ import jax
 import jax.numpy as jnp
 
 from .checkpoints import (
+    is_distributed_checkpoint,
     load_checkpoint_appearance_image_names,
     load_checkpoint_config,
     load_checkpoint_scene_transform,
     load_checkpoint_storage_capacity,
+    load_distributed_inference_checkpoint,
     restore_checkpoint,
 )
 from .config import TrainConfig
@@ -23,9 +25,9 @@ from .exporter import export_splats
 from .model import GaussianModel
 from .training import (
     SceneTransform,
+    _check_evaluation_memory_budget,
     _legacy_scene_transform,
     _save_render,
-    estimate_rasterization_memory_bytes,
     estimate_training_memory_bytes,
     make_render_step,
     train,
@@ -40,6 +42,33 @@ from .training.appearance import (
 
 def _load_training_objects(checkpoint: Path):
     config = load_checkpoint_config(checkpoint)
+    appearance = None
+    image_names = None
+    if config.app_opt:
+        image_names = load_checkpoint_appearance_image_names(checkpoint)
+        if image_names is None:
+            raise ValueError("checkpoint does not contain appearance state")
+        appearance = AppearanceOptModule(
+            len(image_names),
+            APPEARANCE_FEATURE_DIM,
+            config.app_embed_dim,
+            config.model.sh_degree,
+            rngs=nnx.Rngs(0),
+        )
+
+    if is_distributed_checkpoint(checkpoint):
+        model, step = load_distributed_inference_checkpoint(
+            checkpoint,
+            config,
+            appearance_module=appearance,
+            appearance_image_names=image_names,
+        )
+        config = replace(
+            config,
+            model=replace(config.model, capacity=model.capacity),
+        )
+        return config, model, appearance, step
+
     storage_capacity = load_checkpoint_storage_capacity(checkpoint)
     if storage_capacity > config.model.capacity:
         raise ValueError(
@@ -52,19 +81,8 @@ def _load_training_objects(checkpoint: Path):
             APPEARANCE_FEATURE_DIM if config.app_opt else None
         ),
     )
-    appearance = None
     restore_kwargs = {}
-    if config.app_opt:
-        image_names = load_checkpoint_appearance_image_names(checkpoint)
-        if image_names is None:
-            raise ValueError("checkpoint does not contain appearance state")
-        appearance = AppearanceOptModule(
-            len(image_names),
-            APPEARANCE_FEATURE_DIM,
-            config.app_embed_dim,
-            config.model.sh_degree,
-            rngs=nnx.Rngs(0),
-        )
+    if appearance is not None:
         appearance_optimizer = create_appearance_optimizer(
             appearance, config
         )
@@ -251,6 +269,13 @@ def _train_command(args: argparse.Namespace) -> None:
 
 def _render_command(args: argparse.Namespace) -> None:
     checkpoint = Path(args.checkpoint).absolute()
+    distributed_checkpoint = is_distributed_checkpoint(checkpoint)
+    saved_scene_transform = load_checkpoint_scene_transform(checkpoint)
+    if saved_scene_transform is None and distributed_checkpoint:
+        raise ValueError(
+            "distributed render requires checkpoint scene metadata; "
+            "the camera transform cannot be inferred from a shard set"
+        )
     config, model, appearance, step = _load_training_objects(checkpoint)
     if args.max_gaussians_per_tile is not None:
         config = replace(
@@ -321,7 +346,6 @@ def _render_command(args: argparse.Namespace) -> None:
         shuffle=False,
     )
     example = split[args.index]
-    saved_scene_transform = load_checkpoint_scene_transform(args.checkpoint)
     if saved_scene_transform is None:
         transform = _legacy_scene_transform(scene)
     else:
@@ -329,22 +353,12 @@ def _render_command(args: argparse.Namespace) -> None:
         transform = SceneTransform(matrix)
     viewmat = transform.world_to_camera(example["w2c"])
     height, width = example["image"].shape[:2]
-    workspace_estimate = estimate_rasterization_memory_bytes(
-        model.capacity, width, height, config.rasterizer
+    _check_evaluation_memory_budget(
+        config,
+        physical_capacity=model.capacity,
+        width=width,
+        height=height,
     )
-    memory_stats = jax.devices()[0].memory_stats() or {}
-    bytes_in_use = int(memory_stats.get("bytes_in_use", 0) or 0)
-    bytes_limit = int(memory_stats.get("bytes_limit", 0) or 0)
-    print(
-        f"estimated_render_workspace={workspace_estimate / 2**30:.2f}GiB",
-        flush=True,
-    )
-    if bytes_limit and bytes_in_use + workspace_estimate > int(bytes_limit * 0.70):
-        raise MemoryError(
-            "estimated render working set exceeds the 70% device-memory safety "
-            "threshold; lower --max-intersections, --max-gaussians-per-tile, "
-            "or --tile-batch-size"
-        )
     render_step = make_render_step(config, width, height)
     image, alpha, overflow, intersection_overflow = render_step(
         model,

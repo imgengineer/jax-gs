@@ -20,8 +20,10 @@ from jax_gs.capacity import (
     resize_distributed_training_state,
 )
 from jax_gs.checkpoints import (
+    is_distributed_checkpoint,
     load_checkpoint_intersection_capacity,
     load_checkpoint_scene_transform,
+    load_distributed_inference_checkpoint,
     load_distributed_checkpoint_manifest,
     restore_checkpoint,
     restore_distributed_checkpoint,
@@ -2031,6 +2033,190 @@ def test_distributed_checkpoint_round_trip(tmp_path):
             np.testing.assert_array_equal(after, before)
 
 
+def test_distributed_inference_checkpoint_compacts_active_rows(tmp_path):
+    config = _topology_plan_config(capacity=3, bucket=3)
+    saved = _two_rank_bundles(config)
+    model = saved[0]
+    model.active_mask[...] = jnp.asarray(
+        [[False, True, True], [True, False, True]]
+    )
+    model.means[...] = jnp.asarray(
+        [
+            [[0.0, 0.0, 0.0], [1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+            [[7.0, 8.0, 9.0], [0.0, 0.0, 0.0], [10.0, 11.0, 12.0]],
+        ],
+        jnp.float32,
+    )
+    model.opacity_logits[...] = jnp.arange(6, dtype=jnp.float32).reshape(2, 3)
+    model.sh0[...] = jnp.arange(18, dtype=jnp.float32).reshape(2, 3, 1, 3)
+    path = save_distributed_checkpoint(
+        tmp_path, *saved, step=0, config=config
+    )
+
+    assert is_distributed_checkpoint(path)
+    merged, step = load_distributed_inference_checkpoint(path, config)
+
+    assert step == 0
+    assert merged.capacity == 4
+    assert merged.max_capacity == 4
+    np.testing.assert_array_equal(merged.active_mask[...], np.ones(4, bool))
+    source = model.state_dict()
+    masks = np.asarray(source["active_mask"])
+    for name, values in source.items():
+        if name == "active_mask":
+            continue
+        values = np.asarray(values)
+        expected = np.concatenate(
+            [values[rank][masks[rank]] for rank in range(2)], axis=0
+        )
+        np.testing.assert_array_equal(np.asarray(merged.state_dict()[name]), expected)
+
+    with pytest.raises(ValueError, match="different training config"):
+        load_distributed_inference_checkpoint(
+            path, replace(config, ssim_lambda=0.25)
+        )
+
+    metadata_path = path / "jax_gs_checkpoint.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["active_counts"] = [1, 2]
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="active counts"):
+        load_distributed_inference_checkpoint(path, config)
+    metadata["active_counts"] = [2, 2]
+    metadata["active_prefix"] = [True, False]
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="active prefix"):
+        load_distributed_inference_checkpoint(path, config)
+
+
+def test_distributed_inference_checkpoint_keeps_one_inactive_empty_slot(
+    tmp_path,
+):
+    config = _topology_plan_config(capacity=2, bucket=2)
+    saved = _two_rank_bundles(config)
+    saved[0].active_mask[...] = jnp.zeros((2, 2), dtype=jnp.bool_)
+    saved[0].means[...] = jnp.full((2, 2, 3), jnp.nan)
+    saved[0].log_scales[...] = jnp.full((2, 2, 3), jnp.inf)
+    saved[0].opacity_logits[...] = jnp.full((2, 2), jnp.nan)
+    saved[0].sh0[...] = jnp.full((2, 2, 1, 3), jnp.nan)
+    path = save_distributed_checkpoint(
+        tmp_path, *saved, step=0, config=config
+    )
+
+    merged, step = load_distributed_inference_checkpoint(path, config)
+
+    assert step == 0
+    assert merged.capacity == 1
+    assert merged.max_capacity == 1
+    assert int(merged.active_count) == 0
+    np.testing.assert_array_equal(merged.active_mask[...], [False])
+    for value in merged.state_dict().values():
+        if value.dtype != jnp.bool_:
+            assert bool(jnp.all(jnp.isfinite(value)))
+
+
+def test_distributed_inference_checkpoint_restores_canonical_appearance(
+    tmp_path,
+):
+    config = _topology_plan_config(
+        capacity=3,
+        bucket=3,
+        train={"app_opt": True, "app_embed_dim": 0},
+    )
+    saved = _two_rank_bundles(config)
+    saved[0].active_mask[...] = jnp.asarray(
+        [[True, False, True], [False, True, False]]
+    )
+    saved[0].features[...] = jnp.arange(
+        2 * 3 * training_module.APPEARANCE_FEATURE_DIM,
+        dtype=jnp.float32,
+    ).reshape(2, 3, training_module.APPEARANCE_FEATURE_DIM)
+    saved[0].colors[...] = jnp.arange(18, dtype=jnp.float32).reshape(2, 3, 3)
+    appearance, appearance_optimizer = _replicated_appearance_training_state(
+        config
+    )
+    names = ("first.png", "second.png", "third.png")
+    path = save_distributed_checkpoint(
+        tmp_path,
+        *saved,
+        step=0,
+        config=config,
+        appearance_module=appearance,
+        appearance_optimizer=appearance_optimizer,
+        appearance_image_names=names,
+    )
+    target = training_module.AppearanceOptModule(
+        len(names),
+        training_module.APPEARANCE_FEATURE_DIM,
+        config.app_embed_dim,
+        config.model.sh_degree,
+        rngs=nnx.Rngs(123),
+    )
+
+    with pytest.raises(ValueError, match="appearance_module"):
+        load_distributed_inference_checkpoint(path, config)
+
+    merged, step = load_distributed_inference_checkpoint(
+        path,
+        config,
+        appearance_module=target,
+        appearance_image_names=names,
+    )
+
+    assert step == 0
+    assert merged.has_appearance
+    assert merged.capacity == 3
+    expected_appearance = _snapshot_graph_arrays(
+        _unstack_graph(appearance, 0)
+    )
+    for actual, expected in zip(
+        _snapshot_graph_arrays(target), expected_appearance, strict=True
+    ):
+        np.testing.assert_array_equal(actual, expected)
+    mask = np.asarray(saved[0].active_mask[...])
+    expected_features = np.concatenate(
+        [np.asarray(saved[0].features[...])[rank][mask[rank]] for rank in range(2)]
+    )
+    np.testing.assert_array_equal(merged.features[...], expected_features)
+
+    target_before = _snapshot_graph_arrays(target)
+    with pytest.raises(ValueError, match="appearance image names"):
+        load_distributed_inference_checkpoint(
+            path,
+            config,
+            appearance_module=target,
+            appearance_image_names=tuple(reversed(names)),
+        )
+    for actual, expected in zip(
+        _snapshot_graph_arrays(target), target_before, strict=True
+    ):
+        np.testing.assert_array_equal(actual, expected)
+
+    metadata_path = path / "jax_gs_checkpoint.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["active_counts"] = [1, 1]
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    failure_target = training_module.AppearanceOptModule(
+        len(names),
+        training_module.APPEARANCE_FEATURE_DIM,
+        config.app_embed_dim,
+        config.model.sh_degree,
+        rngs=nnx.Rngs(321),
+    )
+    failure_before = _snapshot_graph_arrays(failure_target)
+    with pytest.raises(ValueError, match="active counts"):
+        load_distributed_inference_checkpoint(
+            path,
+            config,
+            appearance_module=failure_target,
+            appearance_image_names=names,
+        )
+    for actual, expected in zip(
+        _snapshot_graph_arrays(failure_target), failure_before, strict=True
+    ):
+        np.testing.assert_array_equal(actual, expected)
+
+
 def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
     config = _topology_plan_config(train={"pose_opt": True})
     saved = _two_rank_bundles(config)
@@ -2557,6 +2743,7 @@ def test_distributed_and_single_checkpoints_reject_each_other(tmp_path):
     distributed_path = save_distributed_checkpoint(
         tmp_path / "distributed", *_two_rank_bundles(config), step=0
     )
+    assert is_distributed_checkpoint(distributed_path)
     single_model, single_optimizer, single_state, _ = _rank_bundle(config, 0.0)
 
     with pytest.raises(ValueError, match="distributed shards"):
@@ -2574,10 +2761,18 @@ def test_distributed_and_single_checkpoints_reject_each_other(tmp_path):
         optimizer=single_optimizer,
         strategy_state=single_state,
     )
+    assert not is_distributed_checkpoint(single_path)
     with pytest.raises(ValueError, match="not a distributed shard set"):
         restore_distributed_checkpoint(
             single_path, *_two_rank_bundles(config)
         )
+
+    metadata_path = single_path / "jax_gs_checkpoint.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["kind"] = "unknown"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="unsupported checkpoint kind"):
+        is_distributed_checkpoint(single_path)
 
 
 def test_distributed_save_rejects_unsharded_state(tmp_path):

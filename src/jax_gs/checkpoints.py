@@ -20,7 +20,7 @@ from .capacity import (
     _unstack_graph,
     reshard_distributed_training_state,
 )
-from .config import OptimizerConfig, TrainConfig
+from .config import MAX_MODEL_CAPACITY, OptimizerConfig, TrainConfig
 from .data.normalize import _as_similarity_matrix
 from .model import GaussianModel
 from .strategy import StrategyState
@@ -1201,6 +1201,298 @@ def load_distributed_checkpoint_manifest(
     if metadata.get("kind") != _DISTRIBUTED_KIND:
         raise ValueError("checkpoint is not a distributed shard set")
     return dict(metadata)
+
+
+def is_distributed_checkpoint(checkpoint_path: str | Path) -> bool:
+    """Return whether a known checkpoint is a distributed shard set."""
+
+    kind = _load_metadata(checkpoint_path).get("kind")
+    if kind is None:
+        return False
+    if kind != _DISTRIBUTED_KIND:
+        raise ValueError(f"unsupported checkpoint kind {kind!r}")
+    return True
+
+
+def load_distributed_inference_checkpoint(
+    checkpoint_path: str | Path,
+    config: TrainConfig,
+    *,
+    appearance_module: Any | None = None,
+    appearance_image_names: Sequence[str] | None = None,
+) -> tuple[GaussianModel, int]:
+    """Compact a complete distributed shard set into one inference model.
+
+    Active rows are kept in stable ``(rank, slot)`` order and packed into one
+    prefix. Only the Gaussian model, host step, and optional canonical
+    appearance module are restored; optimizer, strategy, safety, and pose
+    state remain training-only. The returned model therefore must not be used
+    to resume training.
+    """
+
+    metadata = load_distributed_checkpoint_manifest(checkpoint_path)
+    layout_names = (
+        "format_version",
+        "world_size",
+        "local_capacity",
+        "global_capacity",
+        "max_capacity",
+    )
+    try:
+        layout = tuple(metadata[name] for name in layout_names)
+    except KeyError as exc:
+        raise ValueError(
+            "distributed checkpoint shard layout metadata is invalid"
+        ) from exc
+    if any(
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in layout
+    ):
+        raise ValueError(
+            "distributed checkpoint shard layout metadata is invalid"
+        )
+    (
+        format_version,
+        world_size,
+        local_capacity,
+        global_capacity,
+        max_capacity,
+    ) = layout
+    if format_version != 6:
+        raise ValueError(
+            "distributed inference restore requires checkpoint format 6"
+        )
+    if world_size <= 0 or local_capacity <= 0 or max_capacity <= 0:
+        raise ValueError(
+            "distributed checkpoint shard capacities must be positive"
+        )
+    if global_capacity != world_size * local_capacity:
+        raise ValueError(
+            "distributed checkpoint global capacity disagrees with its shards"
+        )
+    if local_capacity > max_capacity:
+        raise ValueError(
+            "distributed checkpoint local capacity exceeds its logical maximum"
+        )
+    if max_capacity != config.model.capacity:
+        raise ValueError(
+            "distributed checkpoint logical capacity does not match TrainConfig"
+        )
+
+    components = metadata.get("components")
+    if not isinstance(components, list) or not all(
+        isinstance(component, str) for component in components
+    ):
+        raise ValueError("distributed checkpoint components metadata is invalid")
+    if "model" not in components:
+        raise ValueError("distributed checkpoint does not contain model state")
+
+    saved_fingerprint = metadata.get("config_fingerprint")
+    if (
+        saved_fingerprint is not None
+        and saved_fingerprint != _config_fingerprint(config)
+    ):
+        raise ValueError(
+            "distributed checkpoint was written with a different training config"
+        )
+
+    active_counts = metadata.get("active_counts")
+    if (
+        not isinstance(active_counts, list)
+        or len(active_counts) != world_size
+        or any(
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or not 0 <= count <= local_capacity
+            for count in active_counts
+        )
+    ):
+        raise ValueError(
+            "distributed checkpoint active counts metadata is invalid"
+        )
+    active_prefix = metadata.get("active_prefix")
+    if (
+        not isinstance(active_prefix, list)
+        or len(active_prefix) != world_size
+        or not all(isinstance(value, bool) for value in active_prefix)
+    ):
+        raise ValueError(
+            "distributed checkpoint active prefix metadata is invalid"
+        )
+    active_total = sum(active_counts)
+    if active_total > MAX_MODEL_CAPACITY:
+        raise ValueError(
+            "distributed checkpoint has too many active Gaussians for one "
+            f"inference model ({active_total:,} > {MAX_MODEL_CAPACITY:,})"
+        )
+
+    saved_color_mode = metadata.get("model_color_mode")
+    expected_color_mode = "appearance" if config.app_opt else "sh"
+    if saved_color_mode != expected_color_mode:
+        raise ValueError(
+            f"checkpoint model color mode is {saved_color_mode!r}, but "
+            f"TrainConfig expects {expected_color_mode!r}"
+        )
+
+    feature_dim = None
+    appearance_target = None
+    appearance_holder = None
+    has_appearance_arguments = (
+        appearance_module is not None or appearance_image_names is not None
+    )
+    if config.app_opt:
+        if "appearance" not in components:
+            raise ValueError("distributed checkpoint does not contain appearance state")
+        if appearance_module is None or appearance_image_names is None:
+            raise ValueError(
+                "appearance_module and appearance_image_names are required "
+                "for an appearance checkpoint"
+            )
+        if isinstance(appearance_image_names, str):
+            raise TypeError(
+                "appearance_image_names must be a sequence of image names"
+            )
+        names = tuple(appearance_image_names)
+        if not all(isinstance(name, str) for name in names):
+            raise TypeError(
+                "appearance_image_names must be a sequence of image names"
+            )
+        saved_names = metadata.get("appearance_image_names")
+        saved_count = metadata.get("appearance_camera_count")
+        feature_dim = metadata.get("appearance_feature_dim")
+        camera_count = saved_count
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in (feature_dim, camera_count)
+        ):
+            raise ValueError(
+                "distributed checkpoint appearance metadata is incomplete"
+            )
+        if (
+            feature_dim <= 0
+            or not isinstance(saved_names, list)
+            or not all(isinstance(name, str) for name in saved_names)
+            or camera_count != len(saved_names)
+        ):
+            raise ValueError(
+                "distributed checkpoint appearance metadata is invalid"
+            )
+        if tuple(saved_names) != names:
+            raise ValueError(
+                "distributed checkpoint appearance image names do not match target"
+            )
+        if (
+            int(appearance_module.embeds.embedding.shape[0]) != camera_count
+            or appearance_module.feature_dim != feature_dim
+            or appearance_module.embed_dim != config.app_embed_dim
+            or appearance_module.sh_degree != config.model.sh_degree
+        ):
+            raise ValueError(
+                "appearance module does not match the checkpoint or TrainConfig"
+            )
+        appearance_holder = nnx.clone(appearance_module)
+        appearance_target = _pure_state(appearance_holder)
+    elif has_appearance_arguments:
+        raise ValueError(
+            "appearance state cannot be restored for an SH checkpoint"
+        )
+
+    shards = [
+        GaussianModel.empty(
+            config.model,
+            physical_capacity=local_capacity,
+            appearance_feature_dim=feature_dim,
+        )
+        for _ in range(world_size)
+    ]
+    model_holder = _stack_graphs(shards)
+    model_target = _pure_state(model_holder)
+    target = {
+        "model": _encode_empty_arrays(model_target),
+        "step": jnp.asarray(0, dtype=jnp.int32),
+    }
+    if appearance_target is not None:
+        target["appearance"] = {
+            "module": _encode_empty_arrays(appearance_target)
+        }
+
+    checkpointer = ocp.PyTreeCheckpointer()
+    try:
+        restored = checkpointer.restore(
+            Path(checkpoint_path).absolute(),
+            item=target,
+            restore_args=ocp.checkpoint_utils.construct_restore_args(target),
+            partial_restore=True,
+        )
+        if hasattr(checkpointer, "wait_until_finished"):
+            checkpointer.wait_until_finished()
+    finally:
+        checkpointer.close()
+
+    nnx.update(
+        model_holder,
+        _restore_empty_arrays(restored["model"], model_target),
+    )
+    if appearance_target is not None:
+        nnx.update(
+            appearance_holder,
+            _restore_empty_arrays(
+                restored["appearance"]["module"], appearance_target
+            ),
+        )
+
+    masks = np.asarray(jax.device_get(model_holder.active_mask[...]))
+    actual_counts = np.count_nonzero(masks, axis=1)
+    if actual_counts.tolist() != active_counts:
+        raise ValueError(
+            "distributed checkpoint active counts disagree with model state"
+        )
+    slots = np.arange(local_capacity)[None, :]
+    actual_prefix = np.all(masks == (slots < actual_counts[:, None]), axis=1)
+    if actual_prefix.tolist() != active_prefix:
+        raise ValueError(
+            "distributed checkpoint active prefix metadata disagrees with model state"
+        )
+
+    source_state = model_holder.state_dict()
+    if active_total == 0:
+        neutral_model = GaussianModel.empty(
+            config.model,
+            physical_capacity=1,
+            appearance_feature_dim=feature_dim,
+        )
+        merged_state = neutral_model.state_dict()
+        inference_capacity = 1
+    else:
+        def compact_active_rows(value: Any) -> np.ndarray:
+            host_value = np.asarray(jax.device_get(value))
+            return np.concatenate(
+                [
+                    host_value[rank][masks[rank]]
+                    for rank in range(world_size)
+                ],
+                axis=0,
+            )
+
+        merged_state = {
+            name: compact_active_rows(value)
+            for name, value in source_state.items()
+            if name != "active_mask"
+        }
+        merged_state["active_mask"] = np.ones(
+            (active_total,), dtype=np.bool_
+        )
+        inference_capacity = active_total
+    merged_model = GaussianModel.from_state_dict(
+        merged_state, max_capacity=inference_capacity
+    )
+
+    step = int(restored["step"])
+    if step < 0:
+        raise ValueError("distributed checkpoint step must be non-negative")
+    if appearance_holder is not None:
+        nnx.update(appearance_module, _pure_state(appearance_holder))
+    return merged_model, step
 
 
 def save_checkpoint(
