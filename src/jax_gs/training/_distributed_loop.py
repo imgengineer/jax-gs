@@ -51,12 +51,13 @@ from ._scene import (
     _training_scene_scale,
     compute_scene_transform,
 )
-from ._setup import _create_training_optimizer
+from ._setup import _create_pose_optimizer, _create_training_optimizer
 from ._state import (
     make_distributed_resize_step,
     synchronize_distributed_capacity,
 )
 from ._step import TrainingSafetyState
+from .pose import CameraOptModule
 
 
 _training = sys.modules[__package__]
@@ -225,6 +226,48 @@ def _empty_distributed_training_state(
     return _stack_bundles(bundles)
 
 
+def _initialize_distributed_pose_state(
+    config: TrainConfig,
+    *,
+    world_size: int,
+    camera_count: int,
+):
+    pose_adjust = None
+    pose_optimizer = None
+    if config.pose_opt:
+        pose_pairs = []
+        for _ in range(world_size):
+            module = CameraOptModule(
+                camera_count,
+                rngs=nnx.Rngs(
+                    jax.random.fold_in(
+                        jax.random.key(config.seed), 0x504F5345
+                    )
+                ),
+            )
+            module.zero_init()
+            pose_pairs.append((module, _create_pose_optimizer(module, config)))
+        pose_adjust = _stack_graphs([pair[0] for pair in pose_pairs])
+        pose_optimizer = _stack_graphs([pair[1] for pair in pose_pairs])
+
+    pose_perturb = None
+    if config.pose_noise > 0.0:
+        perturbations = []
+        for _ in range(world_size):
+            module = CameraOptModule(
+                camera_count,
+                rngs=nnx.Rngs(
+                    jax.random.fold_in(
+                        jax.random.key(config.seed), 0x4E4F4953
+                    )
+                ),
+            )
+            module.random_init(config.pose_noise)
+            perturbations.append(module)
+        pose_perturb = _stack_graphs(perturbations)
+    return pose_adjust, pose_optimizer, pose_perturb
+
+
 def _runtime_training_config(
     config: TrainConfig,
     intersection_capacity: int,
@@ -305,11 +348,7 @@ def train_distributed(
 
     devices = _resolve_local_distributed_devices(devices)
     world_size = len(devices)
-    if config.pose_opt or config.pose_noise > 0.0:
-        raise NotImplementedError(
-            "distributed host training does not enable camera-pose modules "
-            "until their replicated checkpoint state is supported"
-        )
+    uses_pose_modules = config.pose_opt or config.pose_noise > 0.0
     if config.data.batch_size * world_size > 10:
         raise ValueError(
             "current-main Adam requires distributed effective batch size <= 10"
@@ -337,6 +376,18 @@ def train_distributed(
         image_dir=config.data.image_dir,
         load_points=resume_from is None,
     )
+    camera_image_names: tuple[str, ...] | None = None
+    camera_count = 0
+    if uses_pose_modules:
+        camera_indices = scene.indices("train", config.data.test_every)
+        camera_image_names = tuple(
+            scene.images[int(index)].name for index in camera_indices
+        )
+        camera_count = len(camera_image_names)
+        if camera_count == 0:
+            raise ValueError(
+                "camera-pose training requires a non-empty training split"
+            )
     training_height, training_width = _scene_training_render_size(scene, config)
     saved_scene = (
         _training.load_checkpoint_scene_transform(resume_from)
@@ -357,6 +408,13 @@ def train_distributed(
             scene, transform, global_scale=config.global_scale
         )
 
+    pose_adjust, pose_optimizer, pose_perturb = (
+        _initialize_distributed_pose_state(
+            config,
+            world_size=world_size,
+            camera_count=camera_count,
+        )
+    )
     if resume_manifest is None:
         model, optimizer, strategy_state, safety_state = (
             _initialize_distributed_training_state(
@@ -385,6 +443,11 @@ def train_distributed(
             strategy_state,
             safety_state,
             config=config,
+            pose_module=pose_adjust,
+            pose_optimizer=pose_optimizer,
+            pose_image_names=(
+                camera_image_names if uses_pose_modules else None
+            ),
         )
         if start_step > config.steps:
             raise ValueError(
@@ -397,6 +460,14 @@ def train_distributed(
             (model, optimizer, strategy_state, safety_state), devices
         )
     )
+    if pose_adjust is not None:
+        pose_adjust, pose_optimizer = _place_distributed_state(
+            (pose_adjust, pose_optimizer), devices
+        )
+    if pose_perturb is not None:
+        (pose_perturb,) = _place_distributed_state(
+            (pose_perturb,), devices
+        )
 
     local_capacity = _distributed_local_capacity(model, world_size)
     global_capacity = world_size * local_capacity
@@ -465,15 +536,33 @@ def train_distributed(
             axis_name=_RANK_AXIS,
             scene_scale=scene_scale,
         )
+        camera_in_axes = ()
+        if uses_pose_modules:
+            camera_in_axes = (
+                0 if config.pose_opt else None,
+                0 if config.pose_opt else None,
+                0 if config.pose_noise > 0.0 else None,
+                0,
+                0,
+            )
 
         @nnx.pmap(
-            in_axes=(0,) * 10,
+            in_axes=(0,) * 10 + camera_in_axes,
             out_axes=0,
             axis_name=_RANK_AXIS,
             devices=devices,
         )
         def mapped_step(*args):
-            return device_step(*args)
+            if not uses_pose_modules:
+                return device_step(*args)
+            return device_step(
+                *args[:10],
+                pose_adjust=args[10],
+                pose_optimizer=args[11],
+                pose_perturb=args[12],
+                camtoworlds=args[13],
+                image_ids=args[14],
+            )
 
         return mapped_step
 
@@ -531,6 +620,19 @@ def train_distributed(
         nonlocal runtime_config
 
         while True:
+            if bool(
+                np.any(
+                    np.asarray(
+                        jax.device_get(
+                            metrics["distributed_state_mismatch"]
+                        )
+                    )
+                )
+            ):
+                raise RuntimeError(
+                    "distributed optimizer step or SH degree differs across "
+                    "ranks"
+                )
             overflow_tiles, intersection_seen = _training_overflow_status(
                 safety_state
             )
@@ -601,6 +703,13 @@ def train_distributed(
         viewmats_np = transform.world_to_camera(
             np.asarray(sharded["w2c"], dtype=np.float32)
         )
+        camtoworlds_np = None
+        image_ids_np = None
+        if uses_pose_modules:
+            camtoworlds_np = np.linalg.inv(viewmats_np).astype(np.float32)
+            image_ids_np = np.asarray(
+                sharded["dataset_index"], dtype=np.int32
+            )
         rank_keys = [
             jax.random.fold_in(
                 jax.random.fold_in(training_key, step), rank
@@ -626,6 +735,15 @@ def train_distributed(
             sh_degrees,
             strategy_keys,
         )
+        camera_inputs = ()
+        if uses_pose_modules:
+            camera_inputs = (
+                pose_adjust,
+                pose_optimizer,
+                pose_perturb,
+                jnp.asarray(camtoworlds_np),
+                jnp.asarray(image_ids_np),
+            )
 
         def run_step():
             return mapped_train_step(
@@ -634,6 +752,7 @@ def train_distributed(
                 strategy_state,
                 safety_state,
                 *device_inputs,
+                *camera_inputs,
             )
 
         with jax.profiler.StepTraceAnnotation("train", step_num=step):
@@ -762,6 +881,11 @@ def train_distributed(
                 candidate_bound=candidate_bound,
                 scene_transform=transform.matrix,
                 scene_scale=scene_scale,
+                pose_module=pose_adjust,
+                pose_optimizer=pose_optimizer,
+                pose_image_names=(
+                    camera_image_names if uses_pose_modules else None
+                ),
             )
             last_checkpoint_step = step
 
@@ -810,6 +934,11 @@ def train_distributed(
             candidate_bound=candidate_bound,
             scene_transform=transform.matrix,
             scene_scale=scene_scale,
+            pose_module=pose_adjust,
+            pose_optimizer=pose_optimizer,
+            pose_image_names=(
+                camera_image_names if uses_pose_modules else None
+            ),
         )
 
     # Large mapped executables are not reusable once this world leaves scope.
@@ -821,4 +950,5 @@ def train_distributed(
         output_dir=output_dir,
         checkpoint=last_checkpoint,
         metrics=last_metrics,
+        pose_adjust=pose_adjust,
     )

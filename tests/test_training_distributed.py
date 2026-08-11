@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import warnings
 from types import SimpleNamespace
 from unittest import mock
 
@@ -213,6 +214,29 @@ def _zero_initialized_pose_module():
     return module
 
 
+def _replicated_pose_training_state(
+    config: TrainConfig,
+    *,
+    camera_count: int = 3,
+    world_size: int = 2,
+    steps: int = 1,
+):
+    modules = []
+    optimizers = []
+    for _ in range(world_size):
+        module = CameraOptModule(camera_count, rngs=nnx.Rngs(7))
+        module.zero_init()
+        optimizer = training_module._create_pose_optimizer(module, config)
+        gradients = jax.tree.map(
+            jnp.ones_like, nnx.state(module, nnx.Param)
+        )
+        for _ in range(steps):
+            optimizer.update(module, gradients)
+        modules.append(module)
+        optimizers.append(optimizer)
+    return _stack_graphs(*modules), _stack_graphs(*optimizers)
+
+
 def _unstack_graph(graph, index):
     graphdef, state = nnx.split(graph)
     return nnx.merge(graphdef, jax.tree.map(lambda x: x[index], state))
@@ -233,7 +257,11 @@ def _adam_means_moments(optimizer):
 
 def _snapshot_graph_arrays(graph):
     return tuple(
-        np.asarray(leaf).copy()
+        np.asarray(
+            jax.random.key_data(leaf)
+            if jax.dtypes.issubdtype(leaf.dtype, jax.dtypes.prng_key)
+            else leaf
+        ).copy()
         for leaf in jax.tree.leaves(nnx.as_pure(nnx.state(graph)))
         if isinstance(leaf, jax.Array)
     )
@@ -1398,13 +1426,6 @@ def _run_local_device_distributed_host_loop():
             output_dir=directory,
             ssim_lambda=0.0,
         )
-        pose_output = os.path.join(directory, "pose")
-        with pytest.raises(NotImplementedError, match="checkpoint state"):
-            training_module.train(
-                replace(config, pose_opt=True, output_dir=pose_output),
-                distributed=True,
-            )
-        assert not os.path.exists(pose_output)
         with (
             mock.patch.object(
                 training_module, "load_colmap_scene", return_value=scene
@@ -1536,15 +1557,167 @@ def _run_local_device_raster_overflow_replay():
         assert manifest["active_counts"] == [3, 2]
 
 
+def _run_local_device_distributed_pose_host_loop():
+    points = np.asarray(
+        [[-0.1, 0.0, 3.0], [0.1, 0.0, 3.0]], np.float32
+    )
+    scene = SimpleNamespace(
+        points=points,
+        points_rgb=np.full((2, 3), 128, np.uint8),
+        camtoworlds=np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)),
+        images=(
+            SimpleNamespace(name="first.png"),
+            SimpleNamespace(name="second.png"),
+        ),
+        indices=lambda split, test_every: np.asarray([0, 1]),
+    )
+    K = np.asarray(
+        [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]],
+        np.float32,
+    )
+    batches = [
+        {
+            "image": np.full((2, 4, 4, 3), value, np.float32),
+            "K": np.tile(K, (2, 1, 1)),
+            "w2c": np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)),
+            "dataset_index": np.asarray([0, 1], np.int32),
+        }
+        for value in (0.0, 0.1)
+    ]
+    dataset_batch_sizes = []
+
+    def create_dataset(_scene, *, split, batch_size, **_kwargs):
+        assert split == "train"
+        dataset_batch_sizes.append(batch_size)
+        return batches
+
+    with tempfile.TemporaryDirectory() as directory:
+        config = TrainConfig(
+            normalize_world_space=False,
+            pose_opt=True,
+            pose_opt_lr=0.1,
+            pose_opt_reg=0.0,
+            pose_noise=0.01,
+            model=ModelConfig(
+                capacity=2,
+                bucket_min_capacity=2,
+                sh_degree=0,
+                initial_scale=0.2,
+            ),
+            optimizer=OptimizerConfig(max_steps=2),
+            strategy=StrategyConfig(
+                refine_start=100,
+                refine_stop=101,
+                max_new_per_refine=1,
+            ),
+            data=DataConfig(
+                root="unused", patch_size=4, batch_size=1, num_workers=1
+            ),
+            rasterizer=RasterizationConfig(
+                backend="reference",
+                tile_size=4,
+                max_gaussians_per_tile=4,
+                max_intersections=32,
+            ),
+            steps=2,
+            checkpoint_every=1,
+            eval_every=0,
+            output_dir=directory,
+            ssim_lambda=0.0,
+        )
+        with (
+            mock.patch.object(
+                training_module, "load_colmap_scene", return_value=scene
+            ),
+            mock.patch.object(
+                training_module,
+                "create_grain_dataset",
+                side_effect=create_dataset,
+            ),
+            mock.patch.object(
+                training_module,
+                "rasterization",
+                _pose_sensitive_rasterization,
+            ),
+        ):
+            uninterrupted = training_module.train(config, distributed=True)
+            step_one = (
+                uninterrupted.output_dir
+                / "checkpoints"
+                / "step_00000001"
+            )
+            uninterrupted_model = _snapshot_graph_arrays(
+                uninterrupted.model
+            )
+            uninterrupted_pose = np.asarray(
+                uninterrupted.pose_adjust.embeds.embedding[...]
+            ).copy()
+            resumed = training_module.train(
+                config, resume_from=step_one, distributed=True
+            )
+            one_step_optimizer = replace(config.optimizer, max_steps=1)
+            opt_only = training_module.train(
+                replace(
+                    config,
+                    pose_noise=0.0,
+                    steps=1,
+                    optimizer=one_step_optimizer,
+                    output_dir=os.path.join(directory, "opt_only"),
+                ),
+                distributed=True,
+            )
+            noise_only = training_module.train(
+                replace(
+                    config,
+                    pose_opt=False,
+                    steps=1,
+                    optimizer=one_step_optimizer,
+                    output_dir=os.path.join(directory, "noise_only"),
+                ),
+                distributed=True,
+            )
+
+        assert dataset_batch_sizes == [2, 2, 2, 2]
+        assert opt_only.pose_adjust is not None
+        assert noise_only.pose_adjust is None
+        assert uninterrupted_pose.shape == (2, 2, 9)
+        np.testing.assert_array_equal(
+            uninterrupted_pose[0], uninterrupted_pose[1]
+        )
+        assert np.any(uninterrupted_pose[0, 0] != 0.0)
+        assert np.any(uninterrupted_pose[0, 1] != 0.0)
+        assert "P('rank'" in str(
+            resumed.pose_adjust.embeds.embedding[...].sharding
+        )
+        np.testing.assert_array_equal(
+            resumed.pose_adjust.embeds.embedding[...], uninterrupted_pose
+        )
+        for expected, actual in zip(
+            uninterrupted_model,
+            _snapshot_graph_arrays(resumed.model),
+            strict=True,
+        ):
+            np.testing.assert_array_equal(actual, expected)
+        manifest = load_distributed_checkpoint_manifest(resumed.checkpoint)
+        assert "pose" in manifest["components"]
+        assert manifest["pose_camera_count"] == 2
+        assert manifest["pose_image_names"] == [
+            "first.png",
+            "second.png",
+        ]
+
+
 def test_two_virtual_cpu_distributed_host_loop_smoke():
     script = "\n".join(
         (
             "import jax",
             "from tests.test_training_distributed import "
             "_run_local_device_distributed_host_loop, "
+            "_run_local_device_distributed_pose_host_loop, "
             "_run_local_device_raster_overflow_replay",
             "assert jax.local_device_count() == 2",
             "_run_local_device_distributed_host_loop()",
+            "_run_local_device_distributed_pose_host_loop()",
             "_run_local_device_raster_overflow_replay()",
         )
     )
@@ -1770,6 +1943,220 @@ def test_distributed_checkpoint_round_trip(tmp_path):
             strict=True,
         ):
             np.testing.assert_array_equal(after, before)
+
+
+def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
+    config = _topology_plan_config(train={"pose_opt": True})
+    saved = _two_rank_bundles(config)
+    saved[0].active_mask[...] = jnp.ones_like(saved[0].active_mask[...])
+    saved[1].step[...] = jnp.asarray([1, 1], saved[1].step[...].dtype)
+    pose_module, pose_optimizer = _replicated_pose_training_state(config)
+    names = ("first.png", "second.png", "third.png")
+    path = save_distributed_checkpoint(
+        tmp_path,
+        *saved,
+        step=1,
+        config=config,
+        pose_module=pose_module,
+        pose_optimizer=pose_optimizer,
+        pose_image_names=names,
+    )
+
+    manifest = load_distributed_checkpoint_manifest(path)
+    assert "pose" in manifest["components"]
+    assert manifest["pose_camera_count"] == 3
+    assert manifest["pose_image_names"] == list(names)
+
+    core_only = _two_rank_bundles(config)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        assert (
+            restore_distributed_checkpoint(path, *core_only, config=config)
+            == 1
+        )
+
+    restored = _two_rank_bundles(config)
+    restored_pose = _replicated_pose_training_state(config, steps=0)
+    assert (
+        restore_distributed_checkpoint(
+            path,
+            *restored,
+            config=config,
+            pose_module=restored_pose[0],
+            pose_optimizer=restored_pose[1],
+            pose_image_names=names,
+        )
+        == 1
+    )
+    for original, target in (
+        (pose_module, restored_pose[0]),
+        (pose_optimizer, restored_pose[1]),
+    ):
+        for before, after in zip(
+            _snapshot_graph_arrays(original),
+            _snapshot_graph_arrays(target),
+            strict=True,
+        ):
+            np.testing.assert_array_equal(after, before)
+
+    wrong_names_pose = _replicated_pose_training_state(config, steps=0)
+    with pytest.raises(ValueError, match="pose image names"):
+        restore_distributed_checkpoint(
+            path,
+            *_two_rank_bundles(config),
+            config=config,
+            pose_module=wrong_names_pose[0],
+            pose_optimizer=wrong_names_pose[1],
+            pose_image_names=tuple(reversed(names)),
+        )
+
+    wrong_pose_config = replace(config, pose_opt_lr=config.pose_opt_lr * 2.0)
+    wrong_pose_optimizer = _replicated_pose_training_state(
+        wrong_pose_config, steps=0
+    )
+    with pytest.raises(ValueError, match="pose optimizer contract"):
+        restore_distributed_checkpoint(
+            path,
+            *_two_rank_bundles(config),
+            config=config,
+            pose_module=wrong_pose_optimizer[0],
+            pose_optimizer=wrong_pose_optimizer[1],
+            pose_image_names=names,
+        )
+
+    # Canonical pose state is independent of the Gaussian owner count.
+    four_rank_pose = _replicated_pose_training_state(
+        config, world_size=4, steps=0
+    )
+    four_rank_core = _stack_graphs(
+        *[
+            _rank_bundle(config, 0.0, optimizer_world_size=4)
+            for _ in range(4)
+        ]
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        assert (
+            restore_distributed_checkpoint(
+                path,
+                *four_rank_core,
+                config=config,
+                model_config=config.model,
+                optimizer_config=config.optimizer,
+                allow_reshard=True,
+            )
+            == 1
+        )
+    restore_distributed_checkpoint(
+        path,
+        *four_rank_core,
+        config=config,
+        model_config=config.model,
+        optimizer_config=config.optimizer,
+        allow_reshard=True,
+        pose_module=four_rank_pose[0],
+        pose_optimizer=four_rank_pose[1],
+        pose_image_names=names,
+    )
+    expected_embedding = np.asarray(pose_module.embeds.embedding[0])
+    np.testing.assert_array_equal(
+        four_rank_pose[0].embeds.embedding[...],
+        np.broadcast_to(expected_embedding, (4, *expected_embedding.shape)),
+    )
+
+    # A failed Gaussian redistribution must not partially restore pose state.
+    one_rank_core = _stack_graphs(
+        _rank_bundle(config, 0.0, optimizer_world_size=1)
+    )
+    one_rank_pose = _replicated_pose_training_state(
+        config, world_size=1, steps=0
+    )
+    targets = (*one_rank_core, *one_rank_pose)
+    before_failure = tuple(
+        _snapshot_graph_arrays(node) for node in targets
+    )
+    with pytest.raises(ValueError, match="cannot hold the busiest"):
+        restore_distributed_checkpoint(
+            path,
+            *one_rank_core,
+            config=config,
+            model_config=config.model,
+            optimizer_config=config.optimizer,
+            allow_reshard=True,
+            pose_module=one_rank_pose[0],
+            pose_optimizer=one_rank_pose[1],
+            pose_image_names=names,
+        )
+    for node, expected_state in zip(targets, before_failure, strict=True):
+        for actual, expected in zip(
+            _snapshot_graph_arrays(node), expected_state, strict=True
+        ):
+            np.testing.assert_array_equal(actual, expected)
+
+
+def test_distributed_pose_checkpoint_validates_replicas_and_noise_names(
+    tmp_path,
+):
+    config = _topology_plan_config(train={"pose_opt": True})
+    saved = _two_rank_bundles(config)
+    saved[1].step[...] = jnp.asarray([1, 1], saved[1].step[...].dtype)
+    pose_module, pose_optimizer = _replicated_pose_training_state(config)
+    names = ("first.png", "second.png", "third.png")
+
+    pose_module.embeds.embedding[1, 0, 0] += 1.0
+    with pytest.raises(ValueError, match="pose module replicas disagree"):
+        save_distributed_checkpoint(
+            tmp_path / "module",
+            *saved,
+            step=1,
+            config=config,
+            pose_module=pose_module,
+            pose_optimizer=pose_optimizer,
+            pose_image_names=names,
+        )
+
+    pose_module, pose_optimizer = _replicated_pose_training_state(config)
+    pose_optimizer.step[...] = jnp.asarray(
+        [1, 0], pose_optimizer.step[...].dtype
+    )
+    with pytest.raises(ValueError, match="pose optimizer replicas disagree"):
+        save_distributed_checkpoint(
+            tmp_path / "optimizer",
+            *saved,
+            step=1,
+            config=config,
+            pose_module=pose_module,
+            pose_optimizer=pose_optimizer,
+            pose_image_names=names,
+        )
+
+    noise_config = _topology_plan_config(train={"pose_noise": 0.01})
+    noise_path = save_distributed_checkpoint(
+        tmp_path / "noise",
+        *_two_rank_bundles(noise_config),
+        step=0,
+        config=noise_config,
+        pose_image_names=names,
+    )
+    noise_manifest = load_distributed_checkpoint_manifest(noise_path)
+    assert "pose" not in noise_manifest["components"]
+    assert noise_manifest["pose_camera_count"] == 3
+    assert (
+        restore_distributed_checkpoint(
+            noise_path,
+            *_two_rank_bundles(noise_config),
+            config=noise_config,
+            pose_image_names=names,
+        )
+        == 0
+    )
+    with pytest.raises(ValueError, match="pose image names"):
+        restore_distributed_checkpoint(
+            noise_path,
+            *_two_rank_bundles(noise_config),
+            config=noise_config,
+            pose_image_names=tuple(reversed(names)),
+        )
 
 
 def test_distributed_restore_rejects_resharding(tmp_path):
@@ -2117,7 +2504,9 @@ def _pose_sensitive_rasterization(*args, **kwargs):
     return renders, alphas, info
 
 
-def _run_two_rank_pose_update(map_transform):
+def _run_two_rank_pose_update(
+    map_transform, *, initial_pose_steps=(0, 0)
+):
     """Two ranks optimize one replicated camera-pose module."""
 
     config = _topology_plan_config(refine_start=4, train={"pose_opt": True})
@@ -2132,6 +2521,9 @@ def _run_two_rank_pose_update(map_transform):
             )
             for _ in range(2)
         ]
+    )
+    pose_optimizer.step[...] = jnp.asarray(
+        initial_pose_steps, pose_optimizer.step[...].dtype
     )
     train_step = make_distributed_train_step(config, world_size=2)
 
@@ -2185,7 +2577,7 @@ def _run_two_rank_pose_update(map_transform):
     with mock.patch.object(
         training_module, "rasterization", _pose_sensitive_rasterization
     ):
-        mapped_step(
+        metrics = mapped_step(
             *bundles,
             images,
             intrinsics,
@@ -2201,19 +2593,31 @@ def _run_two_rank_pose_update(map_transform):
     embedding = np.asarray(pose_adjust.embeds.embedding[...])
     # DDP keeps the replicas identical and averages both rows across ranks.
     np.testing.assert_array_equal(embedding[0], embedding[1])
-    assert np.any(embedding[0, 0] != 0.0)
-    assert np.any(embedding[0, 1] != 0.0)
-    np.testing.assert_array_equal(pose_optimizer.step[...], [1, 1])
-    return embedding
+    return embedding, pose_optimizer.step[...], metrics
 
 
 def test_named_two_rank_pose_update_averages_replicated_gradients():
-    embedding = _run_two_rank_pose_update(nnx.vmap)
+    embedding, pose_steps, _ = _run_two_rank_pose_update(nnx.vmap)
     # Each row's own rank contributed the only non-zero gradient, so DDP's mean
     # halves it and both rows move by the same amount.
+    assert np.any(embedding[0, 0] != 0.0)
+    assert np.any(embedding[0, 1] != 0.0)
     np.testing.assert_allclose(
         np.abs(embedding[0, 0]), np.abs(embedding[0, 1]), rtol=1e-6
     )
+    np.testing.assert_array_equal(pose_steps, [1, 1])
+
+
+def test_distributed_pose_step_mismatch_atomically_skips_update():
+    embedding, pose_steps, metrics = _run_two_rank_pose_update(
+        nnx.vmap, initial_pose_steps=(0, 1)
+    )
+
+    np.testing.assert_array_equal(
+        metrics["distributed_state_mismatch"], [True, True]
+    )
+    np.testing.assert_array_equal(embedding, 0.0)
+    np.testing.assert_array_equal(pose_steps, [0, 1])
 
 
 def test_distributed_train_step_still_rejects_appearance_and_2dgs():

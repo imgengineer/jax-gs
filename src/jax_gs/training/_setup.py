@@ -96,7 +96,14 @@ def _create_pose_optimizer(
             eps=1.0e-8,
         ),
     )
-    return nnx.Optimizer(pose_adjust, transform, wrt=nnx.Param)
+    optimizer = nnx.Optimizer(pose_adjust, transform, wrt=nnx.Param)
+    optimizer._jax_gs_pose_contract = (
+        config.data.batch_size,
+        config.steps,
+        float(config.pose_opt_lr),
+        float(config.pose_opt_reg),
+    )
+    return optimizer
 
 
 def _validate_camera_module_resume_config(

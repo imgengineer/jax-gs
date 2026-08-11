@@ -834,6 +834,38 @@ def _make_train_step(
             )
         if config.pose_noise > 0.0 and pose_perturb is None:
             raise ValueError("pose_noise > 0 requires pose_perturb")
+        if distributed and config.pose_opt:
+            assert distributed_axis_name is not None
+            assert pose_optimizer is not None
+            expected_pose_contract = (
+                config.data.batch_size,
+                config.steps,
+                float(config.pose_opt_lr),
+                float(config.pose_opt_reg),
+            )
+            if (
+                getattr(
+                    pose_optimizer, "_jax_gs_pose_contract", None
+                )
+                != expected_pose_contract
+            ):
+                raise ValueError(
+                    "distributed pose optimizer does not match the train "
+                    "step's batch size, schedule, learning rate, or "
+                    "regularization"
+                )
+            pose_optimizer_step = pose_optimizer.step[...]
+            minimum_pose_step = jax.lax.pmin(
+                pose_optimizer_step, distributed_axis_name
+            )
+            maximum_pose_step = jax.lax.pmax(
+                pose_optimizer_step, distributed_axis_name
+            )
+            distributed_state_mismatch = (
+                distributed_state_mismatch
+                | (minimum_pose_step != maximum_pose_step)
+                | (pose_optimizer_step != optimizer_step)
+            )
         patch_key, background_key = jax.random.split(key)
         if strategy_key is None:
             strategy_key = jax.random.fold_in(key, 0x53545241)
