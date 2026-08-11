@@ -1,4 +1,4 @@
-# jax-gs 分布式 checkpoint 推理交接
+# jax-gs 性能与 Pallas 前向交接
 
 更新日期：2026-08-11。兼容目标仍固定为 gsplat `main@2b902ff`。
 
@@ -24,7 +24,7 @@ Phase 3 已实现并完成 CPU 验收。本次提交的改动集中在：
 
 根目录未跟踪的 `CLAUDE.md` 不属于本阶段，除非用户另行确认，不要随 Phase 3 暂存或提交。
 
-Phase 3 已以 `498166d feat(training): support distributed appearance` 提交并推送到 `main`。Phase 4 在此基础上接通 distributed shard checkpoint 的通用单设备 `render/export` 入口；仍须排除根目录用户文件 `CLAUDE.md`。
+Phase 3 已以 `498166d feat(training): support distributed appearance` 提交并推送到 `main`。Phase 4 已以 `1e325fc feat(checkpoints): load distributed inference snapshots` 提交并推送到 `main`。Phase 5 在此基础上做 compositor 性能审计，并增加 opt-in Pallas/Mosaic GPU 前向路径；仍须排除根目录用户文件 `CLAUDE.md`。
 
 ## Phase 3 已实现设计
 
@@ -63,6 +63,29 @@ Phase 3 已以 `498166d feat(training): support distributed appearance` 提交�
 
 当前仍是“单进程、单设备物化完整 local-device shard set”：不依赖当前设备数，但需要本进程读到全部 shard，并会短暂同时持有 stacked source 与 compact model。它不是 multi-host checkpoint reader、mapped CLI renderer，也不是训练态 reshard。
 
+## Phase 5：Pure JAX 审计与 Pallas 前向
+
+性能审计先围绕当前 87% 训练步占比的 compositor 做 Pure JAX 改写。动态 `lax.switch` 静态 loop 变体、复用 `cumprod` 尾元素以及 `lax.associative_scan` 都没有在稳态生产 shape 上得到可靠收益：前两项完整 renderer 持平或更慢，associative scan 在 K=512 时 forward 约慢 27%、backward 约慢 8%，且改变结合顺序；这些试验均已撤回，默认 Pure JAX 数学没有改动。
+
+当前落地的是实验性 `RasterizationConfig.compositor_backend="pallas"`：
+
+- projection、visible packing、AccuTile/AABB intersection、排序及 overflow 都继续走 JAX；Pallas 只替换最后的逐 tile alpha compositor。
+- 一个 Mosaic GPU program 拥有一个 tile，按该 tile 的真实候选数执行动态 `fori_loop`。像素寄存器按 128-lane `WG_STRIDED` 布局，RGB/深度通道使用独立连续 `[pixel]` 累加器；tile 边缘使用 finite mask，输出再恢复普通 HWC。
+- 默认 backend 仍是 `"jax"`。Pallas 要求 JAX 0.11 的 Mosaic GPU、NVIDIA Hopper 或更新架构及 float32 输入；它是 forward-only，不支持训练/自动微分、AbsGrad、2DGS、Eval3D 或 reference backend。CPU interpreter 只用于低层数值测试。
+- `max_candidates_per_tile` 仍是被检查的静态承诺，并按 `max_gaussians_per_tile` 取整；Pallas 遇到更忙 tile 同样设置 `tile_overflow`，不会静默截断。`tile_batch_size` 只属于 Pure JAX 静态分组，Pallas 不使用它。
+- CLI 仅在 `jax-gs render --compositor-backend pallas` 显式启用；benchmark 同样新增该 flag。训练 factory 在建图前明确拒绝 Pallas，避免把无 VJP 的 kernel 误当作可微实现。
+- `compositor_backend` 不进入 v6 training checkpoint fingerprint：它是推理执行选择，且旧 checkpoint 在该字段出现前已生成。其它 config/模型/optimizer 契约保持不变。
+
+RTX 5090、JAX 0.11.0 的质量等价 forward 基准（warmup 10，hot mean）如下：
+
+| 场景 | Pure JAX | Pallas | 加速 |
+|---|---:|---:|---:|
+| 2,048 高斯，128×128，3,696 intersections | 0.697 ms | 0.403 ms | 1.73× |
+| 10,000 高斯，640×360，61,970 intersections | 3.969 ms | 0.848 ms | 4.68× |
+| 200,000 高斯，640×360，1,237,085 intersections | 9.030 ms | 2.722 ms | 3.32× |
+
+全部无 intersection/tile overflow。20 万组最忙 tile 为 1,846；RGB `max_abs=5.36e-7`、`rel_l2=6.81e-8`，alpha `max_abs=8.34e-7`、`rel_l2=1.53e-7`。这是完整 renderer forward 的收益，不是训练收益；要加速训练，下一切片必须实现并数值验证真正的 Pallas backward/custom VJP，不能用 Pure JAX 梯度冒充 Pallas 前向的导数。
+
 ## 明确边界
 
 - 仅支持单进程、多本地设备；multi-process/multi-host 仍须在创建输出前拒绝。
@@ -87,11 +110,18 @@ Phase 3 已以 `498166d feat(training): support distributed appearance` 提交�
 - Appearance 的 holes + 非平凡相机 reference rasterizer 独立对拍中，mapped distributed 与 checkpoint-merged local 输出 `max_abs=0.0`。
 - `git diff --check` 与 `compileall` 通过。Phase 4 未重跑完整 CPU safe script，完整脚本最近一次证据仍是 Phase 3；不要把两者混写。
 
+## Phase 5 验收结果
+
+- CPU：config/Pallas interpreter/CLI/storage 95 passed；`tests/test_rasterization_jax.py` 33 passed、1 个 native Pallas case 按平台跳过；`tests/test_training.py tests/test_training_distributed.py` 168 passed；2DGS Pallas 拒绝项单独通过。
+- GPU：tile-size 16 / RGB 的 native Mosaic compile 与高层 JAX 对拍通过；额外手工覆盖两相机、RGB+D、10,000 与 200,000 高斯。200,000 组的完整数值与 overflow 结果见上表。
+- `git diff --check` 与 `compileall` 通过。Phase 5 尚未重跑完整 CPU/GPU safe script，不要把定向结果写成全套验收。
+
 ## 后续迁移顺序
 
-1. 再设计 multi-process/multi-host host ownership、per-process checkpoint、数据加载与一致 preflight；现有 stacked host state helper 不能直接宣称支持它。
-2. 让 CLI render 默认消费 checkpoint 中动态增长后的 intersection/candidate high-water mark，再由显式 CLI 参数覆盖；当前仍使用保存的 TrainConfig 值，容量不足时会报告 overflow，最终输出应使用 `--strict-overflow` 或显式覆盖容量。
-3. 继续迁移 distributed UT/eval3d、非 pinhole、`sparse_grad` 和 AbsGrad；每项按 current-main 实际组合单独对齐，不用过时的“上游统一拒绝”归因。
-4. 有可用 GPU 时按串行安全脚本补跑本阶段 GPU 回归；当前验收仅承诺 CPU 与双虚拟 CPU `pmap`。
+1. 若继续性能线，先为 Pallas compositor 设计真正的 backward/custom VJP：反向按 tile 逆序重算 alpha/transmittance，逐 intersection 输出参数梯度后 owner scatter；必须与 Pure JAX value-and-grad 做五组参数数值对拍、显存分析和端到端训练 benchmark。forward-only 路径在此之前不得接入训练。
+2. 再设计 multi-process/multi-host host ownership、per-process checkpoint、数据加载与一致 preflight；现有 stacked host state helper 不能直接宣称支持它。
+3. 让 CLI render 默认消费 checkpoint 中动态增长后的 intersection/candidate high-water mark，再由显式 CLI 参数覆盖；当前仍使用保存的 TrainConfig 值，容量不足时会报告 overflow，最终输出应使用 `--strict-overflow` 或显式覆盖容量。
+4. 继续迁移 distributed UT/eval3d、非 pinhole、`sparse_grad` 和 AbsGrad；每项按 current-main 实际组合单独对齐，不用过时的“上游统一拒绝”归因。
+5. 按串行安全脚本补跑 Phase 5 的完整 CPU/GPU 回归；当前只承诺上面列出的定向 CPU 与 RTX 5090 native tests。
 
 提交或继续开发时仍应检查实际暂存清单，不能带入根目录用户文件 `CLAUDE.md`。

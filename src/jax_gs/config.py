@@ -83,6 +83,7 @@ class RasterizationConfig:
     rasterize_mode: str = "classic"
     ut_chunk_size: int = 16_384
     backend: str = "auto"
+    compositor_backend: str = "jax"
     intersection_backend: str = "auto"
     intersection_mode: str = "auto"
     sort_backend: str = "auto"
@@ -114,6 +115,15 @@ class RasterizationConfig:
         if self.intersection_backend not in {"auto", "jax"}:
             raise ValueError(
                 "intersection_backend must be 'auto' or 'jax'"
+            )
+        if self.compositor_backend not in {"jax", "pallas"}:
+            raise ValueError("compositor_backend must be 'jax' or 'pallas'")
+        if (
+            self.compositor_backend == "pallas"
+            and self.backend == "reference"
+        ):
+            raise ValueError(
+                "the Pallas compositor requires the intersections backend"
             )
         if self.intersection_mode not in {"auto", "aabb", "accutile"}:
             raise ValueError(

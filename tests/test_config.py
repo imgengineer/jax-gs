@@ -33,6 +33,18 @@ def test_removed_cutile_backend_values_map_to_pure_jax():
     assert config.sort_backend == "jax"
 
 
+def test_compositor_backend_accepts_jax_or_pallas_only():
+    assert RasterizationConfig().compositor_backend == "jax"
+    pallas = RasterizationConfig(compositor_backend="pallas")
+    assert pallas.compositor_backend == "pallas"
+    with pytest.raises(ValueError, match="compositor_backend"):
+        RasterizationConfig(compositor_backend="invalid")
+    with pytest.raises(ValueError, match="intersections backend"):
+        RasterizationConfig(
+            backend="reference", compositor_backend="pallas"
+        )
+
+
 def test_2dgs_training_config_round_trips_upstream_regularizers(tmp_path):
     config = TrainConfig(
         model_type="2dgs",

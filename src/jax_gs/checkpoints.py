@@ -267,8 +267,13 @@ def _validate_scene_values(
 
 
 def _config_fingerprint(config: TrainConfig) -> str:
+    values = config.to_dict()
+    # The compositor implementation is an inference-time execution choice.
+    # It does not change saved model or optimizer semantics, and older v6
+    # checkpoints predate the field, so keep it outside the training contract.
+    values["rasterizer"].pop("compositor_backend", None)
     payload = json.dumps(
-        config.to_dict(), sort_keys=True, separators=(",", ":")
+        values, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

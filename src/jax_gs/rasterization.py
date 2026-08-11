@@ -9,6 +9,7 @@ from typing import Any, NamedTuple
 import jax
 import jax.numpy as jnp
 
+from ._pallas import rasterize_to_pixels_pallas
 from .cameras import fully_fused_projection
 from .config import RasterizationConfig
 from .external_distortion import (
@@ -825,34 +826,60 @@ def _render_camera_intersections(
     if feature_background is None:
         feature_background = jnp.zeros((features.shape[-1],), dtype=features.dtype)
 
-    with jax.named_scope("compositing_jax"):
-        rendered, alphas, low_info = rasterize_to_pixels(
-            means2d[None, ...],
-            conics[None, ...],
-            features[None, ...],
-            opacities[None, ...],
-            width,
-            height,
-            tile_size,
-            intersections.offsets[None, ...],
-            intersections.gaussian_ids,
-            backgrounds=feature_background[None, ...],
-            valid_count=intersections.valid_count,
-            overflow=intersections.overflow,
-            max_gaussians_per_tile=config.max_gaussians_per_tile,
-            max_candidates_per_tile=config.max_candidates_per_tile,
-            tile_batch_size=config.tile_batch_size,
-            alpha_threshold=config.alpha_clip,
-            transmittance_threshold=config.transmittance_eps,
-            return_info=True,
-            absgrad=absgrad_probe is not None,
-            _means2d_absgrad_probe=(
-                None if absgrad_probe is None else absgrad_probe[None, ...]
-            ),
-        )
-    rendered = rendered[0]
-    alphas = alphas[0]
-    tile_overflow = low_info["tile_overflow"][0]
+    if config.compositor_backend == "pallas":
+        if absgrad_probe is not None:
+            raise NotImplementedError(
+                "the experimental Pallas compositor does not support AbsGrad"
+            )
+        with jax.named_scope("compositing_pallas"):
+            rendered, alphas, low_info = rasterize_to_pixels_pallas(
+                means2d,
+                conics,
+                features,
+                opacities,
+                width,
+                height,
+                tile_size,
+                intersections.offsets,
+                intersections.gaussian_ids,
+                backgrounds=feature_background,
+                valid_count=intersections.valid_count,
+                overflow=intersections.overflow,
+                max_gaussians_per_tile=config.max_gaussians_per_tile,
+                max_candidates_per_tile=config.max_candidates_per_tile,
+                alpha_threshold=config.alpha_clip,
+                transmittance_threshold=config.transmittance_eps,
+            )
+        tile_overflow = low_info["tile_overflow"]
+    else:
+        with jax.named_scope("compositing_jax"):
+            rendered, alphas, low_info = rasterize_to_pixels(
+                means2d[None, ...],
+                conics[None, ...],
+                features[None, ...],
+                opacities[None, ...],
+                width,
+                height,
+                tile_size,
+                intersections.offsets[None, ...],
+                intersections.gaussian_ids,
+                backgrounds=feature_background[None, ...],
+                valid_count=intersections.valid_count,
+                overflow=intersections.overflow,
+                max_gaussians_per_tile=config.max_gaussians_per_tile,
+                max_candidates_per_tile=config.max_candidates_per_tile,
+                tile_batch_size=config.tile_batch_size,
+                alpha_threshold=config.alpha_clip,
+                transmittance_threshold=config.transmittance_eps,
+                return_info=True,
+                absgrad=absgrad_probe is not None,
+                _means2d_absgrad_probe=(
+                    None if absgrad_probe is None else absgrad_probe[None, ...]
+                ),
+            )
+        rendered = rendered[0]
+        alphas = alphas[0]
+        tile_overflow = low_info["tile_overflow"][0]
     if render_mode == "ED":
         rendered = rendered / jnp.maximum(alphas, config.transmittance_eps)
     elif render_mode == "RGB+ED":
@@ -1439,6 +1466,10 @@ def rasterization(
 
     if _means2d_absgrad_probe is not None and not absgrad:
         raise ValueError("_means2d_absgrad_probe requires absgrad=True")
+    if config.compositor_backend == "pallas" and with_eval3d:
+        raise NotImplementedError(
+            "the experimental Pallas compositor does not support Eval3D"
+        )
     if _means2d_absgrad_probe is not None and with_eval3d:
         raise ValueError(
             "_means2d_absgrad_probe is not supported with with_eval3d=True"

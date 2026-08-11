@@ -1,3 +1,4 @@
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import numpy as np
 import pytest
 
 from jax_gs.checkpoints import (
+    _config_fingerprint,
     load_checkpoint_scene_transform,
     restore_checkpoint,
     save_checkpoint,
@@ -25,6 +27,16 @@ from jax_gs.exporter import (
 from jax_gs.model import GaussianModel
 from jax_gs.optimizers import create_optimizer
 from jax_gs.strategy import DefaultStrategy
+
+
+def test_inference_compositor_does_not_change_the_training_fingerprint():
+    config = TrainConfig()
+    pallas = replace(
+        config,
+        rasterizer=replace(config.rasterizer, compositor_backend="pallas"),
+    )
+
+    assert _config_fingerprint(pallas) == _config_fingerprint(config)
 
 
 def test_orbax_checkpoint_round_trip(tmp_path: Path):

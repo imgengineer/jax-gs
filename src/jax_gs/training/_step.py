@@ -732,6 +732,11 @@ def _make_train_step(
     distributed_axis_name: Hashable | None = None,
     distributed_scene_scale: float = 1.0,
 ) -> Callable[..., dict[str, jax.Array]]:
+    if config.rasterizer.compositor_backend == "pallas":
+        raise NotImplementedError(
+            "the experimental Pallas compositor is forward-only; "
+            "training requires compositor_backend='jax'"
+        )
     plan = _plan_train_step(
         config, distributed_world_size=distributed_world_size
     )

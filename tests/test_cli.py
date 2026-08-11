@@ -479,6 +479,10 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     )
 
     def fake_render_step(_config, _width, _height):
+        captured["compositor_backend"] = (
+            _config.rasterizer.compositor_backend
+        )
+
         def render(_model, viewmat, _K, _degree, **_kwargs):
             captured["viewmat"] = np.asarray(viewmat)
             return (
@@ -493,7 +497,14 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     monkeypatch.setattr(cli_module, "make_render_step", fake_render_step)
     monkeypatch.setattr(cli_module, "_save_render", lambda *_args: None)
     args = cli_module.build_parser().parse_args(
-        ["render", str(tmp_path / "checkpoint"), "--data", "unused"]
+        [
+            "render",
+            str(tmp_path / "checkpoint"),
+            "--data",
+            "unused",
+            "--compositor-backend",
+            "pallas",
+        ]
     )
 
     args.func(args)
@@ -505,6 +516,7 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     )
     expected = expected_transform.world_to_camera(example["w2c"])
     np.testing.assert_allclose(captured["viewmat"], expected)
+    assert captured["compositor_backend"] == "pallas"
 
 
 @pytest.mark.parametrize("app_opt", [False, True])

@@ -1970,6 +1970,15 @@ def test_default_train_step_still_rejects_eval3d_screen_statistics():
         )
 
 
+def test_train_step_rejects_the_forward_only_pallas_compositor():
+    with pytest.raises(NotImplementedError, match="forward-only"):
+        make_train_step(
+            TrainConfig(
+                rasterizer=RasterizationConfig(compositor_backend="pallas")
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("model_type", "packed"),
     [

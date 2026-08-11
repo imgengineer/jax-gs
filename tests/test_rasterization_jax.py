@@ -1884,7 +1884,7 @@ def test_backward_memory_does_not_grow_with_the_intersection_capacity():
 
 
 
-def _render_with_candidate_bound(bound):
+def _render_with_candidate_bound(bound, *, compositor_backend="jax"):
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
     return rasterization(
         means,
@@ -1899,13 +1899,57 @@ def _render_with_candidate_bound(bound):
         active_mask=jnp.array([True, True, True, False]),
         config=RasterizationConfig(
             backend="intersections",
-            tile_size=8,
+            compositor_backend=compositor_backend,
+            tile_size=16,
             max_gaussians_per_tile=1,
             max_intersections=64,
             tile_batch_size=1,
             max_candidates_per_tile=bound,
         ),
     )
+
+
+def test_pallas_compositor_matches_the_high_level_jax_forward():
+    device = jax.devices()[0]
+    try:
+        compute_capability = float(
+            getattr(device, "compute_capability", 0.0)
+        )
+    except (TypeError, ValueError):
+        compute_capability = 0.0
+    if device.platform != "gpu" or compute_capability < 9.0:
+        pytest.skip("native Pallas compositing requires a supported GPU")
+    expected = _render_with_candidate_bound(None)
+    actual = jax.jit(
+        lambda: _render_with_candidate_bound(
+            None, compositor_backend="pallas"
+        )
+    )()
+
+    np.testing.assert_allclose(actual[0], expected[0], rtol=2e-6, atol=2e-7)
+    np.testing.assert_allclose(actual[1], expected[1], rtol=2e-6, atol=2e-7)
+    np.testing.assert_array_equal(
+        np.asarray(actual[2]["tile_overflow"]),
+        np.asarray(expected[2]["tile_overflow"]),
+    )
+
+
+def test_pallas_compositor_rejects_eval3d():
+    means, quats, scales, opacities, colors, viewmats, Ks = _scene()
+    with pytest.raises(NotImplementedError, match="Pallas.*Eval3D"):
+        rasterization(
+            means,
+            quats,
+            scales,
+            opacities,
+            colors,
+            viewmats,
+            Ks,
+            32,
+            32,
+            with_eval3d=True,
+            config=RasterizationConfig(compositor_backend="pallas"),
+        )
 
 
 def test_a_sufficient_candidate_bound_renders_identically():

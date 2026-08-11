@@ -1066,6 +1066,10 @@ def rasterization_2dgs(
     above the threshold set ``info['candidate_limit_exceeded']``.
     """
 
+    if config.compositor_backend == "pallas":
+        raise NotImplementedError(
+            "the experimental Pallas compositor only supports 3DGS"
+        )
     if _gradient_2dgs_absgrad_probe is not None and not absgrad:
         raise ValueError(
             "_gradient_2dgs_absgrad_probe requires absgrad=True"

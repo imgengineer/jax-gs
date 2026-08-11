@@ -130,6 +130,12 @@ def _parser() -> argparse.ArgumentParser:
         default="auto",
     )
     parser.add_argument(
+        "--compositor-backend",
+        choices=("jax", "pallas"),
+        default="jax",
+        help="forward compositor implementation",
+    )
+    parser.add_argument(
         "--intersection-backend",
         choices=("auto", "jax"),
         default="auto",
@@ -597,6 +603,8 @@ def _validate_safety(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         parser.error("--active cannot exceed --capacity")
     if args.radius_clip < 0.0:
         parser.error("--radius-clip cannot be negative")
+    if args.backward and args.compositor_backend == "pallas":
+        parser.error("the experimental Pallas compositor is forward-only")
     if args.gsplat_v153_garden_profile:
         if args.npz is None:
             parser.error("--gsplat-v153-garden-profile requires --npz")
@@ -703,6 +711,7 @@ def main(argv: list[str] | None = None) -> int:
     _block(arrays)
     config = RasterizationConfig(
         backend=args.backend,
+        compositor_backend=args.compositor_backend,
         intersection_backend=args.intersection_backend,
         intersection_mode=args.intersection_mode,
         sort_backend=args.sort_backend,
@@ -795,6 +804,7 @@ def main(argv: list[str] | None = None) -> int:
             "tile_size": args.tile_size,
             "max_gaussians_per_tile": args.k,
             "rasterizer_backend": args.backend,
+            "compositor_backend": args.compositor_backend,
             "intersection_backend": args.intersection_backend,
             "intersection_mode": args.intersection_mode,
             "sort_backend": args.sort_backend,

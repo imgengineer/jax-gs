@@ -46,6 +46,24 @@ def _config(max_gaussians_per_tile: int = 4):
     )
 
 
+def test_2dgs_rejects_the_3d_only_pallas_compositor():
+    means, quats, scales, opacities, colors = _single_surfel()
+    viewmats, Ks = _camera()
+    with pytest.raises(NotImplementedError, match="Pallas.*3DGS"):
+        rasterization_2dgs(
+            means,
+            quats,
+            scales,
+            opacities,
+            colors,
+            viewmats,
+            Ks,
+            5,
+            5,
+            config=RasterizationConfig(compositor_backend="pallas"),
+        )
+
+
 def test_fully_fused_projection_2dgs_matches_face_on_geometry():
     means, quats, scales, _, _ = _single_surfel()
     viewmats, Ks = _camera()
