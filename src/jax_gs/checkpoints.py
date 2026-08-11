@@ -221,6 +221,10 @@ def save_distributed_checkpoint(
     *,
     step: int,
     config: TrainConfig | None = None,
+    intersection_capacity: int | None = None,
+    candidate_bound: int | None = None,
+    scene_transform: Any | None = None,
+    scene_scale: Any | None = None,
     force: bool = True,
 ) -> Path:
     """Save one indivisible set of Gaussian-sharded training shards.
@@ -230,9 +234,31 @@ def save_distributed_checkpoint(
     parameters, Adam moments, densification statistics, and sticky overflow
     state are only consistent as a set. The manifest records the world size,
     per-shard and global capacity, per-shard slot layout, optimizer static
-    contract, and a configuration fingerprint so a resume cannot silently
-    change the sharded contract.
+    contract, optional scene/runtime capacities, and a configuration
+    fingerprint so a resume cannot silently change the sharded contract.
     """
+
+    if intersection_capacity is not None:
+        intersection_capacity = int(intersection_capacity)
+        if intersection_capacity <= 0:
+            raise ValueError("intersection_capacity must be positive")
+    if candidate_bound is not None:
+        candidate_bound = int(candidate_bound)
+        if candidate_bound <= 0:
+            raise ValueError("candidate_bound must be positive")
+    if (scene_transform is None) != (scene_scale is None):
+        raise ValueError(
+            "scene_transform and scene_scale must be provided together"
+        )
+    scene_metadata = None
+    if scene_transform is not None:
+        scene_matrix, saved_scene_scale = _validate_scene_values(
+            scene_transform, scene_scale
+        )
+        scene_metadata = {
+            "matrix": scene_matrix.tolist(),
+            "scene_scale": saved_scene_scale,
+        }
 
     world_size = _distributed_world_size(
         model, optimizer, strategy_state, safety_state
@@ -251,6 +277,15 @@ def save_distributed_checkpoint(
     ):
         raise ValueError(
             "distributed optimizer does not match the checkpoint TrainConfig"
+        )
+    if scene_metadata is not None and not np.isclose(
+        optimizer_contract["scene_scale"],
+        scene_metadata["scene_scale"],
+        rtol=0.0,
+        atol=0.0,
+    ):
+        raise ValueError(
+            "scene_scale must match the distributed optimizer contract"
         )
     local_capacity = _distributed_local_capacity(model, world_size)
     optimizer_steps = np.asarray(jax.device_get(optimizer.step[...]))
@@ -304,10 +339,13 @@ def save_distributed_checkpoint(
         (checkpoint_path / "jax_gs_config.json").write_text(
             json.dumps(config.to_dict(), indent=2), encoding="utf-8"
         )
+    components = ["model", "optimizer", "strategy", "safety"]
+    if scene_metadata is not None:
+        components.append("scene")
     metadata = {
         "format_version": 6,
         "kind": _DISTRIBUTED_KIND,
-        "components": ["model", "optimizer", "strategy", "safety"],
+        "components": components,
         "model_color_mode": "appearance" if model.has_appearance else "sh",
         "world_size": world_size,
         "local_capacity": local_capacity,
@@ -320,6 +358,12 @@ def save_distributed_checkpoint(
             None if config is None else _config_fingerprint(config)
         ),
     }
+    if intersection_capacity is not None:
+        metadata["intersection_capacity"] = intersection_capacity
+    if candidate_bound is not None:
+        metadata["candidate_bound"] = candidate_bound
+    if scene_metadata is not None:
+        metadata["scene"] = scene_metadata
     (checkpoint_path / _CHECKPOINT_METADATA).write_text(
         json.dumps(metadata, indent=2), encoding="utf-8"
     )

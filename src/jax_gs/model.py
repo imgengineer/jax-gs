@@ -365,6 +365,7 @@ class GaussianModel(nnx.Module):
         num_workers: int = 4,
         appearance_feature_dim: int | None = None,
         feature_key: jax.Array | None = None,
+        initial_log_scales: np.ndarray | jax.Array | None = None,
     ) -> "GaussianModel":
         points_np = np.asarray(points, dtype=np.float32)
         colors_np = np.asarray(colors, dtype=np.float32)
@@ -383,17 +384,28 @@ class GaussianModel(nnx.Module):
             colors_np = colors_np / 255.0
         colors_np = np.clip(colors_np, 0.0, 1.0)
 
-        initial_log_scales = np.full(
-            (count, 3), np.log(config.initial_scale), np.float32
-        )
-        if count > 1:
-            neighbor_count = min(3, count - 1)
-            neighbor_log_scales = np.asarray(
-                knn_scale_init(jnp.asarray(points_np), k=neighbor_count)
-            ) + np.float32(np.log(config.initial_scale))
-            initial_log_scales = np.repeat(
-                neighbor_log_scales[:, None], 3, axis=1
+        if initial_log_scales is None:
+            initial_log_scales_np = np.full(
+                (count, 3), np.log(config.initial_scale), np.float32
             )
+            if count > 1:
+                neighbor_count = min(3, count - 1)
+                neighbor_log_scales = np.asarray(
+                    knn_scale_init(jnp.asarray(points_np), k=neighbor_count)
+                ) + np.float32(np.log(config.initial_scale))
+                initial_log_scales_np = np.repeat(
+                    neighbor_log_scales[:, None], 3, axis=1
+                )
+        else:
+            initial_log_scales_np = np.asarray(
+                initial_log_scales, dtype=np.float32
+            )
+            if initial_log_scales_np.shape != (count, 3):
+                raise ValueError(
+                    "initial_log_scales must have shape [N, 3]"
+                )
+            if not np.all(np.isfinite(initial_log_scales_np)):
+                raise ValueError("initial_log_scales must be finite")
 
         capacity = (
             config.bucket_capacity(count)
@@ -410,7 +422,7 @@ class GaussianModel(nnx.Module):
         log_scales = np.full(
             (capacity, 3), np.log(config.initial_scale), dtype=np.float32
         )
-        log_scales[:count] = initial_log_scales
+        log_scales[:count] = initial_log_scales_np
         quats = np.zeros((capacity, 4), np.float32)
         quats[:, 0] = 1.0
         opacity_logits = np.full(

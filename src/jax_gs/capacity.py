@@ -203,14 +203,14 @@ def resize_distributed_training_state(
 ) -> tuple[GaussianModel, nnx.Optimizer, StrategyState]:
     """Grow every shard of a stacked training world to one common capacity.
 
-    The three nodes must be the stacked ``[world, ...]`` objects a bound
-    ``nnx.pmap`` maps over. Every shard is resized with the ordinary
-    single-process rules and the world is restacked, so all ranks keep one
-    identical physical capacity and the mapped step stays compilable. A
-    distributed capacity overflow is reported for the whole world, so hosts
-    must grow all shards together and replay the skipped step rather than
-    resizing one rank. Shards are materialized individually, so the transition
-    transiently needs roughly one extra copy of the world.
+    The three nodes must be fully addressable host-stacked ``[world, ...]``
+    objects. Every shard is resized with the ordinary single-process rules and
+    the world is restacked at one identical physical capacity. Restacking loses
+    a live ``pmap`` rank placement, so production mapped training uses
+    :func:`jax_gs.training.make_distributed_resize_step` instead; this helper
+    remains the unplaced/vmap/checkpoint utility. Shards are materialized
+    individually, so the transition transiently needs roughly one extra copy
+    of the world.
     """
 
     world_size = _distributed_world_size(model, optimizer, strategy_state)

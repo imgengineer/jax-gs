@@ -1476,8 +1476,9 @@ def make_distributed_train_step(
     The returned stateful step must run inside ``nnx.pmap`` (or ``nnx.vmap``
     for tests) with ``axis_name`` bound. It supports dense or packed pinhole
     3DGS with SH colors. Host camera sharding, capacity synchronization,
-    checkpoint/reshard, and eval are separate primitives; the unified
-    :func:`train` loop still fails fast for multiple JAX processes.
+    checkpoint/reshard, and eval are separate primitives; the local-device
+    :func:`train_distributed` loop wires them together, while multiple JAX
+    processes still fail fast.
     ``scene_scale`` must match the value passed to the Gaussian optimizer. A
     rank mismatch in optimizer step or SH degree returns
     ``distributed_state_mismatch=True`` and atomically skips the update.
@@ -1489,9 +1490,9 @@ def make_distributed_train_step(
     sum. Packed projection, ``visible_adam``, and MCMC are supported too;
     packed metadata indexes the gathered scene, so it unpacks globally before
     the owner slice, and every MCMC shard caps and grows its own rows the way
-    an independent upstream rank does. Appearance stays rejected because its
-    per-view colors have no distributed route upstream either, and
-    ``sparse_grad`` because upstream rejects it under ``distributed=True``.
+    an independent upstream rank does. Appearance and ``sparse_grad`` remain
+    conservative implementation boundaries of this JAX slice; current-main's
+    trainer can orchestrate more distributed combinations than this step.
 
     Refinement is planned, preflighted, and committed inside the step. Before
     the update every rank plans duplicate/split/prune events for the rows it
@@ -1503,8 +1504,9 @@ def make_distributed_train_step(
     never changes here; a commit that outgrows it reports the recomputed
     ``refine_commit_required_capacity`` so the host can grow before the next
     refine. Growing a bucket, resharding, and distributed checkpoints remain
-    host work. All collectives stay outside conditionals: plan summaries are
-    reduced before the update and commit counters after it.
+    host work; :func:`train_distributed` wires those pieces for one process's
+    local devices. All collectives stay outside conditionals: plan summaries
+    are reduced before the update and commit counters after it.
     """
 
     try:

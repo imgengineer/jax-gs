@@ -242,7 +242,10 @@ def _train_command(args: argparse.Namespace) -> None:
         config = replace(config, with_ut=True)
     if args.with_eval3d:
         config = replace(config, with_eval3d=True, with_ut=True)
-    result = train(config, resume_from=args.resume)
+    train_kwargs = {"resume_from": args.resume}
+    if args.distributed:
+        train_kwargs["distributed"] = True
+    result = train(config, **train_kwargs)
     print(f"checkpoint={result.checkpoint}")
 
 
@@ -580,6 +583,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument("--with-ut", action="store_true")
     train_parser.add_argument("--with-eval3d", action="store_true")
+    train_parser.add_argument(
+        "--distributed",
+        action="store_true",
+        help=(
+            "shard Gaussians across all local devices with nnx.pmap; "
+            "currently requires one JAX process and at least two devices"
+        ),
+    )
     train_parser.set_defaults(func=_train_command)
 
     render_parser = subparsers.add_parser("render", help="render a checkpoint")

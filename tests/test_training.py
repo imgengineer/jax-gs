@@ -2287,6 +2287,34 @@ def test_evaluation_preflight_includes_live_training_allocations(monkeypatch):
         )
 
 
+def test_training_memory_preflight_checks_every_selected_device(monkeypatch):
+    config = TrainConfig(
+        model=ModelConfig(capacity=16, bucket_min_capacity=16, sh_degree=0),
+        data=DataConfig(root="unused", patch_size=16),
+    )
+    estimate = estimate_training_memory_bytes(config, physical_capacity=16)
+    devices = (object(), object())
+    seen = []
+
+    def fake_memory_usage(device=None):
+        seen.append(device)
+        limit = estimate * (2 if device is devices[0] else 1)
+        return 0, limit
+
+    monkeypatch.setattr(
+        training_module, "_device_memory_usage", fake_memory_usage
+    )
+
+    with pytest.raises(MemoryError, match="selected device"):
+        training_module._check_memory_budget(
+            config,
+            physical_capacity=16,
+            devices=devices,
+        )
+
+    assert seen == list(devices)
+
+
 def test_render_memory_estimate_matches_exact_default_intersection_capacity():
     capacity = 16
     width = height = 64
@@ -2405,6 +2433,32 @@ def test_train_rejects_multi_process_before_writing(monkeypatch, tmp_path):
 
     with pytest.raises(NotImplementedError, match="single-process"):
         training_module.train(config)
+
+    assert not output_dir.exists()
+
+
+def test_distributed_train_rejects_unsupported_topology_before_writing(
+    monkeypatch, tmp_path
+):
+    output_dir = tmp_path / "output"
+    config = TrainConfig(
+        data=DataConfig(root="unused"), output_dir=str(output_dir)
+    )
+    monkeypatch.setattr(training_module.jax, "process_count", lambda: 2)
+
+    with pytest.raises(NotImplementedError, match="one JAX process"):
+        training_module.train(config, distributed=True)
+
+    assert not output_dir.exists()
+
+    monkeypatch.setattr(training_module.jax, "process_count", lambda: 1)
+    monkeypatch.setattr(
+        training_module.jax,
+        "local_devices",
+        lambda: [jax.devices()[0]],
+    )
+    with pytest.raises(ValueError, match="at least two local devices"):
+        training_module.train(config, distributed=True)
 
     assert not output_dir.exists()
 

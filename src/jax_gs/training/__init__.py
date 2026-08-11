@@ -1,4 +1,4 @@
-"""Single-process trainer and distributed training primitives.
+"""Single-device and local multi-device trainers and training primitives.
 
 The implementation lives in the private submodules imported at the bottom;
 this module is their public surface and every name they previously exported
@@ -115,6 +115,7 @@ from ._state import (
     _grow_training_state,
     _initial_storage_capacity,
     _save_compacted_training_checkpoint,
+    make_distributed_resize_step,
     synchronize_distributed_capacity,
 )
 from ._step import (
@@ -126,6 +127,7 @@ from ._step import (
     make_distributed_train_step,
     make_train_step,
 )
+from ._distributed_loop import train_distributed
 from .appearance import (
     APPEARANCE_FEATURE_DIM,
     AppearanceOptModule,
@@ -213,6 +215,7 @@ __all__ = [
     "load_checkpoint_storage_capacity",
     "load_colmap_scene",
     "make_distributed_render_step",
+    "make_distributed_resize_step",
     "make_distributed_train_step",
     "make_render_step",
     "make_train_step",
@@ -233,6 +236,7 @@ __all__ = [
     "ssim",
     "synchronize_distributed_capacity",
     "train",
+    "train_distributed",
     "transform_cameras",
     "transform_points",
 ]

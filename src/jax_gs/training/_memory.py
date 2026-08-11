@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import sys
 
 # Tests drive the trainer by patching seams on the package, for example
@@ -141,7 +142,10 @@ def _training_overflow_status(
             safety_state.intersection_overflow_seen[...],
         )
     )
-    return int(max_overflow_tiles), bool(intersection_overflow_seen)
+    return (
+        int(np.max(np.asarray(max_overflow_tiles))),
+        bool(np.any(np.asarray(intersection_overflow_seen))),
+    )
 
 
 class _PendingOverflow(NamedTuple):
@@ -173,10 +177,14 @@ def _pending_overflow_suffix(
         # same step also truncated a tile: the candidate counts a tile bound
         # would be grown from are themselves drawn from that buffer, so they
         # under-report until it is large enough to hold the frame.
-        if bool(intersection):
-            return _PendingOverflow(index, "intersection", int(required))
-        if int(overflow_tiles) > 0:
-            return _PendingOverflow(index, "candidates", int(busiest))
+        if bool(np.any(np.asarray(intersection))):
+            return _PendingOverflow(
+                index, "intersection", int(np.max(np.asarray(required)))
+            )
+        if int(np.max(np.asarray(overflow_tiles))) > 0:
+            return _PendingOverflow(
+                index, "candidates", int(np.max(np.asarray(busiest)))
+            )
     # The sticky flag says a step overflowed and no step admits to it. There
     # is nothing to grow from, so the caller falls back to refusing the run.
     return None
@@ -243,10 +251,11 @@ def estimate_training_memory_bytes(
     config: TrainConfig,
     *,
     physical_capacity: int | None = None,
+    render_capacity: int | None = None,
     image_height: int | None = None,
     image_width: int | None = None,
 ) -> int:
-    """Estimate peak memory for one physical Gaussian storage bucket."""
+    """Estimate one device's peak for local state and rendered Gaussians."""
 
     if physical_capacity is None:
         physical_capacity = config.model.bucket_capacity()
@@ -255,6 +264,11 @@ def estimate_training_memory_bytes(
         raise ValueError(
             "physical_capacity must be positive and not exceed the logical maximum"
         )
+    if render_capacity is None:
+        render_capacity = physical_capacity
+    render_capacity = int(render_capacity)
+    if render_capacity <= 0:
+        raise ValueError("render_capacity must be positive")
     render_height, render_width = _training_render_size(
         config, image_height=image_height, image_width=image_width
     )
@@ -266,7 +280,7 @@ def estimate_training_memory_bytes(
     # bounded visible set is packed. Include forward outputs, reverse-mode
     # residuals, and covariance temporaries explicitly for large buckets.
     projection_working_set = (
-        physical_capacity * 192 * config.data.batch_size
+        render_capacity * 192 * config.data.batch_size
     )
     strategy_bytes = physical_capacity * (3 * 4 + 1)
     tile_pixels = config.rasterizer.tile_size**2
@@ -299,7 +313,7 @@ def estimate_training_memory_bytes(
     ut_workspace = 0
     if config.with_ut or config.with_eval3d:
         ut_workspace = (
-            min(physical_capacity, config.rasterizer.ut_chunk_size)
+            min(render_capacity, config.rasterizer.ut_chunk_size)
             * 7
             * 3
             * 4
@@ -322,6 +336,7 @@ def estimate_bucket_transition_memory_bytes(
     old_capacity: int,
     new_capacity: int,
     *,
+    render_capacity: int | None = None,
     image_height: int | None = None,
     image_width: int | None = None,
 ) -> int:
@@ -334,6 +349,7 @@ def estimate_bucket_transition_memory_bytes(
     target_peak = estimate_training_memory_bytes(
         config,
         physical_capacity=new_capacity,
+        render_capacity=render_capacity,
         image_height=image_height,
         image_width=image_width,
     )
@@ -353,6 +369,8 @@ def _check_memory_budget(
     config: TrainConfig,
     *,
     physical_capacity: int,
+    render_capacity: int | None = None,
+    devices: Sequence[jax.Device] | None = None,
     label: str = "training",
     image_height: int | None = None,
     image_width: int | None = None,
@@ -360,22 +378,33 @@ def _check_memory_budget(
     estimate = estimate_training_memory_bytes(
         config,
         physical_capacity=physical_capacity,
+        render_capacity=render_capacity,
         image_height=image_height,
         image_width=image_width,
     )
-    device = jax.devices()[0]
-    stats = device.memory_stats() or {}
-    limit = int(stats.get("bytes_limit", 0) or 0)
+    samples = _device_memory_samples(devices)
     print(
         f"estimated_{label}_peak_memory={estimate / 2**30:.2f}GiB "
-        f"storage_capacity={physical_capacity} device={device}",
+        f"storage_capacity={physical_capacity} "
+        f"devices={','.join(str(device) for device, _, _ in samples)}",
         flush=True,
     )
-    if limit and estimate > int(limit * 0.70):
+    unsafe = next(
+        (
+            (device, limit)
+            for device, _, limit in samples
+            if limit and estimate > int(limit * 0.70)
+        ),
+        None,
+    )
+    if unsafe is not None:
+        device, limit = unsafe
         raise MemoryError(
             "estimated training working set exceeds 70% of JAX's device memory "
             f"limit ({estimate / 2**30:.2f} GiB estimated, "
-            f"{limit / 2**30:.2f} GiB limit). Reduce bucket_min_capacity, "
+            f"{limit / 2**30:.2f} GiB limit on selected device {device}). "
+            "Reduce "
+            "bucket_min_capacity, "
             "tile_batch_size, max_gaussians_per_tile, patch_size, or SH degree."
         )
     return estimate
@@ -426,15 +455,11 @@ def _check_distributed_bucket_transition_memory_budget(
     old_capacity: int,
     new_capacity: int,
     *,
+    devices: Sequence[jax.Device] | None = None,
     image_height: int | None = None,
     image_width: int | None = None,
 ) -> int:
-    """Preflight a whole-world bucket transition against the memory limit.
-
-    Every shard grows through the single-process rules, so the world needs
-    roughly ``world_size`` times the single-shard transition, and the resize
-    materializes the shards individually on top of the still-live world.
-    """
+    """Preflight mapped per-device or host-stacked world resize memory."""
 
     if world_size <= 0:
         raise ValueError("world_size must be positive")
@@ -442,37 +467,79 @@ def _check_distributed_bucket_transition_memory_budget(
         config,
         old_capacity,
         new_capacity,
+        render_capacity=world_size * new_capacity,
         image_height=image_height,
         image_width=image_width,
     )
-    estimate = world_size * per_shard
-    bytes_in_use, limit = _training._device_memory_usage()
-    resize_allocation = (
-        world_size * _training_state_bytes(config, new_capacity) + 256 * 2**20
-    )
-    projected = max(estimate, bytes_in_use + resize_allocation)
+    if devices is None:
+        estimate = world_size * per_shard
+        resize_allocation = (
+            world_size * _training_state_bytes(config, new_capacity)
+            + 256 * 2**20
+        )
+    else:
+        estimate = per_shard
+        resize_allocation = (
+            _training_state_bytes(config, new_capacity) + 256 * 2**20
+        )
+    samples = _device_memory_samples(devices)
+    projections = [
+        (device, max(estimate, bytes_in_use + resize_allocation), limit)
+        for device, bytes_in_use, limit in samples
+    ]
+    projected = max(value for _, value, _ in projections)
     print(
         f"estimated_distributed_transition_peak={projected / 2**30:.2f}GiB "
         f"world_size={world_size} "
         f"capacity_growth={old_capacity}->{new_capacity}",
         flush=True,
     )
-    if limit and projected > int(limit * 0.70):
+    unsafe = next(
+        (
+            (device, value, limit)
+            for device, value, limit in projections
+            if limit and value > int(limit * 0.70)
+        ),
+        None,
+    )
+    if unsafe is not None:
+        device, device_projected, limit = unsafe
         raise MemoryError(
             "distributed bucket growth was stopped before allocation because "
             "the world's old and new training states would exceed 70% of "
-            f"JAX's device-memory limit ({projected / 2**30:.2f} GiB "
-            f"projected, {limit / 2**30:.2f} GiB limit). Lower the logical "
-            "capacity, bucket minimum, SH degree, or the world size per "
-            "device."
+            f"JAX's device-memory limit ({device_projected / 2**30:.2f} GiB "
+            f"projected, {limit / 2**30:.2f} GiB limit on selected device "
+            f"{device}). Lower "
+            "the logical capacity, bucket minimum, SH degree, or the world "
+            "size per device."
         )
     return projected
 
 
-def _device_memory_usage() -> tuple[int, int]:
-    stats = jax.devices()[0].memory_stats() or {}
+def _device_memory_usage(
+    device: jax.Device | None = None,
+) -> tuple[int, int]:
+    if device is None:
+        device = jax.devices()[0]
+    stats = device.memory_stats() or {}
     return int(stats.get("bytes_in_use", 0) or 0), int(
         stats.get("bytes_limit", 0) or 0
+    )
+
+
+def _device_memory_samples(
+    devices: Sequence[jax.Device] | None,
+) -> tuple[tuple[jax.Device, int, int], ...]:
+    if devices is None:
+        device = jax.devices()[0]
+        bytes_in_use, limit = _training._device_memory_usage()
+        return ((device, bytes_in_use, limit),)
+    selected = tuple(devices)
+    if not selected:
+        raise ValueError("devices must not be empty")
+    return tuple(
+        (device, *_training._device_memory_usage(device))
+        for device in selected
     )
 
 
@@ -482,24 +549,41 @@ def _check_evaluation_memory_budget(
     physical_capacity: int,
     width: int,
     height: int,
+    devices: Sequence[jax.Device] | None = None,
 ) -> int:
     """Check a full-resolution evaluation against live training allocations."""
 
     workspace = estimate_rasterization_memory_bytes(
         physical_capacity, width, height, config.rasterizer
     )
-    bytes_in_use, limit = _training._device_memory_usage()
-    projected = bytes_in_use + workspace
+    samples = _device_memory_samples(devices)
+    projections = [
+        (device, bytes_in_use + workspace, limit)
+        for device, bytes_in_use, limit in samples
+    ]
+    projected = max(value for _, value, _ in projections)
     print(
         f"estimated_evaluation_peak={projected / 2**30:.2f}GiB "
         f"storage_capacity={physical_capacity} resolution={width}x{height}",
         flush=True,
     )
-    if limit and projected > int(limit * 0.70):
+    unsafe = next(
+        (
+            (device, value, limit)
+            for device, value, limit in projections
+            if limit and value > int(limit * 0.70)
+        ),
+        None,
+    )
+    if unsafe is not None:
+        device, device_projected, limit = unsafe
         raise MemoryError(
             "full-resolution evaluation was stopped because live training "
             "state plus the render workspace would exceed 70% of JAX's "
-            "device-memory limit. Lower eval frequency, image resolution, "
-            "max_intersections, max_gaussians_per_tile, or tile_batch_size."
+            f"device-memory limit on selected device {device} "
+            f"({device_projected / 2**30:.2f} GiB projected, "
+            f"{limit / 2**30:.2f} GiB limit). Lower eval frequency, image "
+            "resolution, max_intersections, max_gaussians_per_tile, or "
+            "tile_batch_size."
         )
     return projected

@@ -81,6 +81,24 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     assert visible_resume is None
 
 
+def test_train_cli_forwards_local_device_distributed_mode(monkeypatch):
+    captured = {}
+
+    def fake_train(config, *, resume_from=None, distributed=False):
+        captured["config"] = config
+        captured["resume_from"] = resume_from
+        captured["distributed"] = distributed
+        return SimpleNamespace(checkpoint="unused")
+
+    monkeypatch.setattr(cli_module, "train", fake_train)
+    args = cli_module.build_parser().parse_args(["train", "--distributed"])
+
+    args.func(args)
+
+    assert captured["resume_from"] is None
+    assert captured["distributed"] is True
+
+
 def test_train_cli_uses_current_main_mcmc_profile(monkeypatch):
     captured = {}
 

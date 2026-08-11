@@ -294,9 +294,15 @@ def _save_render(path: Path, image: jax.Array) -> None:
 
 
 def train(
-    config: TrainConfig, *, resume_from: str | Path | None = None
+    config: TrainConfig,
+    *,
+    resume_from: str | Path | None = None,
+    distributed: bool = False,
 ) -> TrainingResult:
     """Train with compact active prefixes and bucketed physical storage."""
+
+    if distributed:
+        return _training.train_distributed(config, resume_from=resume_from)
 
     world_size = jax.process_count()
     if world_size != 1:

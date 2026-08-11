@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Hashable, Sequence
 from pathlib import Path
 import sys
 from typing import Any, NamedTuple
@@ -14,6 +15,7 @@ from ..capacity import (
     _distributed_local_capacity,
     _distributed_world_size,
     resize_distributed_training_state,
+    resize_training_state,
 )
 from ..config import TrainConfig
 from ..model import GaussianModel
@@ -136,6 +138,49 @@ class DistributedCapacityDecision(NamedTuple):
     new_capacity: int
 
 
+def make_distributed_resize_step(
+    config: TrainConfig,
+    *,
+    axis_name: Hashable = "rank",
+    devices: Sequence[jax.Device] | None = None,
+) -> Callable[
+    [GaussianModel, nnx.Optimizer, StrategyState, int],
+    tuple[GaussianModel, nnx.Optimizer, StrategyState],
+]:
+    """Map one shard resize over the devices that own the training world.
+
+    A model returned by ``nnx.pmap`` carries a rank-partitioned leading axis.
+    Unstacking, resizing, and restacking it on the host loses that placement,
+    so the next mapped train step rejects the replicated arrays. Keeping the
+    ordinary single-shard resize inside the same mapped axis preserves the
+    placement while changing the static per-shard capacity.
+    """
+
+    @nnx.pmap(
+        in_axes=(0, 0, 0, None),
+        out_axes=(0, 0, 0),
+        static_broadcasted_argnums=(3,),
+        axis_name=axis_name,
+        devices=devices,
+    )
+    def resize_step(
+        model: GaussianModel,
+        optimizer: nnx.Optimizer,
+        strategy_state: StrategyState,
+        new_capacity: int,
+    ) -> tuple[GaussianModel, nnx.Optimizer, StrategyState]:
+        return resize_training_state(
+            model,
+            optimizer,
+            strategy_state,
+            new_capacity,
+            config.model,
+            config.optimizer,
+        )
+
+    return resize_step
+
+
 def synchronize_distributed_capacity(
     config: TrainConfig,
     model: GaussianModel,
@@ -145,6 +190,12 @@ def synchronize_distributed_capacity(
     *,
     image_height: int | None = None,
     image_width: int | None = None,
+    devices: Sequence[jax.Device] | None = None,
+    resize_step: Callable[
+        [GaussianModel, nnx.Optimizer, StrategyState, int],
+        tuple[GaussianModel, nnx.Optimizer, StrategyState],
+    ]
+    | None = None,
 ) -> tuple[
     GaussianModel, nnx.Optimizer, StrategyState, DistributedCapacityDecision
 ]:
@@ -154,12 +205,14 @@ def synchronize_distributed_capacity(
     preflight and post-update ``refine_*_required_capacity`` across ranks with
     ``pmax`` and reports the overflow kind, and this reads those metrics and
     applies the same bucket rule the single-process trainer uses, growing all
-    shards together so the world keeps one static capacity. The next call of
-    the mapped step retraces for the new shapes on its own.
+    shards together so the world keeps one static capacity. A live ``pmap``
+    caller passes ``resize_step=make_distributed_resize_step(...)`` to retain
+    rank placement and ``devices`` so every selected device is preflighted;
+    the fallback is for unplaced host-stacked/vmap state.
 
-    Growing changes every shard checkpoint's ``local_capacity``, so an exact
-    restore cannot cross the growth boundary; doing so requires the explicit
-    distributed checkpoint reshard path.
+    An exact restore rebuilds the checkpoint's recorded ``local_capacity``;
+    restoring directly into a differently shaped target instead requires the
+    explicit distributed checkpoint reshard path.
 
     Raises ``RuntimeError`` when the requirement cannot be met at
     ``max_capacity``, because replaying the frozen step at an unchanged
@@ -215,17 +268,24 @@ def synchronize_distributed_capacity(
         world_size,
         local_capacity,
         target_capacity,
+        devices=devices,
         image_height=image_height,
         image_width=image_width,
     )
-    model, optimizer, strategy_state = resize_distributed_training_state(
-        model,
-        optimizer,
-        strategy_state,
-        target_capacity,
-        config.model,
-        config.optimizer,
-    )
+    if resize_step is None:
+        model, optimizer, strategy_state = resize_distributed_training_state(
+            model,
+            optimizer,
+            strategy_state,
+            target_capacity,
+            config.model,
+            config.optimizer,
+        )
+    else:
+        model, optimizer, strategy_state = resize_step(
+            model, optimizer, strategy_state, target_capacity
+        )
+    _training._block_nnx_state(model, optimizer, strategy_state)
     return model, optimizer, strategy_state, DistributedCapacityDecision(
         True, skip_overflow, local_capacity, target_capacity
     )
