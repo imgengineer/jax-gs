@@ -177,6 +177,10 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     sparse_args.func(sparse_args)
     visible_args = parser.parse_args(["train", "--visible-adam"])
     visible_args.func(visible_args)
+    pallas_args = parser.parse_args(
+        ["train", "--compositor-backend", "pallas"]
+    )
+    pallas_args.func(pallas_args)
 
     sparse_config, sparse_resume = captured[0]
     assert sparse_config.packed
@@ -188,6 +192,9 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     assert not visible_config.sparse_grad
     assert visible_config.visible_adam
     assert visible_resume is None
+    pallas_config, pallas_resume = captured[2]
+    assert pallas_config.rasterizer.compositor_backend == "pallas"
+    assert pallas_resume is None
 
 
 def test_train_cli_forwards_local_device_distributed_mode(monkeypatch):

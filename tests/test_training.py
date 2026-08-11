@@ -32,6 +32,7 @@ from jax_gs.training import (
     _initial_storage_capacity,
     estimate_bucket_transition_memory_bytes,
     estimate_training_memory_bytes,
+    make_distributed_train_step,
     make_render_step,
     make_train_step,
     TrainingSafetyState,
@@ -1970,13 +1971,159 @@ def test_default_train_step_still_rejects_eval3d_screen_statistics():
         )
 
 
-def test_train_step_rejects_the_forward_only_pallas_compositor():
-    with pytest.raises(NotImplementedError, match="forward-only"):
+def test_train_step_accepts_the_pallas_compositor():
+    assert callable(
         make_train_step(
             TrainConfig(
                 rasterizer=RasterizationConfig(compositor_backend="pallas")
             )
         )
+    )
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        (
+            TrainConfig(
+                rasterizer=RasterizationConfig(compositor_backend="pallas"),
+                strategy=StrategyConfig(absgrad=True),
+            ),
+            "AbsGrad",
+        ),
+        (
+            TrainConfig(
+                model_type="2dgs",
+                rasterizer=RasterizationConfig(compositor_backend="pallas"),
+            ),
+            "3DGS",
+        ),
+        (
+            TrainConfig(
+                with_ut=True,
+                with_eval3d=True,
+                strategy=StrategyConfig(kind="mcmc"),
+                rasterizer=RasterizationConfig(compositor_backend="pallas"),
+            ),
+            "Eval3D",
+        ),
+    ],
+)
+def test_train_step_rejects_unsupported_pallas_modes(config, message):
+    with pytest.raises(NotImplementedError, match=message):
+        make_train_step(config)
+
+
+def test_distributed_train_step_rejects_the_pallas_compositor():
+    with pytest.raises(NotImplementedError, match="distributed"):
+        make_distributed_train_step(
+            TrainConfig(
+                rasterizer=RasterizationConfig(compositor_backend="pallas")
+            ),
+            world_size=2,
+        )
+
+
+@pytest.mark.parametrize("interpret", [True, False], ids=["interpret", "native"])
+def test_pallas_train_step_matches_jax(monkeypatch, interpret):
+    if interpret:
+        import importlib
+
+        from jax_gs._pallas import rasterize_to_pixels_pallas
+
+        rasterization_module = importlib.import_module("jax_gs.rasterization")
+        monkeypatch.setattr(
+            rasterization_module,
+            "rasterize_to_pixels_pallas",
+            lambda *args, **kwargs: rasterize_to_pixels_pallas(
+                *args, **kwargs, interpret=True
+            ),
+        )
+    else:
+        device = jax.devices()[0]
+        try:
+            compute_capability = float(
+                getattr(device, "compute_capability", 0.0)
+            )
+        except (TypeError, ValueError):
+            compute_capability = 0.0
+        if device.platform != "gpu" or compute_capability < 9.0:
+            pytest.skip("native Pallas training requires a supported GPU")
+    points = np.asarray(
+        [[0.0, 0.0, 3.0], [0.2, 0.0, 3.0], [-0.2, 0.1, 3.0]],
+        np.float32,
+    )
+    colors = np.asarray(
+        [[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8
+    )
+    images = jnp.linspace(0.0, 1.0, 8 * 8 * 3, dtype=jnp.float32).reshape(
+        1, 8, 8, 3
+    )
+    intrinsics = jnp.asarray(
+        [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]],
+        jnp.float32,
+    )
+    viewmats = jnp.eye(4, dtype=jnp.float32)[None]
+
+    def run(compositor_backend):
+        config = TrainConfig(
+            model=ModelConfig(
+                capacity=4,
+                bucket_min_capacity=4,
+                sh_degree=0,
+                initial_scale=0.2,
+            ),
+            optimizer=OptimizerConfig(max_steps=2),
+            strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
+            data=DataConfig(root="unused", patch_size=8, batch_size=1),
+            rasterizer=RasterizationConfig(
+                backend="intersections",
+                compositor_backend=compositor_backend,
+                tile_size=8,
+                max_gaussians_per_tile=8,
+                max_intersections=64,
+            ),
+            ssim_lambda=0.0,
+            steps=1,
+            eval_every=0,
+            checkpoint_every=0,
+        )
+        model = GaussianModel.from_point_cloud(points, colors, config.model)
+        optimizer = create_optimizer(model, config.optimizer)
+        strategy_state = DefaultStrategy(config.strategy).initialize_state(4)
+        metrics = make_train_step(config)(
+            model,
+            optimizer,
+            strategy_state,
+            TrainingSafetyState(),
+            images,
+            intrinsics,
+            viewmats,
+            jax.random.key(0),
+            jnp.asarray(0),
+        )
+        return (
+            metrics,
+            _snapshot_array_state(model, optimizer, strategy_state),
+            int(optimizer.step[...]),
+        )
+
+    expected_metrics, expected_state, expected_step = run("jax")
+    actual_metrics, actual_state, actual_step = run("pallas")
+
+    assert expected_step == actual_step == 1
+    np.testing.assert_allclose(
+        actual_metrics["loss"], expected_metrics["loss"], rtol=2e-5, atol=2e-6
+    )
+    for actual_node, expected_node in zip(
+        actual_state, expected_state, strict=True
+    ):
+        for actual_leaf, expected_leaf in zip(
+            actual_node, expected_node, strict=True
+        ):
+            np.testing.assert_allclose(
+                actual_leaf, expected_leaf, rtol=5e-4, atol=2e-5
+            )
 
 
 @pytest.mark.parametrize(
@@ -2215,6 +2362,40 @@ def test_memory_estimate_accounts_for_dense_projection_camera_batch():
     assert estimate_training_memory_bytes(double) > estimate_training_memory_bytes(
         single
     )
+
+
+def test_pallas_memory_estimate_accounts_for_intersection_gradients():
+    config = TrainConfig(
+        model=ModelConfig(capacity=32, bucket_min_capacity=32, sh_degree=0),
+        data=DataConfig(root="unused", patch_size=16),
+        rasterizer=RasterizationConfig(
+            backend="intersections",
+            max_intersections=64,
+        ),
+    )
+    larger_jax = replace(
+        config,
+        rasterizer=replace(config.rasterizer, max_intersections=128),
+    )
+    pallas = replace(
+        config,
+        rasterizer=replace(
+            config.rasterizer, compositor_backend="pallas"
+        ),
+    )
+    larger_pallas = replace(
+        pallas,
+        rasterizer=replace(pallas.rasterizer, max_intersections=128),
+    )
+
+    jax_growth = estimate_training_memory_bytes(
+        larger_jax
+    ) - estimate_training_memory_bytes(config)
+    pallas_growth = estimate_training_memory_bytes(
+        larger_pallas
+    ) - estimate_training_memory_bytes(pallas)
+
+    assert pallas_growth - jax_growth == (128 - 64) * 9 * 4
 
 
 def test_memory_estimate_accounts_for_distributed_appearance_mlp_workspace():

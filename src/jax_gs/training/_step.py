@@ -733,10 +733,23 @@ def _make_train_step(
     distributed_scene_scale: float = 1.0,
 ) -> Callable[..., dict[str, jax.Array]]:
     if config.rasterizer.compositor_backend == "pallas":
-        raise NotImplementedError(
-            "the experimental Pallas compositor is forward-only; "
-            "training requires compositor_backend='jax'"
-        )
+        if distributed_world_size > 1:
+            raise NotImplementedError(
+                "Pallas compositor training does not yet support distributed "
+                "Gaussian shards"
+            )
+        if config.model_type != "3dgs":
+            raise NotImplementedError(
+                "Pallas compositor training currently supports 3DGS only"
+            )
+        if config.strategy.absgrad:
+            raise NotImplementedError(
+                "Pallas compositor training does not yet support AbsGrad"
+            )
+        if config.with_eval3d:
+            raise NotImplementedError(
+                "Pallas compositor training does not yet support Eval3D"
+            )
     plan = _plan_train_step(
         config, distributed_world_size=distributed_world_size
     )

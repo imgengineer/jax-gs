@@ -204,12 +204,18 @@ def estimate_rasterization_memory_bytes(
     tile_height = math.ceil(height / rasterizer.tile_size)
     tile_count = tile_width * tile_height
     projection = capacity * 64
-    compositing = (
-        min(rasterizer.tile_batch_size, tile_count)
-        * rasterizer.max_gaussians_per_tile
-        * rasterizer.tile_size**2
-        * (32 + channels * 4)
-    )
+    if rasterizer.compositor_backend == "pallas":
+        pixel_count = math.ceil(rasterizer.tile_size**2 / 128) * 128
+        # Render, alpha, and reverse-mode transmittance tile buffers. Count the
+        # residual conservatively even when no gradient is requested.
+        compositing = tile_count * pixel_count * (channels + 2) * 4
+    else:
+        compositing = (
+            min(rasterizer.tile_batch_size, tile_count)
+            * rasterizer.max_gaussians_per_tile
+            * rasterizer.tile_size**2
+            * (32 + channels * 4)
+        )
     intersections = 0
     tile_scan = 0
     if rasterizer.backend != "reference":
@@ -314,17 +320,22 @@ def estimate_training_memory_bytes(
     )
     strategy_bytes = physical_capacity * (3 * 4 + 1)
     tile_pixels = config.rasterizer.tile_size**2
-    raster_workspace = (
-        config.rasterizer.tile_batch_size
-        * config.rasterizer.max_gaussians_per_tile
-        * tile_pixels
-        * 64
-    )
+    tile_width = math.ceil(render_width / config.rasterizer.tile_size)
+    tile_height = math.ceil(render_height / config.rasterizer.tile_size)
+    render_tiles = tile_width * tile_height
+    if config.rasterizer.compositor_backend == "pallas":
+        pixel_count = math.ceil(tile_pixels / 128) * 128
+        raster_workspace = render_tiles * pixel_count * 5 * 4
+    else:
+        raster_workspace = (
+            config.rasterizer.tile_batch_size
+            * config.rasterizer.max_gaussians_per_tile
+            * tile_pixels
+            * 64
+        )
     intersection_workspace = 0
+    intersection_capacity = 0
     if config.rasterizer.backend != "reference":
-        tile_width = math.ceil(render_width / config.rasterizer.tile_size)
-        tile_height = math.ceil(render_height / config.rasterizer.tile_size)
-        render_tiles = tile_width * tile_height
         intersection_capacity = config.rasterizer.max_intersections
         if intersection_capacity is None:
             intersection_capacity = max(
@@ -340,6 +351,10 @@ def estimate_training_memory_bytes(
             )
         # Padded ids plus conservative temporary storage for lexicographic sort.
         intersection_workspace = intersection_capacity * 96
+    if config.rasterizer.compositor_backend == "pallas":
+        # The backward kernel emits race-free per-intersection gradients for
+        # mean (2), conic (3), RGB (3), and opacity (1) before owner scatter.
+        raster_workspace += intersection_capacity * 9 * 4
     ut_workspace = 0
     if config.with_ut or config.with_eval3d:
         ut_workspace = (

@@ -33,6 +33,17 @@ def _inputs():
     return means, conics, colors, opacities, offsets, flatten_ids, background
 
 
+def _supports_native_pallas():
+    device = jax.devices()[0]
+    try:
+        compute_capability = float(
+            getattr(device, "compute_capability", 0.0)
+        )
+    except (TypeError, ValueError):
+        compute_capability = 0.0
+    return device.platform == "gpu" and compute_capability >= 9.0
+
+
 def _reference(max_candidates_per_tile):
     means, conics, colors, opacities, offsets, flatten_ids, background = _inputs()
     return rasterize_to_pixels(
@@ -99,6 +110,88 @@ def test_pallas_compositor_preserves_candidate_bound_overflow_semantics():
         np.asarray(expected[2]["tile_overflow"][0]),
     )
     assert bool(actual[2]["overflow"])
+
+
+@pytest.mark.parametrize("max_candidates_per_tile", [1, 5])
+@pytest.mark.parametrize("interpret", [True, False], ids=["interpret", "native"])
+def test_pallas_compositor_backward_matches_pure_jax(
+    max_candidates_per_tile, interpret,
+):
+    if not interpret and not _supports_native_pallas():
+        pytest.skip("native Pallas compositing requires a supported GPU")
+    inputs = _inputs()
+    # Gaussian 1 appears in both tiles, exercising the post-kernel scatter-add.
+    flatten_ids = inputs[5].at[3].set(1)
+    render_cotangent = jnp.linspace(
+        -0.7, 0.9, 8 * 4 * 3, dtype=jnp.float32
+    ).reshape(4, 8, 3)
+    alpha_cotangent = jnp.linspace(
+        0.6, -0.4, 8 * 4, dtype=jnp.float32
+    ).reshape(4, 8, 1)
+
+    def loss(compositor, means, conics, colors, opacities, background):
+        if compositor == "jax":
+            rendered, alphas, _ = rasterize_to_pixels(
+                means[None, ...],
+                conics[None, ...],
+                colors[None, ...],
+                opacities[None, ...],
+                8,
+                4,
+                4,
+                inputs[4][None, ...],
+                flatten_ids,
+                backgrounds=background[None, ...],
+                valid_count=jnp.asarray(5, jnp.int32),
+                max_gaussians_per_tile=2,
+                max_candidates_per_tile=max_candidates_per_tile,
+                return_info=True,
+            )
+            rendered, alphas = rendered[0], alphas[0]
+        else:
+            rendered, alphas, _ = rasterize_to_pixels_pallas(
+                means,
+                conics,
+                colors,
+                opacities,
+                8,
+                4,
+                4,
+                inputs[4],
+                flatten_ids,
+                backgrounds=background,
+                valid_count=jnp.asarray(5, jnp.int32),
+                max_gaussians_per_tile=2,
+                max_candidates_per_tile=max_candidates_per_tile,
+                interpret=interpret,
+            )
+        return jnp.sum(rendered * render_cotangent) + jnp.sum(
+            alphas * alpha_cotangent
+        )
+
+    differentiable_inputs = (
+        inputs[0].at[0].set(jnp.asarray([0.5, 0.5], jnp.float32)),
+        inputs[1],
+        inputs[2],
+        inputs[3].at[0].set(jnp.asarray(0.9999, jnp.float32)),
+        inputs[6],
+    )
+    expected = jax.jit(
+        jax.value_and_grad(
+            lambda *args: loss("jax", *args), argnums=(0, 1, 2, 3, 4)
+        )
+    )(*differentiable_inputs)
+    actual = jax.jit(
+        jax.value_and_grad(
+            lambda *args: loss("pallas", *args), argnums=(0, 1, 2, 3, 4)
+        )
+    )(*differentiable_inputs)
+
+    np.testing.assert_allclose(actual[0], expected[0], rtol=2e-6, atol=2e-7)
+    for actual_gradient, expected_gradient in zip(actual[1], expected[1]):
+        np.testing.assert_allclose(
+            actual_gradient, expected_gradient, rtol=2e-5, atol=2e-6
+        )
 
 
 def test_pallas_compositor_rejects_native_cpu_lowering():

@@ -201,6 +201,14 @@ def _train_command(args: argparse.Namespace) -> None:
                 config.rasterizer, backend=args.rasterizer_backend
             ),
         )
+    if args.compositor_backend is not None:
+        config = replace(
+            config,
+            rasterizer=replace(
+                config.rasterizer,
+                compositor_backend=args.compositor_backend,
+            ),
+        )
     if args.intersection_backend is not None:
         config = replace(
             config,
@@ -580,6 +588,14 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument(
         "--rasterizer-backend",
         choices=("auto", "jax", "intersections", "reference"),
+    )
+    train_parser.add_argument(
+        "--compositor-backend",
+        choices=("jax", "pallas"),
+        help=(
+            "compositor used for forward and reverse mode; Pallas training "
+            "requires a single NVIDIA Hopper-or-newer GPU"
+        ),
     )
     train_parser.add_argument(
         "--intersection-backend",

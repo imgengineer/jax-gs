@@ -133,7 +133,7 @@ def _parser() -> argparse.ArgumentParser:
         "--compositor-backend",
         choices=("jax", "pallas"),
         default="jax",
-        help="forward compositor implementation",
+        help="forward/reverse compositor implementation",
     )
     parser.add_argument(
         "--intersection-backend",
@@ -500,6 +500,7 @@ def _estimated_peak_bytes(
     k: int,
     tile_batch: int,
     backend: str,
+    compositor_backend: str,
     max_intersections: int | None,
     backward: bool,
 ) -> int:
@@ -510,8 +511,9 @@ def _estimated_peak_bytes(
     projection = capacity * 64
     tile_scan = tile_batch * capacity * 16 if backend == "reference" else 0
     intersection_workspace = 0
+    intersection_capacity = 0
+    tile_count = math.ceil(width / tile_size) * math.ceil(height / tile_size)
     if backend != "reference":
-        tile_count = math.ceil(width / tile_size) * math.ceil(height / tile_size)
         intersection_capacity = max_intersections
         if intersection_capacity is None:
             intersection_capacity = max(
@@ -519,7 +521,11 @@ def _estimated_peak_bytes(
                 min(tile_count * (k + 1), max(k + 1, capacity * 8)),
             )
         intersection_workspace = intersection_capacity * 96
-    compositing = tile_batch * k * tile_size * tile_size * 32
+    if compositor_backend == "pallas":
+        pixel_count = math.ceil(tile_size**2 / 128) * 128
+        compositing = tile_count * pixel_count * 5 * 4
+    else:
+        compositing = tile_batch * k * tile_size * tile_size * 32
     outputs = width * height * 20
     forward = (
         inputs
@@ -529,7 +535,12 @@ def _estimated_peak_bytes(
         + compositing
         + outputs
     )
-    return forward * (5 if backward else 2)
+    pallas_backward = (
+        intersection_capacity * 9 * 4
+        if backward and compositor_backend == "pallas"
+        else 0
+    )
+    return forward * (5 if backward else 2) + pallas_backward
 
 
 def _memory_stats(device: jax.Device) -> dict[str, int]:
@@ -603,8 +614,6 @@ def _validate_safety(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         parser.error("--active cannot exceed --capacity")
     if args.radius_clip < 0.0:
         parser.error("--radius-clip cannot be negative")
-    if args.backward and args.compositor_backend == "pallas":
-        parser.error("the experimental Pallas compositor is forward-only")
     if args.gsplat_v153_garden_profile:
         if args.npz is None:
             parser.error("--gsplat-v153-garden-profile requires --npz")
@@ -653,6 +662,7 @@ def main(argv: list[str] | None = None) -> int:
         k=args.k,
         tile_batch=args.tile_batch,
         backend=args.backend,
+        compositor_backend=args.compositor_backend,
         max_intersections=args.max_intersections,
         backward=args.backward,
     )

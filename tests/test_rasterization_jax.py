@@ -1,11 +1,27 @@
+import importlib
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from jax_gs._pallas import rasterize_to_pixels_pallas
 from jax_gs.config import RasterizationConfig
 from jax_gs.intersections import intersect_tiles
 from jax_gs.rasterization import rasterization, rasterization_inria_wrapper
+
+rasterization_module = importlib.import_module("jax_gs.rasterization")
+
+
+def _supports_native_pallas():
+    device = jax.devices()[0]
+    try:
+        compute_capability = float(
+            getattr(device, "compute_capability", 0.0)
+        )
+    except (TypeError, ValueError):
+        compute_capability = 0.0
+    return device.platform == "gpu" and compute_capability >= 9.0
 
 
 def _scene():
@@ -1910,14 +1926,7 @@ def _render_with_candidate_bound(bound, *, compositor_backend="jax"):
 
 
 def test_pallas_compositor_matches_the_high_level_jax_forward():
-    device = jax.devices()[0]
-    try:
-        compute_capability = float(
-            getattr(device, "compute_capability", 0.0)
-        )
-    except (TypeError, ValueError):
-        compute_capability = 0.0
-    if device.platform != "gpu" or compute_capability < 9.0:
+    if not _supports_native_pallas():
         pytest.skip("native Pallas compositing requires a supported GPU")
     expected = _render_with_candidate_bound(None)
     actual = jax.jit(
@@ -1932,6 +1941,90 @@ def test_pallas_compositor_matches_the_high_level_jax_forward():
         np.asarray(actual[2]["tile_overflow"]),
         np.asarray(expected[2]["tile_overflow"]),
     )
+
+
+@pytest.mark.parametrize("interpret", [True, False], ids=["interpret", "native"])
+def test_pallas_compositor_matches_high_level_jax_gradients(
+    monkeypatch, interpret,
+):
+    if interpret:
+        monkeypatch.setattr(
+            rasterization_module,
+            "rasterize_to_pixels_pallas",
+            lambda *args, **kwargs: rasterize_to_pixels_pallas(
+                *args, **kwargs, interpret=True
+            ),
+        )
+    elif not _supports_native_pallas():
+        pytest.skip("native Pallas compositing requires a supported GPU")
+    means, quats, scales, opacities, colors, viewmats, Ks = _scene()
+    viewmats = jnp.stack(
+        (viewmats[0], viewmats[0].at[0, 3].set(0.08)), axis=0
+    )
+    Ks = jnp.broadcast_to(Ks, (2, 3, 3))
+    quats = quats.at[:3].set(
+        jnp.asarray(
+            [[0.98, 0.10, 0.05, 0.0], [0.96, 0.0, 0.18, 0.05], [1, 0, 0, 0]],
+            jnp.float32,
+        )
+    )
+    scales = scales.at[:3].set(
+        jnp.asarray(
+            [[0.12, 0.08, 0.10], [0.09, 0.14, 0.11], [0.08, 0.10, 0.13]],
+            jnp.float32,
+        )
+    )
+    render_cotangent = jnp.linspace(
+        -0.5, 0.7, 2 * 32 * 32 * 3, dtype=jnp.float32
+    ).reshape(2, 32, 32, 3)
+    alpha_cotangent = jnp.linspace(
+        0.4, -0.3, 2 * 32 * 32, dtype=jnp.float32
+    ).reshape(2, 32, 32, 1)
+
+    def loss(
+        compositor_backend, means, quats, scales, opacities, colors, viewmats
+    ):
+        rendered, alphas, _ = rasterization(
+            means,
+            quats,
+            scales,
+            opacities,
+            colors,
+            viewmats,
+            Ks,
+            32,
+            32,
+            active_mask=jnp.array([True, True, True, False]),
+            config=RasterizationConfig(
+                backend="intersections",
+                compositor_backend=compositor_backend,
+                tile_size=16,
+                max_gaussians_per_tile=1,
+                max_intersections=64,
+                tile_batch_size=1,
+            ),
+        )
+        return jnp.sum(rendered * render_cotangent) + jnp.sum(
+            alphas * alpha_cotangent
+        )
+
+    inputs = (means, quats, scales, opacities, colors, viewmats)
+    expected = jax.jit(
+        jax.value_and_grad(
+            lambda *args: loss("jax", *args), argnums=(0, 1, 2, 3, 4, 5)
+        )
+    )(*inputs)
+    actual = jax.jit(
+        jax.value_and_grad(
+            lambda *args: loss("pallas", *args), argnums=(0, 1, 2, 3, 4, 5)
+        )
+    )(*inputs)
+
+    np.testing.assert_allclose(actual[0], expected[0], rtol=2e-5, atol=2e-6)
+    for actual_gradient, expected_gradient in zip(actual[1], expected[1]):
+        np.testing.assert_allclose(
+            actual_gradient, expected_gradient, rtol=5e-4, atol=2e-5
+        )
 
 
 def test_pallas_compositor_rejects_eval3d():

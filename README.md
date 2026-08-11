@@ -1,6 +1,6 @@
 # jax-gs
 
-基于 pure JAX、Flax NNX 和 Grain 的可微 Gaussian Splatting 实现。当前兼容目标已升级并固定到 gsplat [`main@2b902ff`](https://github.com/nerfstudio-project/gsplat/tree/2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c)（2026-07-24），并按渲染、稀疏可见性、传感器、场景/动态、损失/推理、训练集成等子系统分阶段迁移；已实现能力、明确边界和最终验收状态见下面的「已实现」与「当前验收与明确边界」两节。默认的投影、可见项压缩、tile intersection、排序、前向 compositing 和反向传播均由普通 JAX primitives 表达，同一数值路径可由 XLA 在 CPU 或 CUDA GPU 上执行。另有一个显式 opt-in、仅用于 3DGS 前向推理的 Pallas/Mosaic GPU compositor；它不改变默认训练路径，也不依赖项目自带的原生扩展或 FFI。
+基于 pure JAX、Flax NNX 和 Grain 的可微 Gaussian Splatting 实现。当前兼容目标已升级并固定到 gsplat [`main@2b902ff`](https://github.com/nerfstudio-project/gsplat/tree/2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c)（2026-07-24），并按渲染、稀疏可见性、传感器、场景/动态、损失/推理、训练集成等子系统分阶段迁移；已实现能力、明确边界和最终验收状态见下面的「已实现」与「当前验收与明确边界」两节。默认的投影、可见项压缩、tile intersection、排序、前向 compositing 和反向传播均由普通 JAX primitives 表达，同一数值路径可由 XLA 在 CPU 或 CUDA GPU 上执行。另有一个显式 opt-in、带自定义反向的 Pallas/Mosaic GPU 3DGS compositor；它仍不改变默认训练路径，也不依赖项目自带的原生扩展或 FFI。
 
 核心设计是分桶的固定 shape 参数池：`ModelConfig.capacity` 默认是 1,000,000 个高斯的逻辑上限，可配置到硬上限 10,000,000；`GaussianModel.capacity` 则是当前实际分配的物理 bucket。物理 bucket 默认从 65,536 开始，按 2 倍增长到逻辑上限。在同一个 bucket 内，增密、分裂、重定位和裁剪只更新槽内容与 `active_mask`，active Gaussian 数量变化不会触发 JIT；跨 bucket 时参数、Adam moment 和策略状态一起扩容，相关 JIT 函数为新的 bucket shape 各编译一次，随后继续复用。全状态 active-prefix compaction 只在 checkpoint 前执行，不再在每次 refine 后搬运完整模型与 Adam。图像尺寸、tile 大小、候选上限、相机模型和输出通道仍是静态编译维度。
 
@@ -10,7 +10,7 @@
 - 参数分组 Optax Adam、inactive 槽梯度屏蔽；所有 Gaussian 参数组按 current-main 的有效 batch `B=batch_size*world_size` 使用 `lr*sqrt(B)`、`eps/sqrt(B)` 和线性缩放 beta，means 学习率再乘训练坐标中的 `scene_scale`。训练器会把本地 batch 与归一化场景 extent 接入 optimizer，resume 无条件校验 batch size；`B>10` 会像上游 PyTorch Adam 一样因无效负 beta1 而提前拒绝。appearance 的 Gaussian `features`/`colors` 各自使用 `sh0_lr` 参数组。`sparse_grad` 使用带 bias correction 的 row-selective Optax Adam，`visible_adam` 使用 current-main SelectiveAdam 的 uncorrected moments。两者都保留 dense 参数/moment 存储、只更新当步可见行，并让全局 optimizer/schedule counter 前进；refine/MCMC 通过固定长度 indexed scatter 只清新分配或重定位槽的 moment，opacity reset 只清 opacity moment。
 - Default 与 MCMC 桶内固定槽策略，包含增密、split/clone、prune、relocate、opacity reset、checkpoint 前 active-prefix compaction、同步扩容和容量溢出报告；duplicate/split/relocate/birth、resize 与 compaction 会同步复制或重排当前启用的 SH 或 appearance 颜色表示。Default 支持同一父高斯在 current-main 条件下同时 duplicate 与 split，并从原始父槽快照执行两个事件；默认每次 refine 最多新增 8192。与 upstream 一致，`refine_stop` 之后统计累加、refine 和 opacity reset 全部停止。
 - 纯 JAX 3DGS EWA 投影、固定容量 visible packing、tile-intersection 构建、排序和多通道 forward/backward alpha compositing。
-- 实验性 `RasterizationConfig.compositor_backend="pallas"` 用一个 Mosaic GPU program 处理一个 tile，并按该 tile 的真实候选数执行动态循环；projection、intersection、排序与 overflow 仍是 JAX。它目前只支持 NVIDIA Hopper 或更新架构上的 float32 3DGS 前向，不提供反向、训练、AbsGrad、2DGS、Eval3D 或 reference backend；默认仍是 `"jax"`。
+- 实验性 `RasterizationConfig.compositor_backend="pallas"` 用一个 Mosaic GPU program 处理一个 tile，并按该 tile 的真实候选数执行动态循环；projection、intersection、排序与 overflow 仍是 JAX。自定义 VJP 在 tile 内逆序重算响应并输出 per-intersection 梯度，再由 JAX scatter-add 回 Gaussian 行。它支持 NVIDIA Hopper 或更新架构上的 float32、单设备 3DGS reverse-mode 训练；AbsGrad、distributed training、2DGS、Eval3D、reference backend、JVP 与高阶梯度仍不支持，默认仍是 `"jax"`。
 - 普通 EWA 3DGS 默认执行 pure-JAX opacity-aware SNUGBOX + AccuTile 精确 count/emit；缺少 conic/opacity、UT/畸变/2DGS 或显式选择 `aabb` 时使用保守 AABB 候选。
 - 固定容量 intersection 使用 JAX tuple sort；padding 使用 sentinel，运行时 `valid_count` 限定有效前缀并生成每个 tile 的 offsets。
 - dense projection 后使用固定容量 visible packing；只有保留的可见项进入 SH、intersection、排序和 compositor，超出容量会显式报告 `visible_overflow`。
@@ -61,7 +61,7 @@
 - `shard_camera_batch()` 将一条 `world_size × B` host 相机流按序分给各 rank，并校验所有 collated 字段的相机轴；`make_distributed_render_step()`/`reduce_distributed_render()` 则按上游语义让每个 Gaussian shard 共同渲染同一评估相机，只由指定 rank 保留输出，并校验各 rank 的 gathered-scene 结果一致。
 - `capacity.reshard_distributed_training_state()` 在步骤之间把 active Gaussian 的全局 rank-order 序列按连续块重新分配到目标 world；每行 Adam moment 与 densification state 随 Gaussian 迁移，sticky safety state 用 OR/max 归并。目标 world 会新建匹配其有效 batch 的 optimizer graph/tx，再载入 step 与 per-row moments；源 rank step 不一致会拒绝。`restore_distributed_checkpoint(..., allow_reshard=True)` 复用同一路径，并要求调用方预先按目标 world/batch/scene-scale/config/kind 构造 optimizer。
 - `train(config, distributed=True)` 与 `jax-gs train --distributed` 已把 camera deal、replicated pose/Appearance、mapped train、raster/refinement overflow 扩容重放、mapped eval 和 distributed exact checkpoint/resume 串成单进程多本地设备流程。当前 stacked host state 要求一台主机可寻址全部 shard，因此多进程/multi-host 仍在创建输出前明确拒绝；后者需要 per-process shard ownership、全局 manifest/barrier 和 local/global replica 语义，不能仅放开 `jax.process_count()`。
-- 当前迁移以 API、数值语义和工程可读性为优先目标；Pallas 只覆盖前向 compositor，appearance 与训练反向尚未做专用 kernel，因此不宣称与 upstream gsplat 训练性能等价。Pallas 已做 RTX 5090 定向数值/吞吐验收，完整 GPU 安全脚本仍待串行重跑。
+- 当前迁移以 API、数值语义和工程可读性为优先目标；Pallas 已覆盖 3DGS compositor 的前向与一阶反向，但 projection、intersection、排序、optimizer 及其它模型仍使用 JAX，因此不宣称与 upstream gsplat 端到端训练性能等价。Pallas 已做 RTX 5090 定向数值/吞吐及真实 NNX train-step 验收，完整 GPU 安全脚本仍待串行重跑。
 
 ## 环境
 
@@ -82,7 +82,7 @@ uv run python -c "import jax; print(jax.devices())"
 | `jax` / `intersections` | 与 `auto` 相同；保留显式名称便于配置迁移和对照 |
 | `reference` | 调试/对照路径；每个 tile 扫描完整 Gaussian 物理 bucket 后执行 `top_k`，通常最慢 |
 
-`RasterizationConfig.compositor_backend` 独立选择 intersections 路径末端的 alpha compositor：`"jax"` 是默认、可微且跨 CPU/GPU 的实现；`"pallas"` 是实验性的 Mosaic GPU 前向实现。后者要求 NVIDIA Hopper 或更新架构，按真实 per-tile 候选数执行，不使用 JAX compositor 的 `tile_batch_size` 静态分组；`max_candidates_per_tile` 与 `max_gaussians_per_tile` 的容量取整和 overflow 语义仍保持一致。它与 `backend="reference"`、2DGS、Eval3D、AbsGrad 和训练明确互斥。CLI 可用 `jax-gs render CHECKPOINT --compositor-backend pallas` 显式启用；CPU、训练或需要梯度时继续使用默认 JAX 路径。Pallas 仍是 [JAX 官方标记为 experimental 的 API](https://docs.jax.dev/en/latest/pallas/quickstart.html)，因此没有设为默认值。
+`RasterizationConfig.compositor_backend` 独立选择 intersections 路径末端的 alpha compositor：`"jax"` 是默认、可微且跨 CPU/GPU 的实现；`"pallas"` 是实验性的 Mosaic GPU 前向/反向实现。后者要求 NVIDIA Hopper 或更新架构与 float32，按真实 per-tile 候选数执行，不使用 JAX compositor 的 `tile_batch_size` 静态分组；`max_candidates_per_tile` 与 `max_gaussians_per_tile` 的容量取整和 overflow 语义仍保持一致。它与 `backend="reference"`、2DGS、Eval3D 和 AbsGrad 明确互斥；训练还要求单设备，且只提供 reverse-mode VJP。CLI 可用 `jax-gs render CHECKPOINT --compositor-backend pallas` 或 `jax-gs train --compositor-backend pallas` 显式启用。Pallas 仍是 [JAX 官方标记为 experimental 的 API](https://docs.jax.dev/en/latest/pallas/quickstart.html)，因此没有设为默认值，CPU 与其它组合继续使用 JAX 路径。
 
 旧配置中的 `backend="cutile"`、`intersection_backend="cutile"` 或 `sort_backend="cutile"` 会发出弃用警告并归一化为 `"jax"`；更早的 `backend="cuda_ffi"`、`intersection_backend="pallas"` 和 `sort_backend="cuda_ffi"` 也会在加载时迁移到 JAX。新的 Pallas compositor 使用独立字段 `compositor_backend="pallas"`，不会把旧 intersection backend 的含义复活。这个兼容入口只负责读取已有配置，不会加载旧依赖。
 
@@ -259,17 +259,16 @@ Grain/KD-tree worker 默认 4 个，也可通过 `--num-workers` 配置为更大
 
 下面记录的是本机 compositor 调优的实测状态，只用于本仓库自己的回归对比。除非另行说明，测量条件都是 RTX 5090、JAX 0.11.0、合成场景 20 万高斯、640×360、`--k 512 --tile-batch 64 --max-intersections 65536`，warmup 之后取热运行的最小值，梯度目标为全部五组参数。测量时 GPU 上不能有其它进程：有竞争时反向会被抬高到 1.2–1.7 倍，而且实现越依赖显存带宽越敏感。
 
-2026-08-11 增加了 opt-in Pallas/Mosaic 前向 compositor。下面三组在同一张空闲 RTX 5090 上各 warmup 10 次，报告 50 次（前两组）或 30 次（20 万组）完整 `rasterization()` forward 的平均值；计时包含 projection、intersection、排序和 compositing，不包含 JIT。两种 backend 使用相同输入、容量和 overflow 检查：
+2026-08-11 增加了 opt-in Pallas/Mosaic compositor 及其自定义 VJP。下面两组在同一张空闲 RTX 5090 上运行完整 `rasterization()`；计时包含 projection、intersection、排序、compositing 以及反向所需的全部 JAX scatter，不包含 JIT。10k/200k 的 intersection buffer 分别为 500,000/2,000,000；两种 backend 使用相同输入、容量和 overflow 检查，`max_candidates_per_tile` 取恰好覆盖最忙 tile 的最小值，避免拿 Pure JAX 的空转配置夸大倍数。10k 组 warmup 8 次、报告 30 次热运行均值，200k 组 warmup 5 次、报告 20 次：
 
-| 场景 | intersections / 最忙 tile | Pure JAX | Pallas | 整体加速 |
-|---|---:|---:|---:|---:|
-| 2,048 高斯，128×128，intersection 32,768 | 3,696 / 86 | 0.697 ms | 0.403 ms | 1.73× |
-| 10,000 高斯，640×360，intersection 262,144 | 61,970 / 116 | 3.969 ms | 0.848 ms | 4.68× |
-| 200,000 高斯，640×360，intersection 2,097,152 | 1,237,085 / 1,846 | 9.030 ms | 2.722 ms | 3.32× |
+| 场景 | intersections / 最忙 tile | JAX forward | Pallas forward | JAX `value_and_grad` | Pallas `value_and_grad` | 反向整体加速 |
+|---|---:|---:|---:|---:|---:|---:|
+| 10,000 高斯，640×360 | 61,970 / 116 | 3.403 ms | 1.051 ms | 10.722 ms | 3.408 ms | 3.15× |
+| 200,000 高斯，640×360 | 1,237,085 / 1,846 | 13.036 ms | 3.668 ms | 43.802 ms | 11.559 ms | 3.79× |
 
-三组都没有 intersection/tile overflow。20 万高斯压力组中，Pallas 与 JAX 的 RGB 最大绝对差为 `5.36e-7`、相对 L2 为 `6.81e-8`；alpha 分别为 `8.34e-7` 与 `1.53e-7`，来自逐候选与分块累加顺序不同。Pallas 的收益来自每个 tile 只循环真实候选数，避免 Pure JAX 静态 chunk loop 的步数地板；当前没有 Pallas backward，因此这些数字只代表渲染/评估前向，**不代表训练提速**。训练仍使用下面记录的 Pure JAX/autodiff 路径。
+两组都没有 intersection/tile overflow，loss 在报告精度内逐位相同。10k 组的 JAX/Pallas `peak_bytes_in_use` 分别约 263/74 MiB；200k 组约 298/297 MiB，此时 projection、排序和完整输入已主导共同基线。低层测试同时覆盖 means2d、conics、colors、opacities、background 五组梯度、重复 Gaussian 的跨 tile 累加、clamp/padding 与候选溢出；高层两相机对拍再覆盖 means、quaternion、scale 和 viewmat 链路，原生 NNX train-step 的模型、Adam 与策略状态均在设定容差内对齐。Pallas 的收益来自每个 tile 只循环真实候选数，并在反向用最终透射率逆序重算而不保存 candidate×pixel 残差。
 
-**这个 65,536 的配置是溢出的**：该场景实际需要 1,237,085 个 intersection，所以它只是一个循环开销的 microbenchmark，不是质量等价的渲染，`intersection_overflow=True`。凡是从它推出来的「最忙 tile 有多满」一类结论都只对截断后的 buffer 成立。不溢出要 `--max-intersections 2097152`，那时最忙 tile 是 1,846 个候选。两种配置下的相对加速都成立，因为对比双方配置相同。
+**下文早期 pure-JAX 记录里的 65,536 配置是溢出的**：该场景实际需要 1,237,085 个 intersection，所以它只是一个循环开销的 microbenchmark，不是质量等价的渲染，`intersection_overflow=True`。凡是从它推出来的「最忙 tile 有多满」一类结论都只对截断后的 buffer 成立。不溢出要 `--max-intersections 2097152`，那时最忙 tile 是 1,846 个候选。上面的 Pallas 表使用不溢出的容量。
 
 compositing 之外的阶段合计只占前向 0.44 ms（projection 0.12、SH 0.02、intersect+sort 0.30），所以调优一直集中在 compositor。当前状态：
 
@@ -465,7 +464,7 @@ gsplat CUDA 的 `packed` projection、tile intersections 和 pixel hits 使用�
 - 3D 高层 `packed=True` 在 intersections、reference 和 eval3d 路径都返回固定 `P=B*C*N` 的全局有效前缀、IDs、`indptr` 和重映射后的实际 compositor intersection metadata；2DGS 也返回跨 leading batch 的全局 packed 前缀与 metadata。
 - `sparse_grad` 的 renderer 参数梯度与 optimizer storage 仍为 dense fixed-bucket arrays，并报告 `sparse_grad_is_dense=True`；其 row-selective Adam 保留 bias correction，`visible_adam` 则使用 uncorrected moments。3D signed densification 使用 projected-means probe；2DGS 的 forward-zero `gradient_2dgs` 通过 ray-transform densify probe 获得独立 VJP。两者的 true AbsGrad 都由独立零 probe 累加逐像素绝对 cotangent，不用 `abs(signed_gradient)` 近似。
 - active 数量在 bucket 内变化不 retrace；跨 bucket 时训练状态同步扩容，相关 JIT 函数为新的静态 shape 各编译一次。
-- 默认 compositor 模式共享 pure-JAX 数值实现；opt-in Pallas 前向使用同一 alpha/threshold 数学但逐候选累加。不同 backend、设备、XLA 版本和 upstream CUDA reduction order 可能产生小量浮点差异，因此只承诺容差内一致而非逐位一致。
+- 默认 compositor 模式共享 pure-JAX 数值实现；opt-in Pallas 前向和自定义 VJP 使用同一 alpha/threshold 数学但逐候选累加。不同 backend、设备、XLA 版本和 upstream CUDA reduction order 可能产生小量浮点差异，因此只承诺容差内一致而非逐位一致。
 
 当前目标固定到 gsplat `main` 的
 `2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c`（2026-07-24）。该提交后端无关的
