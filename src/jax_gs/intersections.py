@@ -7,6 +7,8 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
+from ._pallas_intersections import count_accutile_intersections_pallas
+
 
 _DIRECT_SORT_MIN_CAPACITY = 65_536
 _GAUSSIAN_EXTEND = 3.33
@@ -566,16 +568,17 @@ def intersect_tiles(
 
     Memory is ``O(N + max_intersections + tile_count)``. When the exact number
     of intersections exceeds ``max_intersections``, the retained prefix is
-    sorted normally and ``overflow`` is set. ``backend`` and ``sort_backend``
-    retain the public call shape while both available values execute pure JAX.
+    sorted normally and ``overflow`` is set. ``backend='pallas'`` replaces
+    only the AccuTile count scan; pair emission, sorting, and offsets
+    deliberately remain in JAX.
     """
 
     tile_size = _static_int("tile_size", tile_size, minimum=1)
     tile_width = _static_int("tile_width", tile_width, minimum=1)
     tile_height = _static_int("tile_height", tile_height, minimum=1)
     capacity = _static_int("max_intersections", max_intersections, minimum=0)
-    if backend not in {"auto", "jax"}:
-        raise ValueError("backend must be 'auto' or 'jax'")
+    if backend not in {"auto", "jax", "pallas"}:
+        raise ValueError("backend must be 'auto', 'jax', or 'pallas'")
     if sort_backend not in {"auto", "jax"}:
         raise ValueError("sort_backend must be 'auto' or 'jax'")
     if mode not in {"auto", "aabb", "accutile"}:
@@ -644,12 +647,20 @@ def intersect_tiles(
                 tile_height=tile_height,
                 alpha_threshold=alpha_threshold,
             )
-            tiles_per_gaussian = _count_accutile_intersections_jax(
-                accutile_state,
-                tile_size=tile_size,
-                tile_width=tile_width,
-                tile_height=tile_height,
-            )
+            if backend == "pallas":
+                tiles_per_gaussian = count_accutile_intersections_pallas(
+                    accutile_state,
+                    tile_size=tile_size,
+                    tile_width=tile_width,
+                    tile_height=tile_height,
+                )
+            else:
+                tiles_per_gaussian = _count_accutile_intersections_jax(
+                    accutile_state,
+                    tile_size=tile_size,
+                    tile_width=tile_width,
+                    tile_height=tile_height,
+                )
         else:
             finite = (
                 jnp.all(jnp.isfinite(means2d), axis=-1)

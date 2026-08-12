@@ -599,7 +599,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax"),
+        choices=("auto", "jax", "pallas"),
+        help="Pallas currently accelerates only the AccuTile count scan",
     )
     train_parser.add_argument(
         "--intersection-mode",
@@ -656,7 +657,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax"),
+        choices=("auto", "jax", "pallas"),
+        help="Pallas currently accelerates only the AccuTile count scan",
     )
     render_parser.add_argument(
         "--intersection-mode",

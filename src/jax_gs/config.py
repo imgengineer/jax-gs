@@ -112,9 +112,9 @@ class RasterizationConfig:
             raise ValueError(
                 "backend must be 'auto', 'jax', 'intersections', or 'reference'"
             )
-        if self.intersection_backend not in {"auto", "jax"}:
+        if self.intersection_backend not in {"auto", "jax", "pallas"}:
             raise ValueError(
-                "intersection_backend must be 'auto' or 'jax'"
+                "intersection_backend must be 'auto', 'jax', or 'pallas'"
             )
         if self.compositor_backend not in {"jax", "pallas"}:
             raise ValueError("compositor_backend must be 'jax' or 'pallas'")
@@ -397,7 +397,6 @@ class TrainConfig:
         rasterizer_values = dict(values.get("rasterizer", {}))
         legacy_backends = {
             "backend": {"cuda_ffi": "jax"},
-            "intersection_backend": {"pallas": "jax"},
             "sort_backend": {"cuda_ffi": "jax"},
         }
         migrated = []

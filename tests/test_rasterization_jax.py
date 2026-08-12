@@ -1982,7 +1982,14 @@ def test_pallas_compositor_matches_high_level_jax_gradients(
     ).reshape(2, 32, 32, 1)
 
     def loss(
-        compositor_backend, means, quats, scales, opacities, colors, viewmats
+        compositor_backend,
+        intersection_backend,
+        means,
+        quats,
+        scales,
+        opacities,
+        colors,
+        viewmats,
     ):
         rendered, alphas, _ = rasterization(
             means,
@@ -1998,6 +2005,7 @@ def test_pallas_compositor_matches_high_level_jax_gradients(
             config=RasterizationConfig(
                 backend="intersections",
                 compositor_backend=compositor_backend,
+                intersection_backend=intersection_backend,
                 tile_size=16,
                 max_gaussians_per_tile=1,
                 max_intersections=64,
@@ -2011,12 +2019,16 @@ def test_pallas_compositor_matches_high_level_jax_gradients(
     inputs = (means, quats, scales, opacities, colors, viewmats)
     expected = jax.jit(
         jax.value_and_grad(
-            lambda *args: loss("jax", *args), argnums=(0, 1, 2, 3, 4, 5)
+            lambda *args: loss("jax", "jax", *args),
+            argnums=(0, 1, 2, 3, 4, 5),
         )
     )(*inputs)
     actual = jax.jit(
         jax.value_and_grad(
-            lambda *args: loss("pallas", *args), argnums=(0, 1, 2, 3, 4, 5)
+            lambda *args: loss(
+                "pallas", "jax" if interpret else "pallas", *args
+            ),
+            argnums=(0, 1, 2, 3, 4, 5),
         )
     )(*inputs)
 

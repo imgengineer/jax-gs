@@ -137,9 +137,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax"),
+        choices=("auto", "jax", "pallas"),
         default="auto",
-        help="intersection rank mapping backend",
+        help=(
+            "intersection backend; Pallas currently replaces the AccuTile "
+            "count scan"
+        ),
     )
     parser.add_argument(
         "--intersection-mode",

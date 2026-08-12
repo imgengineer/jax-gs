@@ -3,7 +3,7 @@ import pytest
 from jax_gs.config import ModelConfig, RasterizationConfig, TrainConfig
 
 
-def test_legacy_gpu_backends_migrate_to_pure_jax():
+def test_legacy_gpu_backends_migrate_without_rewriting_current_pallas():
     with pytest.warns(UserWarning, match="migrated legacy rasterizer settings"):
         config = TrainConfig.from_dict(
             {
@@ -16,7 +16,7 @@ def test_legacy_gpu_backends_migrate_to_pure_jax():
         )
 
     assert config.rasterizer.backend == "jax"
-    assert config.rasterizer.intersection_backend == "jax"
+    assert config.rasterizer.intersection_backend == "pallas"
     assert config.rasterizer.sort_backend == "jax"
 
 
@@ -43,6 +43,11 @@ def test_compositor_backend_accepts_jax_or_pallas_only():
         RasterizationConfig(
             backend="reference", compositor_backend="pallas"
         )
+
+
+def test_intersection_backend_accepts_incremental_pallas_path():
+    config = RasterizationConfig(intersection_backend="pallas")
+    assert config.intersection_backend == "pallas"
 
 
 def test_2dgs_training_config_round_trips_upstream_regularizers(tmp_path):

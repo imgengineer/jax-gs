@@ -691,20 +691,33 @@ def _composite_tiles_bwd(
     safe_ids = jnp.clip(flatten_ids, 0, gaussian_count - 1)
 
     # The same Gaussian can touch many tiles. Accumulate the race-free slot
-    # results outside Pallas so the kernel needs no global atomics.
-    gaussian_cotangents = []
-    for source, slot_cotangent in zip(
-        (means2d, conics, colors, opacities), slot_cotangents
-    ):
-        mask = position_valid.reshape(
-            (input_capacity,) + (1,) * (slot_cotangent.ndim - 1)
-        )
-        slot_cotangent = jnp.where(mask, slot_cotangent, 0.0)
-        gaussian_cotangents.append(
-            jnp.zeros_like(source).at[safe_ids].add(slot_cotangent)
-        )
+    # results outside Pallas so the kernel needs no global atomics. Packing the
+    # four parameter groups makes XLA emit one wide scatter instead of four
+    # separate full-capacity scatters.
+    slot_cotangents = jnp.concatenate(
+        (*slot_cotangents[:-1], slot_cotangents[-1][:, None]), axis=-1
+    )
+    slot_cotangents = jnp.where(
+        position_valid[:, None], slot_cotangents, 0.0
+    )
+    packed_cotangents = jnp.zeros(
+        (gaussian_count, slot_cotangents.shape[-1]), dtype=jnp.float32
+    ).at[safe_ids].add(slot_cotangents)
+    means_cotangent = packed_cotangents[:, :2]
+    conics_cotangent = packed_cotangents[:, 2:5]
+    color_end = 5 + colors.shape[-1]
+    colors_cotangent = packed_cotangents[:, 5:color_end]
+    opacities_cotangent = packed_cotangents[:, color_end]
 
-    return (*gaussian_cotangents, None, None, None)
+    return (
+        means_cotangent,
+        conics_cotangent,
+        colors_cotangent,
+        opacities_cotangent,
+        None,
+        None,
+        None,
+    )
 
 
 _composite_tiles.defvjp(_composite_tiles_fwd, _composite_tiles_bwd)

@@ -732,6 +732,14 @@ def _make_train_step(
     distributed_axis_name: Hashable | None = None,
     distributed_scene_scale: float = 1.0,
 ) -> Callable[..., dict[str, jax.Array]]:
+    if (
+        config.rasterizer.intersection_backend == "pallas"
+        and distributed_world_size > 1
+    ):
+        raise NotImplementedError(
+            "Pallas AccuTile counting does not yet support distributed "
+            "Gaussian shards"
+        )
     if config.rasterizer.compositor_backend == "pallas":
         if distributed_world_size > 1:
             raise NotImplementedError(

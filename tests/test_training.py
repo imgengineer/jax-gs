@@ -1981,6 +1981,16 @@ def test_train_step_accepts_the_pallas_compositor():
     )
 
 
+def test_train_step_accepts_the_pallas_accutile_counter():
+    assert callable(
+        make_train_step(
+            TrainConfig(
+                rasterizer=RasterizationConfig(intersection_backend="pallas")
+            )
+        )
+    )
+
+
 @pytest.mark.parametrize(
     ("config", "message"),
     [
@@ -2019,6 +2029,16 @@ def test_distributed_train_step_rejects_the_pallas_compositor():
         make_distributed_train_step(
             TrainConfig(
                 rasterizer=RasterizationConfig(compositor_backend="pallas")
+            ),
+            world_size=2,
+        )
+
+
+def test_distributed_train_step_rejects_the_pallas_accutile_counter():
+    with pytest.raises(NotImplementedError, match="distributed"):
+        make_distributed_train_step(
+            TrainConfig(
+                rasterizer=RasterizationConfig(intersection_backend="pallas")
             ),
             world_size=2,
         )
@@ -2065,7 +2085,7 @@ def test_pallas_train_step_matches_jax(monkeypatch, interpret):
     )
     viewmats = jnp.eye(4, dtype=jnp.float32)[None]
 
-    def run(compositor_backend):
+    def run(compositor_backend, intersection_backend="jax"):
         config = TrainConfig(
             model=ModelConfig(
                 capacity=4,
@@ -2079,6 +2099,7 @@ def test_pallas_train_step_matches_jax(monkeypatch, interpret):
             rasterizer=RasterizationConfig(
                 backend="intersections",
                 compositor_backend=compositor_backend,
+                intersection_backend=intersection_backend,
                 tile_size=8,
                 max_gaussians_per_tile=8,
                 max_intersections=64,
@@ -2109,7 +2130,9 @@ def test_pallas_train_step_matches_jax(monkeypatch, interpret):
         )
 
     expected_metrics, expected_state, expected_step = run("jax")
-    actual_metrics, actual_state, actual_step = run("pallas")
+    actual_metrics, actual_state, actual_step = run(
+        "pallas", "jax" if interpret else "pallas"
+    )
 
     assert expected_step == actual_step == 1
     np.testing.assert_allclose(
