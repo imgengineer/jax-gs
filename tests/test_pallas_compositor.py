@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import numpy as np
 import pytest
 
@@ -46,21 +48,24 @@ def _supports_native_pallas():
 
 def _reference(max_candidates_per_tile):
     means, conics, colors, opacities, offsets, flatten_ids, background = _inputs()
-    return rasterize_to_pixels(
-        means[None, ...],
-        conics[None, ...],
-        colors[None, ...],
-        opacities[None, ...],
-        8,
-        4,
-        4,
-        offsets[None, ...],
-        flatten_ids,
-        backgrounds=background[None, ...],
-        valid_count=jnp.asarray(5, jnp.int32),
-        max_gaussians_per_tile=2,
-        max_candidates_per_tile=max_candidates_per_tile,
-        return_info=True,
+    return cast(
+        tuple[Any, Any, dict[str, Any]],
+        rasterize_to_pixels(
+            means[None, ...],
+            conics[None, ...],
+            colors[None, ...],
+            opacities[None, ...],
+            8,
+            4,
+            4,
+            offsets[None, ...],
+            flatten_ids,
+            backgrounds=background[None, ...],
+            valid_count=jnp.asarray(5, jnp.int32),
+            max_gaussians_per_tile=2,
+            max_candidates_per_tile=max_candidates_per_tile,
+            return_info=True,
+        ),
     )
 
 
@@ -112,26 +117,55 @@ def test_pallas_compositor_preserves_candidate_bound_overflow_semantics():
     assert bool(actual[2]["overflow"])
 
 
+@pytest.mark.parametrize("channels", [1, 3, 4])
 @pytest.mark.parametrize("max_candidates_per_tile", [1, 5])
 @pytest.mark.parametrize("interpret", [True, False], ids=["interpret", "native"])
 def test_pallas_compositor_backward_matches_pure_jax(
-    max_candidates_per_tile, interpret,
+    channels, max_candidates_per_tile, interpret,
 ):
     if not interpret and not _supports_native_pallas():
         pytest.skip("native Pallas compositing requires a supported GPU")
     inputs = _inputs()
+    if channels == 1:
+        inputs = (
+            inputs[0],
+            inputs[1],
+            inputs[2][:, :1],
+            inputs[3],
+            inputs[4],
+            inputs[5],
+            inputs[6][:1],
+        )
+    elif channels == 4:
+        inputs = (
+            inputs[0],
+            inputs[1],
+            jnp.concatenate(
+                (
+                    inputs[2],
+                    jnp.linspace(0.1, 0.9, 5, dtype=jnp.float32)[:, None],
+                ),
+                axis=-1,
+            ),
+            inputs[3],
+            inputs[4],
+            inputs[5],
+            jnp.concatenate(
+                (inputs[6], jnp.asarray([0.2], dtype=jnp.float32))
+            ),
+        )
     # Gaussian 1 appears in both tiles, exercising the post-kernel scatter-add.
     flatten_ids = inputs[5].at[3].set(1)
     render_cotangent = jnp.linspace(
-        -0.7, 0.9, 8 * 4 * 3, dtype=jnp.float32
-    ).reshape(4, 8, 3)
+        -0.7, 0.9, 8 * 4 * channels, dtype=jnp.float32
+    ).reshape(4, 8, channels)
     alpha_cotangent = jnp.linspace(
         0.6, -0.4, 8 * 4, dtype=jnp.float32
     ).reshape(4, 8, 1)
 
     def loss(compositor, means, conics, colors, opacities, background):
         if compositor == "jax":
-            rendered, alphas, _ = rasterize_to_pixels(
+            result = rasterize_to_pixels(
                 means[None, ...],
                 conics[None, ...],
                 colors[None, ...],
@@ -147,7 +181,7 @@ def test_pallas_compositor_backward_matches_pure_jax(
                 max_candidates_per_tile=max_candidates_per_tile,
                 return_info=True,
             )
-            rendered, alphas = rendered[0], alphas[0]
+            rendered, alphas = result[0][0], result[1][0]
         else:
             rendered, alphas, _ = rasterize_to_pixels_pallas(
                 means,

@@ -610,12 +610,15 @@ def intersect_tiles(
     if (conics is None) != (opacities is None):
         raise ValueError("conics and opacities must be provided together")
     if conics is not None:
-        conics = jax.lax.stop_gradient(jnp.asarray(conics))
-        opacities = jax.lax.stop_gradient(jnp.asarray(opacities))
-        if conics.shape != (gaussian_count, 3):
+        assert opacities is not None
+        conics_array = jax.lax.stop_gradient(jnp.asarray(conics))
+        opacities_array = jax.lax.stop_gradient(jnp.asarray(opacities))
+        if conics_array.shape != (gaussian_count, 3):
             raise ValueError("conics must have shape [N, 3]")
-        if opacities.shape != (gaussian_count,):
+        if opacities_array.shape != (gaussian_count,):
             raise ValueError("opacities must have shape [N]")
+        conics = conics_array
+        opacities = opacities_array
 
     padded_gaussians = jnp.full((capacity,), -1, dtype=jnp.int32)
     padded_tiles = jnp.full((capacity,), -1, dtype=jnp.int32)
@@ -632,6 +635,8 @@ def intersect_tiles(
 
     tight_inputs = conics is not None and opacities is not None
     use_accutile = mode != "aabb" and tight_inputs
+    accutile_state = None
+    min_x = min_y = span_x = None
     if mode == "accutile" and not tight_inputs:
         raise ValueError("mode='accutile' requires conics and opacities")
 
@@ -710,6 +715,7 @@ def intersect_tiles(
         )
 
     if use_accutile:
+        assert accutile_state is not None
         if backend == "pallas":
             with jax.named_scope("intersection_emit_accutile_pallas"):
                 gaussian_ids, tile_ids = emit_accutile_intersections_pallas(
@@ -733,6 +739,9 @@ def intersect_tiles(
                     tile_height=tile_height,
                 )
     else:
+        assert min_x is not None
+        assert min_y is not None
+        assert span_x is not None
         with jax.named_scope("intersection_map_jax"):
             gaussian_ids, tile_ids = _map_intersections_jax(
                 cumulative,
@@ -760,11 +769,23 @@ def intersect_tiles(
         gaussian_ids = jnp.where(output_valid, gaussian_ids, -1).astype(jnp.int32)
         tile_ids = jnp.where(output_valid, tile_keys, -1).astype(jnp.int32)
         with jax.named_scope("intersection_offsets"):
-            offsets = jnp.searchsorted(
-                tile_keys,
-                jnp.arange(tile_count, dtype=jnp.int32),
-                side="left",
-            ).astype(jnp.int32).reshape(tile_height, tile_width)
+            if backend == "pallas" and use_accutile:
+                tile_counts = jnp.bincount(
+                    tile_keys, length=tile_count + 1
+                )
+                offsets = (
+                    jnp.cumsum(tile_counts[:tile_count])
+                    - tile_counts[:tile_count]
+                )
+            else:
+                offsets = jnp.searchsorted(
+                    tile_keys,
+                    jnp.arange(tile_count, dtype=jnp.int32),
+                    side="left",
+                )
+            offsets = offsets.astype(jnp.int32).reshape(
+                tile_height, tile_width
+            )
     else:
         with jax.named_scope("intersection_sort"):
             order = jax.lax.stop_gradient(

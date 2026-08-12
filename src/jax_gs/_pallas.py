@@ -28,6 +28,13 @@ def _static_int(name: str, value: int, *, minimum: int = 0) -> int:
     return value
 
 
+def _static_float(name: str, value: float) -> float:
+    try:
+        return float(value)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be a static real scalar") from exc
+
+
 def _compositor_kernel(
     *,
     gaussian_count: int,
@@ -73,11 +80,11 @@ def _compositor_kernel(
 
         tile_y = tile_id // tile_width
         tile_x = tile_id % tile_width
+        pixel_layout = plgpu.Layout.WG_STRIDED(
+            (pixel_count,), vec_size=1
+        )
         local_pixel = jnp.arange(pixel_count, dtype=jnp.int32)
         if named_grid:
-            pixel_layout = plgpu.Layout.WG_STRIDED(
-                (pixel_count,), vec_size=1
-            )
             local_pixel = plgpu.layout_cast(
                 local_pixel,
                 pixel_layout,
@@ -105,7 +112,11 @@ def _compositor_kernel(
         )
 
         def composite_one(candidate_index, carry):
-            rendered_channels, accumulated_alpha, transmittance = carry
+            (
+                rendered_channels,
+                accumulated_alpha,
+                transmittance,
+            ) = carry
             position = start + candidate_index
             safe_position = jnp.clip(position, 0, input_capacity - 1)
             gaussian_id = flatten_ids_ref[safe_position]
@@ -148,9 +159,11 @@ def _compositor_kernel(
             return rendered_channels, accumulated_alpha, transmittance
 
         iterations = jnp.minimum(candidate_count, per_tile_bound)
-        rendered_channels, accumulated_alpha, transmittance = jax.lax.fori_loop(
-            0, iterations, composite_one, initial
-        )
+        (
+            rendered_channels,
+            accumulated_alpha,
+            transmittance,
+        ) = jax.lax.fori_loop(0, iterations, composite_one, initial)
         for channel, rendered_channel in enumerate(rendered_channels):
             rendered_ref[tile_id, channel, :] = jnp.where(
                 pixel_valid, rendered_channel, 0.0
@@ -201,10 +214,7 @@ def _compositor_backward_kernel(
         final_transmittance_ref,
         rendered_cotangent_ref,
         alpha_cotangent_ref,
-        means_cotangent_ref,
-        conics_cotangent_ref,
-        colors_cotangent_ref,
-        opacities_cotangent_ref,
+        packed_cotangent_ref,
     ):
         tile_id = (
             jax.lax.axis_index(_TILE_AXIS_NAME)
@@ -226,11 +236,11 @@ def _compositor_backward_kernel(
 
         tile_y = tile_id // tile_width
         tile_x = tile_id % tile_width
+        pixel_layout = plgpu.Layout.WG_STRIDED(
+            (pixel_count,), vec_size=1
+        )
         local_pixel = jnp.arange(pixel_count, dtype=jnp.int32)
         if named_grid:
-            pixel_layout = plgpu.Layout.WG_STRIDED(
-                (pixel_count,), vec_size=1
-            )
             local_pixel = plgpu.layout_cast(local_pixel, pixel_layout)
         pixel_x = tile_x * tile_size + local_pixel % tile_size
         pixel_y = tile_y * tile_size + local_pixel // tile_size
@@ -346,30 +356,30 @@ def _compositor_backward_kernel(
                 0.0,
             )
 
-            means_cotangent_ref[position, 0] = jnp.sum(
+            packed_cotangent_ref[position, 0] = jnp.sum(
                 -sigma_cotangent
                 * (conic_x * delta_x + conic_xy * delta_y)
             )
-            means_cotangent_ref[position, 1] = jnp.sum(
+            packed_cotangent_ref[position, 1] = jnp.sum(
                 -sigma_cotangent
                 * (conic_y * delta_y + conic_xy * delta_x)
             )
-            conics_cotangent_ref[position, 0] = jnp.sum(
+            packed_cotangent_ref[position, 2] = jnp.sum(
                 sigma_cotangent * 0.5 * delta_x**2
             )
-            conics_cotangent_ref[position, 1] = jnp.sum(
+            packed_cotangent_ref[position, 3] = jnp.sum(
                 sigma_cotangent * delta_x * delta_y
             )
-            conics_cotangent_ref[position, 2] = jnp.sum(
+            packed_cotangent_ref[position, 4] = jnp.sum(
                 sigma_cotangent * 0.5 * delta_y**2
             )
             for channel, rendered_cotangent in enumerate(
                 rendered_cotangents
             ):
-                colors_cotangent_ref[position, channel] = jnp.sum(
+                packed_cotangent_ref[position, 5 + channel] = jnp.sum(
                     rendered_cotangent * weight
                 )
-            opacities_cotangent_ref[position] = jnp.sum(
+            packed_cotangent_ref[position, 5 + channels] = jnp.sum(
                 opacity_pixel_cotangent
             )
 
@@ -531,12 +541,11 @@ def _run_compositor_backward(
         named_grid=not interpret,
     )
     out_type = (
-        jax.ShapeDtypeStruct((input_capacity, 2), jnp.float32),
-        jax.ShapeDtypeStruct((input_capacity, 3), jnp.float32),
-        jax.ShapeDtypeStruct((input_capacity, channels), jnp.float32),
-        jax.ShapeDtypeStruct((input_capacity,), jnp.float32),
+        jax.ShapeDtypeStruct(
+            (input_capacity, 6 + channels), jnp.float32
+        ),
     )
-    return _launch_compositor_kernel(
+    (packed_cotangents,) = _launch_compositor_kernel(
         kernel,
         out_type,
         (
@@ -555,6 +564,7 @@ def _run_compositor_backward(
         interpret=interpret,
         name="jax_gs_pallas_compositor_backward",
     )
+    return packed_cotangents
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(7, 8, 9, 10, 11, 12, 13))
@@ -609,23 +619,26 @@ def _composite_tiles_fwd(
     transmittance_threshold: float,
     interpret: bool,
 ):
-    rendered, alpha, final_transmittance, overflow = (
-        _run_compositor_forward(
-            means2d,
-            conics,
-            colors,
-            opacities,
-            offsets,
-            flatten_ids,
-            valid_count,
-            image_width=image_width,
-            image_height=image_height,
-            tile_size=tile_size,
-            per_tile_bound=per_tile_bound,
-            alpha_threshold=alpha_threshold,
-            transmittance_threshold=transmittance_threshold,
-            interpret=interpret,
-        )
+    (
+        rendered,
+        alpha,
+        final_transmittance,
+        overflow,
+    ) = _run_compositor_forward(
+        means2d,
+        conics,
+        colors,
+        opacities,
+        offsets,
+        flatten_ids,
+        valid_count,
+        image_width=image_width,
+        image_height=image_height,
+        tile_size=tile_size,
+        per_tile_bound=per_tile_bound,
+        alpha_threshold=alpha_threshold,
+        transmittance_threshold=transmittance_threshold,
+        interpret=interpret,
     )
     residuals = (
         means2d,
@@ -690,19 +703,17 @@ def _composite_tiles_bwd(
     ) & (flatten_ids >= 0)
     safe_ids = jnp.clip(flatten_ids, 0, gaussian_count - 1)
 
-    # The same Gaussian can touch many tiles. Accumulate the race-free slot
-    # results outside Pallas so the kernel needs no global atomics. Packing the
-    # four parameter groups makes XLA emit one wide scatter instead of four
-    # separate full-capacity scatters.
-    slot_cotangents = jnp.concatenate(
-        (*slot_cotangents[:-1], slot_cotangents[-1][:, None]), axis=-1
-    )
-    slot_cotangents = jnp.where(
-        position_valid[:, None], slot_cotangents, 0.0
-    )
+    # The same Gaussian can touch many tiles. Accumulate the race-free packed
+    # slot results outside Pallas so the kernel needs no global atomics and XLA
+    # emits one wide scatter instead of four full-capacity scatters.
+    # Invalid padding used to be zeroed across the full packed width and then
+    # scattered into Gaussian 0. Send those rows to an out-of-bounds sentinel
+    # instead so XLA can drop them without issuing zero-valued atomics. Valid
+    # non-negative IDs keep the existing clipping semantics.
+    scatter_ids = jnp.where(position_valid, safe_ids, gaussian_count)
     packed_cotangents = jnp.zeros(
         (gaussian_count, slot_cotangents.shape[-1]), dtype=jnp.float32
-    ).at[safe_ids].add(slot_cotangents)
+    ).at[scatter_ids].add(slot_cotangents, mode="drop")
     means_cotangent = packed_cotangents[:, :2]
     conics_cotangent = packed_cotangents[:, 2:5]
     color_end = 5 + colors.shape[-1]
@@ -720,7 +731,9 @@ def _composite_tiles_bwd(
     )
 
 
-_composite_tiles.defvjp(_composite_tiles_fwd, _composite_tiles_bwd)
+getattr(_composite_tiles, "defvjp")(
+    _composite_tiles_fwd, _composite_tiles_bwd
+)
 
 
 def rasterize_to_pixels_pallas(
@@ -772,7 +785,7 @@ def rasterize_to_pixels_pallas(
     opacities = jnp.asarray(opacities)
     offsets = jnp.asarray(isect_offsets, jnp.int32)
     flatten_ids = jnp.asarray(flatten_ids, jnp.int32)
-    valid_count = jnp.asarray(valid_count, jnp.int32)
+    valid_count_array = jnp.asarray(valid_count, jnp.int32)
     gaussian_count = means2d.shape[0]
     channels = colors.shape[-1]
     input_capacity = flatten_ids.shape[0]
@@ -789,7 +802,7 @@ def rasterize_to_pixels_pallas(
         raise ValueError("isect_offsets must have shape [tile_height, tile_width]")
     if flatten_ids.ndim != 1:
         raise ValueError("flatten_ids must be one-dimensional")
-    if valid_count.shape != ():
+    if valid_count_array.shape != ():
         raise ValueError("valid_count must be a scalar")
     if any(
         value.dtype != jnp.float32
@@ -804,19 +817,20 @@ def rasterize_to_pixels_pallas(
     ):
         raise ValueError("isect_offsets tile grid does not cover the image")
     if backgrounds is None:
-        backgrounds = jnp.zeros((channels,), jnp.float32)
+        background_array = jnp.zeros((channels,), jnp.float32)
     else:
-        backgrounds = jnp.asarray(backgrounds)
-        if backgrounds.shape != (channels,):
+        background_array = jnp.asarray(backgrounds)
+        if background_array.shape != (channels,):
             raise ValueError("backgrounds must have shape [channels]")
-        if backgrounds.dtype != jnp.float32:
+        if background_array.dtype != jnp.float32:
             raise TypeError(
                 "the Pallas compositor currently requires float32 inputs"
             )
 
     if gaussian_count == 0 or input_capacity == 0:
         rendered = jnp.broadcast_to(
-            backgrounds[None, None, :], (image_height, image_width, channels)
+            background_array[None, None, :],
+            (image_height, image_width, channels),
         )
         alphas = jnp.zeros((image_height, image_width, 1), jnp.float32)
         tile_overflow = jnp.zeros(offsets.shape, jnp.bool_)
@@ -854,13 +868,13 @@ def rasterize_to_pixels_pallas(
         opacities,
         offsets,
         flatten_ids,
-        valid_count,
+        valid_count_array,
         image_width,
         image_height,
         tile_size,
         per_tile_bound,
-        float(alpha_threshold),
-        float(transmittance_threshold),
+        _static_float("alpha_threshold", alpha_threshold),
+        _static_float("transmittance_threshold", transmittance_threshold),
         interpret,
     )
     rendered_tiles = rendered_tiles.transpose(0, 2, 1)[:, :tile_pixel_count]
@@ -878,7 +892,7 @@ def rasterize_to_pixels_pallas(
         .transpose(0, 2, 1, 3)
         .reshape(tile_height * tile_size, tile_width * tile_size, 1)
     )[:image_height, :image_width]
-    rendered = rendered + backgrounds[None, None, :] * (1.0 - alphas)
+    rendered = rendered + background_array[None, None, :] * (1.0 - alphas)
     tile_overflow = tile_overflow.reshape(offsets.shape)
     return rendered, alphas, {
         "tile_overflow": tile_overflow,

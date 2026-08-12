@@ -444,10 +444,11 @@ def emit_accutile_intersections_pallas(
 ) -> tuple[jax.Array, jax.Array]:
     """Emit Gaussian-major AccuTile pairs with a Mosaic output-slot scan.
 
-    JAX resolves each fixed output slot to its owner Gaussian from the count
-    prefix. One Mosaic program then walks the owner ellipse for 128 slots and
-    writes the corresponding Gaussian/tile pairs without a JAX kernel per
-    outer-axis step. Sorting and offset construction remain in JAX.
+    JAX marks each Gaussian's first retained slot and prefix-propagates those
+    owners across the fixed output capacity. One Mosaic program then walks the
+    owner ellipse for 128 slots and writes the corresponding Gaussian/tile
+    pairs without a JAX kernel per outer-axis step. Sorting and offset
+    construction remain in JAX.
     """
 
     if capacity == 0:
@@ -470,15 +471,22 @@ def emit_accutile_intersections_pallas(
 
     gaussian_count = state.valid.shape[0]
     ranks = jnp.arange(capacity, dtype=jnp.int32)
-    owner = jnp.clip(
-        jnp.searchsorted(cumulative, ranks, side="right"),
-        0,
-        gaussian_count - 1,
+    starts = jnp.concatenate(
+        (jnp.zeros((1,), dtype=jnp.int32), cumulative[:-1])
     )
-    previous = jnp.where(
-        owner > 0, cumulative[jnp.maximum(owner - 1, 0)], 0
+    safe_starts = jnp.clip(starts, 0, capacity - 1)
+    owner_markers = jnp.zeros((capacity,), dtype=jnp.int32).at[
+        safe_starts
+    ].max(
+        jnp.where(
+            starts < valid_count,
+            jnp.arange(gaussian_count, dtype=jnp.int32) + 1,
+            0,
+        )
     )
-    local = ranks - previous
+    owner = jax.lax.associative_scan(jnp.maximum, owner_markers) - 1
+    owner = jnp.clip(owner, 0, gaussian_count - 1)
+    local = ranks - starts[owner]
     output_valid = ranks < valid_count
 
     padded_capacity = (
