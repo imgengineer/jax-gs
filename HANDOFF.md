@@ -22,9 +22,18 @@ Phase 3 已实现并完成 CPU 验收。本次提交的改动集中在：
 - `tests/test_training.py`
 - `tests/test_training_distributed.py`
 
-根目录未跟踪的 `CLAUDE.md` 不属于本阶段，除非用户另行确认，不要随 Phase 3 暂存或提交。
+根目录未跟踪的 `CLAUDE.md` 是用户文件，不属于仓库改动；除非用户另行确认，后续提交仍须显式排除。
 
-Phase 3 已以 `498166d feat(training): support distributed appearance` 提交并推送到 `main`。Phase 4 已以 `1e325fc feat(checkpoints): load distributed inference snapshots` 提交并推送到 `main`。Phase 5 的 opt-in Pallas/Mosaic GPU 前向已以 `1ec52d8 perf(rasterizer): add experimental Pallas forward` 提交并推送到 `main`；Phase 6 的 compositor custom VJP、单设备训练与 benchmark 已以 `14f9a60 perf(rasterizer): add Pallas compositor backward` 提交并推送；Phase 7 的 AccuTile count 与合并反向 scatter 已以 `b76d243 perf(rasterizer): add Pallas AccuTile counting` 提交并推送。当前 Phase 8 增量替换 AccuTile pair emission，并隔离评估 Flax HiJAX；仍须排除根目录用户文件 `CLAUDE.md`。
+Phase 3–8 均已提交并推送到 `origin/main`：
+
+- `498166d feat(training): support distributed appearance`
+- `1e325fc feat(checkpoints): load distributed inference snapshots`
+- `1ec52d8 perf(rasterizer): add experimental Pallas forward`
+- `14f9a60 perf(rasterizer): add Pallas compositor backward`
+- `b76d243 perf(rasterizer): add Pallas AccuTile counting`
+- `19cd7c1 perf(rasterizer): add Pallas AccuTile emission`
+
+Phase 8 的实现基线是已推送的 `19cd7c1`；该阶段已完成 AccuTile pair emission 的增量替换和 Flax HiJAX 隔离评估。
 
 Phase 8 不改 projection、geometry state、prefix/searchsorted、sort、offsets、默认 pure-JAX 路径或 checkpoint schema。`_pallas_intersections.py` 现在负责 AccuTile count 与固定输出槽 pair-emission scan；`_pallas.py` 仍只把原有四次 Gaussian scatter 合并为一次宽 scatter。
 
@@ -164,7 +173,8 @@ Flax 0.12.8 的实验性 HiJAX 只做了隔离探针，没有保留半成品入�
 
 - CPU 相关整文件回归：AccuTile/intersection/config/storage/rasterization/training/CLI 共 243 passed、4 个 native-only skip；加强后的 overflow/padding scan 定向用例随后再次通过。
 - RTX 5090：AccuTile/Pallas/rasterization/training 定向选择 21 passed；真实 garden 的 Pallas emit 与 Phase 7 JAX emit 做了上述同进程交错 A/B，并额外确认完整 JAX 与完整 Pallas 的 render/alpha/排序 intersection metadata 精确相同。
-- 尚未重跑完整 CPU/GPU safe script；提交前以最终实际回归结果更新本节，不把定向结果写成全套验收。
+- `compileall`、`git diff --check` 与提交前暂存清单检查通过；Phase 8 提交只包含实现、接线、测试和文档，没有带入 `CLAUDE.md`。
+- Phase 8 未重跑完整 CPU/GPU safe script；最近一次完整 CPU safe-script 证据仍是 Phase 7。上述 243/21 是 Phase 8 的相关 CPU/GPU 定向验收，不应描述成完整 GPU 回归。
 
 ## 后续迁移顺序
 
