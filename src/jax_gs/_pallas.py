@@ -63,6 +63,8 @@ def _compositor_kernel(
         rendered_ref,
         alpha_ref,
         transmittance_ref,
+        last_accepted_ref,
+        accepted_transmittance_ref,
         overflow_ref,
     ):
         tile_id = (
@@ -109,6 +111,8 @@ def _compositor_kernel(
             tuple(pixel_fill(0.0) for _ in range(channels)),
             pixel_fill(0.0),
             pixel_fill(1.0),
+            pixel_fill(-1.0),
+            pixel_fill(1.0),
         )
 
         def composite_one(candidate_index, carry):
@@ -116,6 +120,8 @@ def _compositor_kernel(
                 rendered_channels,
                 accumulated_alpha,
                 transmittance,
+                last_accepted,
+                accepted_transmittance,
             ) = carry
             position = start + candidate_index
             safe_position = jnp.clip(position, 0, input_capacity - 1)
@@ -156,13 +162,30 @@ def _compositor_kernel(
             )
             accumulated_alpha = accumulated_alpha + weight
             transmittance = transmittance * (1.0 - alpha)
-            return rendered_channels, accumulated_alpha, transmittance
+            contributed = valid & accepted
+            last_accepted = jnp.where(
+                contributed,
+                candidate_index.astype(jnp.float32),
+                last_accepted,
+            )
+            accepted_transmittance = jnp.where(
+                contributed, transmittance, accepted_transmittance
+            )
+            return (
+                rendered_channels,
+                accumulated_alpha,
+                transmittance,
+                last_accepted,
+                accepted_transmittance,
+            )
 
         iterations = jnp.minimum(candidate_count, per_tile_bound)
         (
             rendered_channels,
             accumulated_alpha,
             transmittance,
+            last_accepted,
+            accepted_transmittance,
         ) = jax.lax.fori_loop(0, iterations, composite_one, initial)
         for channel, rendered_channel in enumerate(rendered_channels):
             rendered_ref[tile_id, channel, :] = jnp.where(
@@ -173,6 +196,12 @@ def _compositor_kernel(
         )
         transmittance_ref[tile_id, :] = jnp.where(
             pixel_valid, transmittance, 1.0
+        )
+        last_accepted_ref[tile_id, :] = jnp.where(
+            pixel_valid, last_accepted.astype(jnp.int32), -1
+        )
+        accepted_transmittance_ref[tile_id, :] = jnp.where(
+            pixel_valid, accepted_transmittance, 1.0
         )
         overflow_ref[tile_id] = candidate_count > per_tile_bound
 
@@ -211,7 +240,8 @@ def _compositor_backward_kernel(
         offsets_ref,
         flatten_ids_ref,
         valid_count_ref,
-        final_transmittance_ref,
+        accepted_transmittance_ref,
+        last_accepted_ref,
         rendered_cotangent_ref,
         alpha_cotangent_ref,
         packed_cotangent_ref,
@@ -228,9 +258,7 @@ def _compositor_backward_kernel(
             valid_count_ref[...],
         )
         candidate_count = jnp.maximum(end - start, 0)
-        # Walk the stored overflow tail too, writing explicit zero gradients
-        # for candidates that the bounded forward pass did not render.
-        iterations = jnp.minimum(
+        stored_iterations = jnp.minimum(
             candidate_count, jnp.maximum(input_capacity - start, 0)
         )
 
@@ -267,8 +295,14 @@ def _compositor_backward_kernel(
             for channel in range(channels)
         )
         alpha_cotangent = pixel_cast(alpha_cotangent_ref[tile_id, :])
+        last_accepted = pixel_cast(last_accepted_ref[tile_id, :])
+        tile_last_accepted = jnp.max(last_accepted)
+        iterations = jnp.minimum(
+            stored_iterations,
+            jnp.maximum(tile_last_accepted + 1, 0),
+        )
         initial = (
-            pixel_cast(final_transmittance_ref[tile_id, :]),
+            pixel_cast(accepted_transmittance_ref[tile_id, :]),
             pixel_fill(0.0),
         )
 
@@ -301,6 +335,7 @@ def _compositor_backward_kernel(
             alpha_valid = (
                 candidate_valid
                 & pixel_valid
+                & (candidate_index <= last_accepted)
                 & (jnp.abs(sigma) <= jnp.finfo(jnp.float32).max)
                 & (sigma >= 0.0)
                 & (clamped_alpha >= alpha_threshold)
@@ -477,6 +512,8 @@ def _run_compositor_forward(
         ),
         jax.ShapeDtypeStruct((tile_count, pixel_count), jnp.float32),
         jax.ShapeDtypeStruct((tile_count, pixel_count), jnp.float32),
+        jax.ShapeDtypeStruct((tile_count, pixel_count), jnp.int32),
+        jax.ShapeDtypeStruct((tile_count, pixel_count), jnp.float32),
         jax.ShapeDtypeStruct((tile_count,), jnp.bool_),
     )
     return _launch_compositor_kernel(
@@ -505,7 +542,8 @@ def _run_compositor_backward(
     offsets,
     flatten_ids,
     valid_count,
-    final_transmittance,
+    accepted_transmittance,
+    last_accepted,
     rendered_cotangent,
     alpha_cotangent,
     *,
@@ -522,7 +560,7 @@ def _run_compositor_backward(
     tile_height, tile_width = offsets.shape
     tile_count = tile_height * tile_width
     tile_pixel_count = tile_size * tile_size
-    pixel_count = final_transmittance.shape[-1]
+    pixel_count = accepted_transmittance.shape[-1]
     channels = colors.shape[-1]
     kernel = _compositor_backward_kernel(
         gaussian_count=gaussian_count,
@@ -556,7 +594,8 @@ def _run_compositor_backward(
             offsets.reshape(-1),
             flatten_ids,
             valid_count,
-            final_transmittance,
+            accepted_transmittance,
+            last_accepted,
             rendered_cotangent,
             alpha_cotangent,
         ),
@@ -584,7 +623,7 @@ def _composite_tiles(
     transmittance_threshold: float,
     interpret: bool,
 ):
-    rendered, alpha, _, overflow = _run_compositor_forward(
+    rendered, alpha, _, _, _, overflow = _run_compositor_forward(
         means2d,
         conics,
         colors,
@@ -622,7 +661,9 @@ def _composite_tiles_fwd(
     (
         rendered,
         alpha,
-        final_transmittance,
+        _,
+        last_accepted,
+        accepted_transmittance,
         overflow,
     ) = _run_compositor_forward(
         means2d,
@@ -648,7 +689,8 @@ def _composite_tiles_fwd(
         offsets,
         flatten_ids,
         valid_count,
-        final_transmittance,
+        last_accepted,
+        accepted_transmittance,
     )
     return (rendered, alpha, overflow), residuals
 
@@ -672,7 +714,8 @@ def _composite_tiles_bwd(
         offsets,
         flatten_ids,
         valid_count,
-        final_transmittance,
+        last_accepted,
+        accepted_transmittance,
     ) = residuals
     rendered_cotangent, alpha_cotangent, _ = cotangents
     slot_cotangents = _run_compositor_backward(
@@ -683,7 +726,8 @@ def _composite_tiles_bwd(
         offsets,
         flatten_ids,
         valid_count,
-        final_transmittance,
+        accepted_transmittance,
+        last_accepted,
         rendered_cotangent,
         alpha_cotangent,
         image_width=image_width,
@@ -697,6 +741,26 @@ def _composite_tiles_bwd(
 
     input_capacity = flatten_ids.shape[0]
     gaussian_count = means2d.shape[0]
+    positions = jnp.arange(input_capacity, dtype=jnp.int32)
+    tile_starts = offsets.reshape(-1)
+    tile_count = tile_starts.shape[0]
+    tile_ends = jnp.concatenate(
+        (tile_starts[1:], jnp.reshape(valid_count, (1,)))
+    )
+    tile_lengths = jnp.maximum(tile_ends - tile_starts, 0)
+    written_lengths = jnp.minimum(
+        jnp.minimum(tile_lengths, per_tile_bound),
+        jnp.maximum(jnp.max(last_accepted, axis=-1) + 1, 0),
+    )
+    slot_owner = jnp.searchsorted(tile_starts, positions, side="right") - 1
+    safe_owner = jnp.clip(slot_owner, 0, tile_count - 1)
+    rendered_slots = (
+        (slot_owner >= 0)
+        & (positions - tile_starts[safe_owner] < written_lengths[safe_owner])
+    )
+    slot_cotangents = jnp.where(
+        rendered_slots[:, None], slot_cotangents, 0.0
+    )
     position_valid = (
         jnp.arange(input_capacity, dtype=jnp.int32)
         < jnp.clip(valid_count, 0, input_capacity)
@@ -709,7 +773,7 @@ def _composite_tiles_bwd(
     # Invalid padding used to be zeroed across the full packed width and then
     # scattered into Gaussian 0. Send those rows to an out-of-bounds sentinel
     # instead so XLA can drop them without issuing zero-valued atomics. Valid
-    # non-negative IDs keep the existing clipping semantics.
+    # positive IDs keep the existing clipping semantics.
     scatter_ids = jnp.where(position_valid, safe_ids, gaussian_count)
     packed_cotangents = jnp.zeros(
         (gaussian_count, slot_cotangents.shape[-1]), dtype=jnp.float32

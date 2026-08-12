@@ -181,6 +181,10 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
         ["train", "--compositor-backend", "pallas"]
     )
     pallas_args.func(pallas_args)
+    cuda_ffi_args = parser.parse_args(
+        ["train", "--compositor-backend", "cuda_ffi"]
+    )
+    cuda_ffi_args.func(cuda_ffi_args)
 
     sparse_config, sparse_resume = captured[0]
     assert sparse_config.packed
@@ -195,6 +199,9 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     pallas_config, pallas_resume = captured[2]
     assert pallas_config.rasterizer.compositor_backend == "pallas"
     assert pallas_resume is None
+    cuda_ffi_config, cuda_ffi_resume = captured[3]
+    assert cuda_ffi_config.rasterizer.compositor_backend == "cuda_ffi"
+    assert cuda_ffi_resume is None
 
 
 def test_train_cli_forwards_local_device_distributed_mode(monkeypatch):

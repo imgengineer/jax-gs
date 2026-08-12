@@ -8,7 +8,11 @@ from the historical v1.5.3 commit
 
 gsplat is Copyright 2023–2025 the Regents of the University of California,
 Nerfstudio Team and contributors, and is distributed under the Apache License
-2.0: https://github.com/nerfstudio-project/gsplat
+2.0: <https://github.com/nerfstudio-project/gsplat>
+
+The optional CUDA/XLA FFI compositor also adapts the gsplat serial-batch CUDA
+architecture carrying Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES,
+licensed under Apache-2.0.
 
 The implementation also follows the equations and conventions of 3D Gaussian
 Splatting and 2D Gaussian Splatting cited by the upstream project. See the

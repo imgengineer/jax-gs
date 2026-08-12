@@ -131,7 +131,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas"),
+        choices=("jax", "pallas", "cuda_ffi"),
         default="jax",
         help="forward/reverse compositor implementation",
     )
@@ -526,7 +526,13 @@ def _estimated_peak_bytes(
         intersection_workspace = intersection_capacity * 96
     if compositor_backend == "pallas":
         pixel_count = math.ceil(tile_size**2 / 128) * 128
-        compositing = tile_count * pixel_count * 5 * 4
+        # RGB plus alpha, pre-update transmittance, last accepted slot, and
+        # accepted transmittance.
+        compositing = tile_count * pixel_count * 7 * 4
+    elif compositor_backend == "cuda_ffi":
+        # Image outputs plus final-transmittance/last-id residuals; Gaussian
+        # gradients are allocated directly by the backward FFI call.
+        compositing = width * height * 8
     else:
         compositing = tile_batch * k * tile_size * tile_size * 32
     outputs = width * height * 20

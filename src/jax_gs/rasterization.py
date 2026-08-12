@@ -826,30 +826,55 @@ def _render_camera_intersections(
     if feature_background is None:
         feature_background = jnp.zeros((features.shape[-1],), dtype=features.dtype)
 
-    if config.compositor_backend == "pallas":
+    if config.compositor_backend in {"pallas", "cuda_ffi"}:
         if absgrad_probe is not None:
             raise NotImplementedError(
-                "the experimental Pallas compositor does not support AbsGrad"
+                "the experimental Pallas and CUDA FFI compositors do not "
+                "support AbsGrad"
             )
-        with jax.named_scope("compositing_pallas"):
-            rendered, alphas, low_info = rasterize_to_pixels_pallas(
-                means2d,
-                conics,
-                features,
-                opacities,
-                width,
-                height,
-                tile_size,
-                intersections.offsets,
-                intersections.gaussian_ids,
-                backgrounds=feature_background,
-                valid_count=intersections.valid_count,
-                overflow=intersections.overflow,
-                max_gaussians_per_tile=config.max_gaussians_per_tile,
-                max_candidates_per_tile=config.max_candidates_per_tile,
-                alpha_threshold=config.alpha_clip,
-                transmittance_threshold=config.transmittance_eps,
-            )
+        with jax.named_scope(f"compositing_{config.compositor_backend}"):
+            if config.compositor_backend == "pallas":
+                rendered, alphas, low_info = rasterize_to_pixels_pallas(
+                    means2d,
+                    conics,
+                    features,
+                    opacities,
+                    width,
+                    height,
+                    tile_size,
+                    intersections.offsets,
+                    intersections.gaussian_ids,
+                    backgrounds=feature_background,
+                    valid_count=intersections.valid_count,
+                    overflow=intersections.overflow,
+                    max_gaussians_per_tile=config.max_gaussians_per_tile,
+                    max_candidates_per_tile=config.max_candidates_per_tile,
+                    alpha_threshold=config.alpha_clip,
+                    transmittance_threshold=config.transmittance_eps,
+                )
+            else:
+                # Keep the native extension, nvcc discovery, and source lookup
+                # fully lazy for ordinary imports and the default JAX path.
+                from ._cuda_ffi import rasterize_to_pixels_cuda_ffi
+
+                rendered, alphas, low_info = rasterize_to_pixels_cuda_ffi(
+                    means2d,
+                    conics,
+                    features,
+                    opacities,
+                    width,
+                    height,
+                    tile_size,
+                    intersections.offsets,
+                    intersections.gaussian_ids,
+                    backgrounds=feature_background,
+                    valid_count=intersections.valid_count,
+                    overflow=intersections.overflow,
+                    max_gaussians_per_tile=config.max_gaussians_per_tile,
+                    max_candidates_per_tile=config.max_candidates_per_tile,
+                    alpha_threshold=config.alpha_clip,
+                    transmittance_threshold=config.transmittance_eps,
+                )
         tile_overflow = low_info["tile_overflow"]
     else:
         with jax.named_scope("compositing_jax"):
@@ -1466,13 +1491,23 @@ def rasterization(
 
     if _means2d_absgrad_probe is not None and not absgrad:
         raise ValueError("_means2d_absgrad_probe requires absgrad=True")
-    if config.compositor_backend == "pallas" and with_eval3d:
+    if config.compositor_backend in {"pallas", "cuda_ffi"} and absgrad:
         raise NotImplementedError(
-            "the experimental Pallas compositor does not support Eval3D"
+            "the experimental Pallas and CUDA FFI compositors do not "
+            "support AbsGrad"
+        )
+    if config.compositor_backend in {"pallas", "cuda_ffi"} and with_eval3d:
+        raise NotImplementedError(
+            "the experimental Pallas and CUDA FFI compositors do not "
+            "support Eval3D"
         )
     if _means2d_absgrad_probe is not None and with_eval3d:
         raise ValueError(
             "_means2d_absgrad_probe is not supported with with_eval3d=True"
+        )
+    if distributed and config.compositor_backend == "cuda_ffi":
+        raise NotImplementedError(
+            "the CUDA FFI compositor does not support distributed rasterization"
         )
     if distributed and sparse_grad:
         raise NotImplementedError(

@@ -591,10 +591,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas"),
+        choices=("jax", "pallas", "cuda_ffi"),
         help=(
-            "compositor used for forward and reverse mode; Pallas training "
-            "requires a single NVIDIA Hopper-or-newer GPU"
+            "compositor used for forward and reverse mode; Pallas requires "
+            "Hopper-or-newer, CUDA FFI requires an NVIDIA GPU and nvcc or "
+            "a prebuilt JAX_GS_CUDA_FFI_LIBRARY"
         ),
     )
     train_parser.add_argument(
@@ -649,10 +650,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas"),
+        choices=("jax", "pallas", "cuda_ffi"),
         help=(
-            "experimental forward compositor; Pallas requires an NVIDIA "
-            "Hopper-or-newer GPU"
+            "experimental compositor; Pallas requires Hopper-or-newer, "
+            "CUDA FFI requires an NVIDIA GPU and nvcc or a prebuilt library"
         ),
     )
     render_parser.add_argument(

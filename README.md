@@ -1,6 +1,6 @@
 # jax-gs
 
-基于 pure JAX、Flax NNX 和 Grain 的可微 Gaussian Splatting 实现。当前兼容目标已升级并固定到 gsplat [`main@2b902ff`](https://github.com/nerfstudio-project/gsplat/tree/2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c)（2026-07-24），并按渲染、稀疏可见性、传感器、场景/动态、损失/推理、训练集成等子系统分阶段迁移；已实现能力、明确边界和最终验收状态见下面的「已实现」与「当前验收与明确边界」两节。默认的投影、可见项压缩、tile intersection、排序、前向 compositing 和反向传播均由普通 JAX primitives 表达，同一数值路径可由 XLA 在 CPU 或 CUDA GPU 上执行。另有显式 opt-in 的 Pallas/Mosaic GPU 3DGS compositor 和 AccuTile count/emit kernel；它们仍不改变默认训练路径，也不依赖项目自带的原生扩展或 FFI。
+基于 pure JAX、Flax NNX 和 Grain 的可微 Gaussian Splatting 实现。当前兼容目标已升级并固定到 gsplat [`main@2b902ff`](https://github.com/nerfstudio-project/gsplat/tree/2b902ff1891fc7f73f0f9b8c8bfc932cef2b198c)（2026-07-24），并按渲染、稀疏可见性、传感器、场景/动态、损失/推理、训练集成等子系统分阶段迁移；已实现能力、明确边界和最终验收状态见下面的「已实现」与「当前验收与明确边界」两节。默认的投影、可见项压缩、tile intersection、排序、前向 compositing 和反向传播均由普通 JAX primitives 表达，同一数值路径可由 XLA 在 CPU 或 CUDA GPU 上执行。另有显式 opt-in 的 Pallas/Mosaic GPU 路径，以及参考 gsplat 设计的 CUDA/XLA FFI 3DGS compositor；它们都不改变默认训练路径。
 
 核心设计是分桶的固定 shape 参数池：`ModelConfig.capacity` 默认是 1,000,000 个高斯的逻辑上限，可配置到硬上限 10,000,000；`GaussianModel.capacity` 则是当前实际分配的物理 bucket。物理 bucket 默认从 65,536 开始，按 2 倍增长到逻辑上限。在同一个 bucket 内，增密、分裂、重定位和裁剪只更新槽内容与 `active_mask`，active Gaussian 数量变化不会触发 JIT；跨 bucket 时参数、Adam moment 和策略状态一起扩容，相关 JIT 函数为新的 bucket shape 各编译一次，随后继续复用。全状态 active-prefix compaction 只在 checkpoint 前执行，不再在每次 refine 后搬运完整模型与 Adam。图像尺寸、tile 大小、候选上限、相机模型和输出通道仍是静态编译维度。
 
@@ -10,7 +10,8 @@
 - 参数分组 Optax Adam、inactive 槽梯度屏蔽；所有 Gaussian 参数组按 current-main 的有效 batch `B=batch_size*world_size` 使用 `lr*sqrt(B)`、`eps/sqrt(B)` 和线性缩放 beta，means 学习率再乘训练坐标中的 `scene_scale`。训练器会把本地 batch 与归一化场景 extent 接入 optimizer，resume 无条件校验 batch size；`B>10` 会像上游 PyTorch Adam 一样因无效负 beta1 而提前拒绝。appearance 的 Gaussian `features`/`colors` 各自使用 `sh0_lr` 参数组。`sparse_grad` 使用带 bias correction 的 row-selective Optax Adam，`visible_adam` 使用 current-main SelectiveAdam 的 uncorrected moments。两者都保留 dense 参数/moment 存储、只更新当步可见行，并让全局 optimizer/schedule counter 前进；refine/MCMC 通过固定长度 indexed scatter 只清新分配或重定位槽的 moment，opacity reset 只清 opacity moment。
 - Default 与 MCMC 桶内固定槽策略，包含增密、split/clone、prune、relocate、opacity reset、checkpoint 前 active-prefix compaction、同步扩容和容量溢出报告；duplicate/split/relocate/birth、resize 与 compaction 会同步复制或重排当前启用的 SH 或 appearance 颜色表示。Default 支持同一父高斯在 current-main 条件下同时 duplicate 与 split，并从原始父槽快照执行两个事件；默认每次 refine 最多新增 8192。与 upstream 一致，`refine_stop` 之后统计累加、refine 和 opacity reset 全部停止。
 - 纯 JAX 3DGS EWA 投影、固定容量 visible packing、tile-intersection 构建、排序和多通道 forward/backward alpha compositing。
-- 实验性 `RasterizationConfig.compositor_backend="pallas"` 用一个 Mosaic GPU program 处理一个 tile，并按该 tile 的真实候选数执行动态循环；单独选择此字段不改变 JAX projection、intersection、排序与 overflow。自定义 VJP 在 tile 内逆序重算响应并输出 per-intersection 梯度，再由一个合并的 JAX scatter-add 回 Gaussian 行。它支持 NVIDIA Hopper 或更新架构上的 float32、单设备 3DGS reverse-mode 训练；AbsGrad、distributed training、2DGS、Eval3D、reference backend、JVP 与高阶梯度仍不支持，默认仍是 `"jax"`。
+- 实验性 `RasterizationConfig.compositor_backend="pallas"` 用一个 Mosaic GPU program 处理一个 tile，并按该 tile 的真实候选数执行动态循环；单独选择此字段不改变 JAX projection、intersection、排序与 overflow。自定义 VJP 在 tile 内逆序重算响应并输出 per-intersection 梯度，再由一个合并的 JAX scatter-add 回 Gaussian 行。
+- 显式 `compositor_backend="cuda_ffi"` 使用 JAX 0.11 typed FFI 调用 CUDA kernel：16×16 CTA、shared-memory Gaussian batch、per-pixel last-id、warp reduction 和直接 Gaussian atomic gradients。首次显式使用时通过 `nvcc` 缓存编译，也可用 `JAX_GS_CUDA_FFI_LIBRARY` 指向预编译库；普通导入和默认 `"jax"` 不要求 CUDA toolchain。当前支持 float32、tile size 16、通道数 1/2/3/4/8/16/32、单设备 3DGS reverse mode；AbsGrad、distributed、2DGS、Eval3D、reference backend、JVP 与高阶梯度不支持。
 - 普通 EWA 3DGS 默认执行 pure-JAX opacity-aware SNUGBOX + AccuTile 精确 count/emit；`RasterizationConfig.intersection_backend="pallas"` 把逐 Gaussian count scan 和固定输出槽的 pair-emission scan 换成 Mosaic kernel，state preparation、count prefix、tuple sort 仍保持 JAX。Pallas AccuTile 路径用 run-start marker 的 prefix-max 解析输出槽 owner，并用 tile histogram prefix 生成 offsets；缺少 conic/opacity、UT/畸变/2DGS 或显式选择 `aabb` 时使用保守 AABB 候选，继续安全回落到原有 JAX AABB/searchsorted 路径。
 - 固定容量 intersection 使用 JAX tuple sort；padding 使用 sentinel，运行时 `valid_count` 限定有效前缀并生成每个 tile 的 offsets。
 - dense projection 后使用固定容量 visible packing；只有保留的可见项进入 SH、intersection、排序和 compositor，超出容量会显式报告 `visible_overflow`。
@@ -61,7 +62,7 @@
 - `shard_camera_batch()` 将一条 `world_size × B` host 相机流按序分给各 rank，并校验所有 collated 字段的相机轴；`make_distributed_render_step()`/`reduce_distributed_render()` 则按上游语义让每个 Gaussian shard 共同渲染同一评估相机，只由指定 rank 保留输出，并校验各 rank 的 gathered-scene 结果一致。
 - `capacity.reshard_distributed_training_state()` 在步骤之间把 active Gaussian 的全局 rank-order 序列按连续块重新分配到目标 world；每行 Adam moment 与 densification state 随 Gaussian 迁移，sticky safety state 用 OR/max 归并。目标 world 会新建匹配其有效 batch 的 optimizer graph/tx，再载入 step 与 per-row moments；源 rank step 不一致会拒绝。`restore_distributed_checkpoint(..., allow_reshard=True)` 复用同一路径，并要求调用方预先按目标 world/batch/scene-scale/config/kind 构造 optimizer。
 - `train(config, distributed=True)` 与 `jax-gs train --distributed` 已把 camera deal、replicated pose/Appearance、mapped train、raster/refinement overflow 扩容重放、mapped eval 和 distributed exact checkpoint/resume 串成单进程多本地设备流程。当前 stacked host state 要求一台主机可寻址全部 shard，因此多进程/multi-host 仍在创建输出前明确拒绝；后者需要 per-process shard ownership、全局 manifest/barrier 和 local/global replica 语义，不能仅放开 `jax.process_count()`。
-- 当前迁移以 API、数值语义和工程可读性为优先目标；Pallas 已覆盖 3DGS compositor 的前向/一阶反向及 AccuTile count/emit scan，但 projection、intersection state/prefix、owner/offset 整数展开、排序、optimizer 及其它模型仍使用 JAX，因此不宣称与 upstream gsplat 端到端训练性能等价。Pallas 已做 RTX 5090 定向数值/吞吐及真实 garden NNX 训练验收；保存 per-pixel last-candidate 的 backward-v2 原型虽然把完整 `value_and_grad` 从约 3.04 ms 降到 2.67 ms，但反向净段仍约 1.62 ms、远未达到约 0.8 ms 门槛，且 forward 回归约 3.3%，因此已撤回，后续性能方向改为窄 CUDA/XLA FFI backend。完整 GPU 安全脚本仍待串行重跑。
+- 当前迁移以 API、数值语义和工程可读性为优先目标；projection、intersection state/prefix、排序、optimizer 及其它模型仍使用 JAX，因此不宣称与 upstream gsplat 端到端训练性能等价。RTX 5090 garden 138,766 Gaussian 的最终三次 fresh-process A/B 中，`cuda_ffi` 相对修正版 Pallas 的完整 renderer median-of-runs 为 forward `1.054→0.864 ms`、`value_and_grad` `2.689→1.594 ms`；同轮 loss 精确一致，完整参数梯度相对 Pallas 的 relative-L2 不超过 `5.3e-5`。它只代表 renderer，不是端到端训练吞吐。完整普通 pytest（993 passed）、focused CUDA native、Compute Sanitizer、12/110-step garden training、wheel/sdist 和 fresh-process A/B 已重跑；项目的独立多进程 resource-heavy GPU 安全脚本仍待下一次发布前串行重跑。
 
 ## 环境
 
@@ -70,7 +71,7 @@ uv sync --all-groups
 uv run python -c "import jax; print(jax.devices())"
 ```
 
-`pyproject.toml` 使用 `jax[cuda13]`、Flax NNX、Grain 和 Optax，并通过 setuptools 构建纯 Python wheel。`jax[cuda13]` 提供 JAX/XLA CUDA 运行环境及实验性 Pallas/Mosaic GPU API；项目源码不编译或调用自带的 CMake/CUDA 扩展、FFI 或第三方 kernel 包。本机当前环境为 RTX 5090、JAX 0.11.0、Flax 0.12.8、Grain 0.2.18。
+`pyproject.toml` 使用 `jax[cuda13]`、Flax NNX、Grain 和 Optax，并通过 setuptools 构建 Python 包。`jax[cuda13]` 提供 JAX/XLA CUDA 运行环境及实验性 Pallas/Mosaic GPU API；仅显式选择 `cuda_ffi` 时，项目才延迟编译/加载随包提供的 CUDA compositor source。本机当前环境为 RTX 5090、JAX 0.11.0、Flax 0.12.8、Grain 0.2.18。
 
 ## Rasterizer backend
 
@@ -82,7 +83,7 @@ uv run python -c "import jax; print(jax.devices())"
 | `jax` / `intersections` | 与 `auto` 相同；保留显式名称便于配置迁移和对照 |
 | `reference` | 调试/对照路径；每个 tile 扫描完整 Gaussian 物理 bucket 后执行 `top_k`，通常最慢 |
 
-`RasterizationConfig.compositor_backend` 独立选择 intersections 路径末端的 alpha compositor：`"jax"` 是默认、可微且跨 CPU/GPU 的实现；`"pallas"` 是实验性的 Mosaic GPU 前向/反向实现。后者要求 NVIDIA Hopper 或更新架构与 float32，按真实 per-tile 候选数执行，不使用 JAX compositor 的 `tile_batch_size` 静态分组；`max_candidates_per_tile` 与 `max_gaussians_per_tile` 的容量取整和 overflow 语义仍保持一致。它与 `backend="reference"`、2DGS、Eval3D 和 AbsGrad 明确互斥；训练还要求单设备，且只提供 reverse-mode VJP。CLI 可用 `jax-gs render CHECKPOINT --compositor-backend pallas` 或 `jax-gs train --compositor-backend pallas` 显式启用。Pallas 仍是 [JAX 官方标记为 experimental 的 API](https://docs.jax.dev/en/latest/pallas/quickstart.html)，因此没有设为默认值，CPU 与其它组合继续使用 JAX 路径。
+`RasterizationConfig.compositor_backend` 独立选择 intersections 路径末端的 alpha compositor：`"jax"` 是默认、可微且跨 CPU/GPU；`"pallas"` 是 Mosaic GPU 实现；`"cuda_ffi"` 是 gsplat 风格的原生 CUDA typed-FFI 实现。Pallas 要求 NVIDIA Hopper 或更新架构；CUDA FFI 要求 NVIDIA GPU、tile size 16、受支持的 channel count，以及首次构建可用的 `nvcc` 或预编译库。两条 GPU 路径均保留当前 alpha/threshold/candidate-bound/overflow 数值契约，与 `backend="reference"`、2DGS、Eval3D 和 AbsGrad 互斥；训练还要求单设备，只提供一阶 reverse-mode VJP。CLI 通过 `--compositor-backend pallas` 或 `--compositor-backend cuda_ffi` 显式启用，CPU 与其它组合继续使用 JAX 路径。
 
 旧配置中的 `backend="cutile"`、`intersection_backend="cutile"` 或 `sort_backend="cutile"` 会发出弃用警告并归一化为 `"jax"`；更早的 `backend="cuda_ffi"` 与 `sort_backend="cuda_ffi"` 也会在加载时迁移到 JAX。`intersection_backend="pallas"` 现在表示新的增量 AccuTile count/emit kernel，不再被配置迁移重写；这个入口不会加载旧依赖。
 
@@ -280,7 +281,7 @@ Phase 10/11 随后处理 Pallas compositor VJP 的宽 Gaussian scatter。Phase 1
 
 Flax 的实验性 [HiJAX](https://flax.readthedocs.io/en/stable/hijax/index.html) 也做了隔离探针，但没有接入训练 API：仓库当前 Flax 0.12.8/JAX 0.11.0 下，官方最小 Linear+Adam 模式在不可变 Variable 视图处触发 `DynamicJaxprTracer` 元数据错误，直接对 HiJAX Variable 求导则报 `get_variable` 尚无 JVP。真实训练步还有 NNX 条件分支、别名 optimizer 和动态拓扑，不能在基础用例失败时安全迁移；当前继续使用已经完整验收的 `nnx.jit`/`nnx.value_and_grad`，待上游基础模式稳定后再复测。
 
-当前 JAX 0.11 Mosaic GPU 不能为这里的动态 Gaussian id 生成所需的向量 atomic reduction，因此反向仍在 kernel 外使用一个 JAX scatter。进一步的 per-pixel last-candidate 原型把完整 `value_and_grad` median 从约 3.04 ms 降到 2.67 ms，但 forward 从约 1.017 ms 增至 1.051 ms，且反向净段仍约 1.62 ms，远未达到既定约 0.8 ms go/no-go 门槛，已完整撤回。下一阶段不再勉强把 shared-memory/warp reduction 塞进 Pallas，而是评估窄 CUDA/XLA FFI backend。默认 `auto`/`jax` 路径未改动。`compositor_backend` 仍可在 resume 时切换；历史上已属于训练 config 的 `intersection_backend` 为兼容既有 v6 fingerprint 保持原契约。
+当前 JAX 0.11 Mosaic GPU 不能为动态 Gaussian id 生成所需的向量 atomic reduction。重新核查 backward-v2 时发现，原 packed-output Pallas VJP 对 kernel 未写的固定容量槽做 scatter；这些槽在原生 Mosaic 中不是可靠零值，导致大 garden 的参数梯度错误。修复后的 endpoint 版本保存 per-pixel last contributor，并只 scatter 实际写过的 tile prefix：完整 `value_and_grad` 约 `3.03→2.67 ms`，同时恢复和 pure JAX 的大场景梯度一致性；因此作为 Pallas 正确性修复保留。进一步的性能由显式 CUDA FFI backend 承担，默认 `auto`/`jax` 路径未改动。`compositor_backend` 仍可在 resume 时切换；历史上已属于训练 config 的 `intersection_backend` 为兼容既有 v6 fingerprint 保持原契约。
 
 **下文早期 pure-JAX 记录里的 65,536 配置是溢出的**：该场景实际需要 1,237,085 个 intersection，所以它只是一个循环开销的 microbenchmark，不是质量等价的渲染，`intersection_overflow=True`。凡是从它推出来的「最忙 tile 有多满」一类结论都只对截断后的 buffer 成立。不溢出要 `--max-intersections 2097152`，那时最忙 tile 是 1,846 个候选。上面的 Pallas 表使用不溢出的容量。
 

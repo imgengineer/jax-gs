@@ -228,6 +228,40 @@ def test_pallas_compositor_backward_matches_pure_jax(
         )
 
 
+def test_pallas_compositor_large_empty_tail_gradients_stay_zero():
+    if not _supports_native_pallas():
+        pytest.skip("native Pallas compositing requires a supported GPU")
+    gaussian_count = 257
+    means = jnp.zeros((gaussian_count, 2), jnp.float32).at[0].set(
+        jnp.asarray([0.5, 0.5], jnp.float32)
+    )
+    conics = jnp.zeros((gaussian_count, 3), jnp.float32)
+    colors = jnp.zeros((gaussian_count, 1), jnp.float32).at[0, 0].set(1.0)
+    opacities = jnp.zeros((gaussian_count,), jnp.float32).at[0].set(0.5)
+    offsets = jnp.zeros((1, 1), jnp.int32)
+    flatten_ids = jnp.full((512,), -1, jnp.int32).at[0].set(0)
+
+    def loss(current_means):
+        rendered, alpha, _ = rasterize_to_pixels_pallas(
+            current_means,
+            conics,
+            colors,
+            opacities,
+            16,
+            16,
+            16,
+            offsets,
+            flatten_ids,
+            valid_count=jnp.asarray(1, jnp.int32),
+            max_gaussians_per_tile=512,
+            max_candidates_per_tile=512,
+        )
+        return jnp.sum(rendered) + jnp.sum(alpha)
+
+    gradient = jax.jit(jax.grad(loss))(means)
+    np.testing.assert_array_equal(np.asarray(gradient[1:]), 0.0)
+
+
 def test_pallas_compositor_rejects_native_cpu_lowering():
     if jax.default_backend() != "cpu":
         pytest.skip("native CPU rejection is specific to CPU test runs")

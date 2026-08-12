@@ -31,6 +31,7 @@ from jax_gs.training import (
     _grain_iter_dataset,
     _initial_storage_capacity,
     estimate_bucket_transition_memory_bytes,
+    estimate_rasterization_memory_bytes,
     estimate_training_memory_bytes,
     make_distributed_train_step,
     make_render_step,
@@ -1981,6 +1982,19 @@ def test_train_step_accepts_the_pallas_compositor():
     )
 
 
+def test_train_step_accepts_the_cuda_ffi_compositor():
+    assert callable(
+        make_train_step(
+            TrainConfig(
+                strategy=StrategyConfig(kind="mcmc"),
+                rasterizer=RasterizationConfig(
+                    compositor_backend="cuda_ffi"
+                ),
+            )
+        )
+    )
+
+
 def test_train_step_accepts_the_pallas_accutile_counter():
     assert callable(
         make_train_step(
@@ -2029,6 +2043,19 @@ def test_distributed_train_step_rejects_the_pallas_compositor():
         make_distributed_train_step(
             TrainConfig(
                 rasterizer=RasterizationConfig(compositor_backend="pallas")
+            ),
+            world_size=2,
+        )
+
+
+def test_distributed_train_step_rejects_the_cuda_ffi_compositor():
+    with pytest.raises(NotImplementedError, match="CUDA FFI.*distributed"):
+        make_distributed_train_step(
+            TrainConfig(
+                strategy=StrategyConfig(kind="mcmc"),
+                rasterizer=RasterizationConfig(
+                    compositor_backend="cuda_ffi"
+                ),
             ),
             world_size=2,
         )
@@ -2419,6 +2446,128 @@ def test_pallas_memory_estimate_accounts_for_intersection_gradients():
     ) - estimate_training_memory_bytes(pallas)
 
     assert pallas_growth - jax_growth == (128 - 64) * 9 * 4
+
+
+def test_cuda_ffi_train_step_matches_jax():
+    devices = jax.devices()
+    if not devices or devices[0].platform != "gpu" or "cuda" not in str(
+        devices[0]
+    ).lower():
+        pytest.skip("CUDA FFI training requires an NVIDIA CUDA GPU")
+    points = np.asarray(
+        [[0.0, 0.0, 3.0], [0.2, 0.0, 3.0], [-0.2, 0.1, 3.0]],
+        np.float32,
+    )
+    colors = np.asarray(
+        [[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8
+    )
+    images = jnp.linspace(
+        0.0, 1.0, 16 * 16 * 3, dtype=jnp.float32
+    ).reshape(1, 16, 16, 3)
+    intrinsics = jnp.asarray(
+        [[[10.0, 0.0, 8.0], [0.0, 10.0, 8.0], [0.0, 0.0, 1.0]]],
+        jnp.float32,
+    )
+    viewmats = jnp.eye(4, dtype=jnp.float32)[None]
+
+    def run(compositor_backend):
+        config = TrainConfig(
+            model=ModelConfig(
+                capacity=4,
+                bucket_min_capacity=4,
+                sh_degree=0,
+                initial_scale=0.2,
+            ),
+            optimizer=OptimizerConfig(max_steps=2),
+            strategy=StrategyConfig(
+                refine_start=100, max_new_per_refine=1
+            ),
+            data=DataConfig(root="unused", patch_size=16, batch_size=1),
+            rasterizer=RasterizationConfig(
+                backend="intersections",
+                compositor_backend=compositor_backend,
+                intersection_backend="jax",
+                tile_size=16,
+                max_gaussians_per_tile=16,
+                max_intersections=64,
+            ),
+            ssim_lambda=0.0,
+            steps=1,
+            eval_every=0,
+            checkpoint_every=0,
+        )
+        model = GaussianModel.from_point_cloud(points, colors, config.model)
+        optimizer = create_optimizer(model, config.optimizer)
+        strategy_state = DefaultStrategy(config.strategy).initialize_state(4)
+        metrics = make_train_step(config)(
+            model,
+            optimizer,
+            strategy_state,
+            TrainingSafetyState(),
+            images,
+            intrinsics,
+            viewmats,
+            jax.random.key(0),
+            jnp.asarray(0),
+        )
+        return (
+            metrics,
+            _snapshot_array_state(model, optimizer, strategy_state),
+            int(optimizer.step[...]),
+        )
+
+    expected_metrics, expected_state, expected_step = run("jax")
+    actual_metrics, actual_state, actual_step = run("cuda_ffi")
+
+    assert expected_step == actual_step == 1
+    np.testing.assert_allclose(
+        actual_metrics["loss"], expected_metrics["loss"], rtol=2e-5, atol=2e-6
+    )
+    for actual_node, expected_node in zip(
+        actual_state, expected_state, strict=True
+    ):
+        for actual_leaf, expected_leaf in zip(
+            actual_node, expected_node, strict=True
+        ):
+            np.testing.assert_allclose(
+                actual_leaf, expected_leaf, rtol=5e-4, atol=2e-5
+            )
+
+
+def test_cuda_ffi_memory_estimate_uses_direct_gaussian_gradients():
+    config = TrainConfig(
+        model=ModelConfig(capacity=32, bucket_min_capacity=32, sh_degree=0),
+        data=DataConfig(root="unused", patch_size=16),
+        rasterizer=RasterizationConfig(
+            backend="intersections",
+            compositor_backend="cuda_ffi",
+            max_intersections=64,
+        ),
+    )
+    larger = replace(
+        config,
+        rasterizer=replace(config.rasterizer, max_intersections=128),
+    )
+
+    assert estimate_training_memory_bytes(
+        larger
+    ) - estimate_training_memory_bytes(config) == (128 - 64) * 96
+
+
+def test_pallas_raster_memory_estimate_includes_endpoint_residuals():
+    config = RasterizationConfig(
+        compositor_backend="pallas", max_intersections=1024
+    )
+    estimated = estimate_rasterization_memory_bytes(
+        32, 16, 16, config, channels=3
+    )
+    assert estimated == (
+        32 * 64
+        + 256 * 7 * 4
+        + 1024 * 96
+        + 16 * 16 * 4 * 4 * 3
+        + 256 * 2**20
+    )
 
 
 def test_memory_estimate_accounts_for_distributed_appearance_mlp_workspace():

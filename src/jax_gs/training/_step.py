@@ -740,23 +740,31 @@ def _make_train_step(
             "Pallas AccuTile intersection does not yet support distributed "
             "Gaussian shards"
         )
-    if config.rasterizer.compositor_backend == "pallas":
+    if config.rasterizer.compositor_backend in {"pallas", "cuda_ffi"}:
+        compositor_name = (
+            "Pallas"
+            if config.rasterizer.compositor_backend == "pallas"
+            else "CUDA FFI"
+        )
         if distributed_world_size > 1:
             raise NotImplementedError(
-                "Pallas compositor training does not yet support distributed "
-                "Gaussian shards"
+                f"{compositor_name} compositor training does not yet support "
+                "distributed Gaussian shards"
             )
         if config.model_type != "3dgs":
             raise NotImplementedError(
-                "Pallas compositor training currently supports 3DGS only"
+                f"{compositor_name} compositor training currently supports "
+                "3DGS only"
             )
         if config.strategy.absgrad:
             raise NotImplementedError(
-                "Pallas compositor training does not yet support AbsGrad"
+                f"{compositor_name} compositor training does not yet support "
+                "AbsGrad"
             )
         if config.with_eval3d:
             raise NotImplementedError(
-                "Pallas compositor training does not yet support Eval3D"
+                f"{compositor_name} compositor training does not yet support "
+                "Eval3D"
             )
     plan = _plan_train_step(
         config, distributed_world_size=distributed_world_size

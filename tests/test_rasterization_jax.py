@@ -1852,6 +1852,7 @@ def _backward_temp_bytes(
         return compiled.memory_analysis().temp_size_in_bytes
     except (AttributeError, NotImplementedError) as exc:  # pragma: no cover
         pytest.skip(f"memory analysis is unavailable: {exc}")
+    raise AssertionError("pytest.skip must not return")
 
 
 # A fixed small tile batch isolates the tile-count scaling from the batch
@@ -2039,9 +2040,10 @@ def test_pallas_compositor_matches_high_level_jax_gradients(
         )
 
 
-def test_pallas_compositor_rejects_eval3d():
+@pytest.mark.parametrize("compositor_backend", ["pallas", "cuda_ffi"])
+def test_gpu_compositors_reject_eval3d(compositor_backend):
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
-    with pytest.raises(NotImplementedError, match="Pallas.*Eval3D"):
+    with pytest.raises(NotImplementedError, match="Pallas.*CUDA FFI.*Eval3D"):
         rasterization(
             means,
             quats,
@@ -2053,7 +2055,54 @@ def test_pallas_compositor_rejects_eval3d():
             32,
             32,
             with_eval3d=True,
-            config=RasterizationConfig(compositor_backend="pallas"),
+            config=RasterizationConfig(
+                compositor_backend=compositor_backend
+            ),
+        )
+
+
+def test_cuda_ffi_rejects_distributed_rasterization_before_dispatch():
+    means, quats, scales, opacities, colors, viewmats, Ks = _scene()
+    with pytest.raises(NotImplementedError, match="CUDA FFI.*distributed"):
+        rasterization(
+            means,
+            quats,
+            scales,
+            opacities,
+            colors,
+            viewmats,
+            Ks,
+            32,
+            32,
+            distributed=True,
+            config=RasterizationConfig(
+                backend="intersections",
+                compositor_backend="cuda_ffi",
+                max_intersections=64,
+            ),
+        )
+
+
+def test_cuda_ffi_rejects_high_level_absgrad():
+    means, quats, scales, opacities, colors, viewmats, Ks = _scene()
+    with pytest.raises(NotImplementedError, match="CUDA FFI.*AbsGrad"):
+        rasterization(
+            means,
+            quats,
+            scales,
+            opacities,
+            colors,
+            viewmats,
+            Ks,
+            32,
+            32,
+            absgrad=True,
+            _means2d_absgrad_probe=jnp.zeros((1, 4, 2), jnp.float32),
+            config=RasterizationConfig(
+                backend="intersections",
+                compositor_backend="cuda_ffi",
+                max_intersections=64,
+            ),
         )
 
 

@@ -183,11 +183,11 @@ RTX 5090 / JAX 0.11.0 的完整结果：
 
 这些数字只覆盖 projection stage，不外推到完整 renderer 或训练。由于安全版本必须先在 JAX 完成最重的 projection 代数，再承担额外 Mosaic launch/custom-VJP 重算，结果符合预期。`projection_backend`、CLI、renderer dispatch、测试和 `_pallas_projection.py` 已全部撤回；production worktree 没有保留任何 projection 改动。除非后续 Mosaic 能在不改变离散几何契约的前提下直接降低权威 projection 数学，或新的 profile 证明形状/瓶颈已变化，否则不要重复这个 hybrid。
 
-## Pallas compositor backward v2 探针（未保留）
+## Pallas compositor backward v2 探针（后续因 correctness 修正保留）
 
 按 gsplat CUDA 的 `last_ids` 思路做了 go/no-go 原型：forward 为每个 pixel 保存最后一个 accepted candidate；backward 以 tile 内最大 endpoint 缩短 reverse loop，并对每个 pixel 屏蔽 endpoint 之后的候选。真实 garden 离线重放显示理论上可跳过 88,951 / 352,091 candidate-slot（25.3%），383 / 920 个 tile 至少缩短一个候选。
 
-实现过程中确认了两个 Mosaic 约束。第一，Pallas 未写 output 不是零，而是 `NaN`；因此缩短 loop 后必须额外清理固定容量尾部。第二，原生 Lane `fori_loop` 的 int endpoint carry 需要与 WG-strided fragment layout 完全一致；原型改用 float carry 再写回 int32 才能通过 lowering。补齐 overflow-tail/未写槽清理后，1/3/4 通道、candidate bound 1/5 的 interpreter/native 梯度矩阵为 14 passed、1 个 CPU-only skip。
+实现过程中确认了两个 Mosaic 约束。第一，Pallas 未写 output 不是可靠零值；因此缩短 loop 后必须精确屏蔽每个 tile 实际写过的 prefix。第二，原生 Lane `fori_loop` 的 int endpoint carry 需要与 WG-strided fragment layout 完全一致；原型改用 float carry 再写回 int32 才能通过 lowering。补齐 written-prefix mask 后，1/3/4 通道、candidate bound 1/5 的 interpreter/native 梯度矩阵与大容量 empty-tail 回归均通过。
 
 但 fresh-process 结果明确未达到门槛。和原 benchmark loss 一致时：
 
@@ -195,11 +195,35 @@ RTX 5090 / JAX 0.11.0 的完整结果：
 - 紧邻原型前按同一 official benchmark 命令重跑的 retained baseline：`1.017 / 3.042 ms`。
 - endpoint 原型：forward median `1.051 ms`，完整 `value_and_grad` median `2.670 ms`；loss 同为 `0.32643967866897583`，352,091 intersections、无 overflow。相对紧邻 baseline，forward 回归约 3.3%，完整 `value_and_grad` 改善约 12.2%。
 
-endpoint 原型只把完整 renderer 降到约 `2.67 ms`，对应反向净段仍约 `1.62 ms`，远未接近 backward kernel `~0.8 ms` 的 go/no-go 目标。即使继续 shared-memory batching/warp reduction，也没有可信证据能再拿到所需的约 2× kernel 改善；按预先设定的门槛停止 Pallas micro-tuning。原型已完整撤回，focused compositor 回归恢复为 14 passed、1 skip；fresh-process retained check 的 `value_and_grad` median 为 `3.023 ms`、loss 不变。
+endpoint 原型只把完整 renderer 降到约 `2.67 ms`，对应反向净段仍约 `1.62 ms`，因此作为纯性能路线仍未达到 `~0.8 ms` go/no-go 目标。后来在 CUDA FFI 的 garden 梯度门禁中发现，旧 packed-output Pallas 实现会把未写固定容量槽的未初始化值 scatter 回 Gaussian；这个 correctness 问题使 endpoint/written-prefix 方案从“性能 no-go”变成必须保留的修复。修正版大场景梯度重新与 pure JAX 对齐。
 
 同一轮原生 atomic 探针进一步确认当前 JAX 0.11 Mosaic 不能作为 fallback：Lane/长度一 slice 仍触发 `_atomic_store`/discharge 三字段对四字段错误；Warpgroup 路径改报 `memref.subview` offset 不是 value sequence；`plgpu.kernel` 也不接受 `input_output_aliases`，不能用预零 alias buffer 规避未写 output。不要通过 patch 私有 JAX internals 把这些探针带入 production。
 
-结论：Pallas backward v2 为 **no-go**。停止继续做 endpoint/shared-memory/warp-level micro-tuning；下一条可信性能路线是窄的 CUDA/XLA FFI compositor/intersection backend，沿 gsplat 的 16×16 CTA、shared-memory Gaussian batch、per-pixel last-id、warp skip/reduction 与直接 Gaussian atomics 建模，同时保持默认 pure-JAX/Pallas 路径及现有 support guards 不变。
+结论更新：Pallas backward v2 作为追求 gsplat 级性能的路线仍是 **no-go**，但 endpoint + written-prefix mask 作为 native 大容量 backward correctness 修复保留。进一步性能由 CUDA/XLA FFI 承担；不再继续 Pallas shared-memory/warp-level micro-tuning。
+
+## CUDA/XLA FFI compositor 与 Pallas backward 修正
+
+参考 gsplat `RasterizeToPixels3DGSSerialBatchFwd/Bwd` 新增显式 `RasterizationConfig.compositor_backend="cuda_ffi"`。默认 `jax` 与现有 Pallas/intersection 路径不变；只有显式选择时才通过 JAX 0.11 typed FFI 加载 CUDA target。实现边界是单设备 float32 3DGS、tile size 16、channels 1/2/3/4/8/16/32，不支持 reference backend、2DGS、Eval3D、AbsGrad、distributed、JVP 或高阶梯度。
+
+CUDA 实现使用每 tile 一个 16×16 CTA、shared-memory Gaussian batches、per-pixel last contributing slot、reverse shared batches、warp reduction 与直接 per-Gaussian atomicAdd。它保留本项目而非盲拷 gsplat 的数值契约：`MAX_ALPHA=0.999`、自定义 alpha/transmittance threshold、clamp equality 的 0.5 VJP、fixed-capacity `valid_count`/padding、candidate-bound 取整和 overflow。背景混合留在普通 JAX，因此 background gradient 不经过 atomic kernel。反向 typed-FFI outputs 在 launch 前用 supplied stream 上的 `cudaMemsetAsync` 清零。
+
+运行时 loader 默认按 CUDA source、JAX version、nvcc version 和 compute capability 哈希到 `~/.cache/jax-gs/cuda-ffi`，用 POSIX file lock 避免并发构建；`JAX_GS_CUDA_FFI_LIBRARY` 可提供预编译 `.so`，`JAX_GS_CUDA_FFI_CACHE_DIR` 和 `JAX_GS_NVCC` 可覆盖缓存/toolchain。普通 import 不触发 CUDA 编译。`uv build` 已成功生成 sdist/wheel，两者都包含 `_cuda_ffi.py` 与 `cuda_ffi/compositor.cu`；从 wheel 安装到隔离环境后，随包 source 可被首次运行编译并完成原生 forward。
+
+本轮同时发现并修复了此前遗漏的 Pallas 大场景 backward correctness bug：packed-output kernel 缩短 reverse loop 后，未写的固定容量 output slot 在 native Mosaic 中不是可靠零值，却仍被外部 scatter。小构造测试恰好没有暴露。修正版 forward 保存每 pixel last contributor/accepted transmittance；backward 只扫描到 tile endpoint，并在 scatter 前只保留各 tile 实际写过的 prefix。garden low-level mean-loss 的 means/conics/color/opacity gradient relative-L2 均约 `1e-7` 量级；完整参数 gradient norms 与 pure JAX/CUDA FFI 对齐。原 focused compositor suite 继续通过，并新增大 empty-tail gradient zero 回归。
+
+RTX 5090、garden 138,766 active、640×360、352,091 intersections、无 overflow，official benchmark 每次 30 warmup + 200 hot、三次 fresh process：
+
+- 最终 Pallas median-of-runs：forward `1.054 ms`，完整 `value_and_grad` `2.689 ms`。
+- 最终 CUDA FFI median-of-runs：forward `0.864 ms`，完整 `value_and_grad` `1.594 ms`；满足预设 `≤2.0 ms` go/no-go。
+- 相对修正版 Pallas，CUDA FFI 完整参数梯度 relative-L2：means `3.1e-6`、quats `5.3e-5`、scales `2.8e-5`、opacities `6.0e-7`、colors `2.0e-6`；loss 精确一致。render max abs `5.26e-4`、alpha max abs `9.54e-7`，主要来自 CUDA fast exp/累加顺序。
+- 100 次 atomic repeat probe 的最大变化：means `1.15e-7`、quats `1.78e-7`、scales/SH chain `4.74e-6`、opacities `1.16e-10`、colors `5.82e-11`。这是 explicit backend 的预期 float32 reduction-order nondeterminism，默认 JAX/Pallas 不受影响。
+- 隔离 projected-input compositor：Pallas forward/value-and-grad `0.482 / 2.354 ms`，CUDA FFI `0.289 / 0.799 ms`。
+- 一步 native NNX/Adam smoke 的 loss、overflow、step 与 JAX 一致，model/optimizer leaf 最大差约 `3e-11`。
+- 真实 Mip-NeRF360 garden、138,766 active、262,144 bucket、256×256 patch 的 CUDA FFI 12 步和 110 步 NNX/Adam 均完成并生成 checkpoint，全程 tile/intersection overflow 为零、显存约 `0.19/23.55 GiB`。12 步 step 1/10 的打印 loss 与 Pallas 一致；110 步因 fast-exp/atomic 累积出现预期轨迹差异，最终 loss `0.167782`（Pallas retained run `0.169162`），不能据此宣称端到端训练数值逐步一致。
+- 空缓存首次 native build + tiny forward 约 4 秒，随后复用约 1.48 MiB cache library；普通 import 即使设置无效 prebuilt path 也不加载 `_cuda_ffi`。
+- Compute Sanitizer 对 channels 1/2/3/4/8/16/32、partial tile、negative/repeated IDs 的 forward+backward：memcheck 0 error、racecheck 0 hazard、synccheck 0 error。Nsight Systems garden 单次记录为 forward kernel约 `0.282 ms`、backward kernel 约 `0.513 ms`，12 次 `cudaMemsetAsync` 合计约 `0.070 ms`；Nsight Compute 因主机 `ERR_NVGPUCTRPERM` 未能采集硬件 counter。
+
+和 gsplat 旧 target 的 640×360 `0.377 / 1.039 ms` 相比，当前完整 jax-gs CUDA FFI renderer 约为 forward `2.29×` 慢、完整 `value_and_grad` `1.53×` 慢；反向差距已显著缩小，前向剩余主要是仍在 JAX 的 projection/intersection/sort 与 CUDA compositor 自身约 `0.29 ms`。
 
 ## 明确边界
 
@@ -266,7 +290,7 @@ endpoint 原型只把完整 renderer 降到约 `2.67 ms`，对应反向净段仍
 
 ## 后续迁移顺序
 
-1. 下一条性能线改为设计窄 CUDA/XLA FFI backend；Pallas backward endpoint v2 已因 forward 元数据成本和整体收益不足判定 no-go，不再继续 shared-memory/warp-level micro-tuning。CUDA 设计应以 gsplat 的 16×16 CTA、shared-memory Gaussian batch、per-pixel last-id、warp skip/reduction、直接 Gaussian atomics 和 CUB sort 为参考，同时保持默认 pure-JAX/Pallas、checkpoint schema、projection/geometry/count-prefix/tuple-sort 契约和现有 support guards。tuple sort、pair emission、owner 反查、offsets、约 0.04 ms scatter 和约 0.13 ms projection 已退出首要热点。`unsafe_no_auto_barriers`、`approx_math`、扩大 reduction scratch、共享 reciprocal、简单代数改写、把 `pl.loop` 当作新 lowering，以及“JAX 预计算几何 + Pallas projection 后处理”的 hybrid 均已证伪，不要重做。distributed/AbsGrad/2DGS/Eval3D 必须各自做数值与 overflow 门禁，不能直接放开当前 guard。
+1. 下一条性能线优先优化 CUDA FFI forward 和共同 JAX 前端，而不是继续 Pallas micro-tuning。先用 Nsight 拆分 `~0.864 ms` 完整 forward：isolated CUDA compositor 约 `0.289 ms`，其余主要是 projection/intersection/sort/launch。只有 profile 证明 sort/intersection 占主导时再迁移 CUB sort 或 fused intersection；保持 checkpoint schema、projection/geometry/count-prefix/tuple-sort 的默认契约和现有 support guards。`unsafe_no_auto_barriers`、`approx_math`、扩大 reduction scratch、共享 reciprocal、简单代数改写、把 `pl.loop` 当作新 lowering，以及“JAX 预计算几何 + Pallas projection 后处理”的 hybrid 均已证伪，不要重做。distributed/AbsGrad/2DGS/Eval3D 必须各自做数值、atomic nondeterminism 与 overflow 门禁，不能直接放开当前 guard。
 2. 再设计 multi-process/multi-host host ownership、per-process checkpoint、数据加载与一致 preflight；现有 stacked host state helper 不能直接宣称支持它。
 3. 让 CLI render 默认消费 checkpoint 中动态增长后的 intersection/candidate high-water mark，再由显式 CLI 参数覆盖；当前仍使用保存的 TrainConfig 值，容量不足时会报告 overflow，最终输出应使用 `--strict-overflow` 或显式覆盖容量。
 4. 继续迁移 distributed UT/eval3d、非 pinhole、`sparse_grad` 和 AbsGrad；每项按 current-main 实际组合单独对齐，不用过时的“上游统一拒绝”归因。

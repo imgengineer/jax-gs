@@ -33,16 +33,19 @@ def test_removed_cutile_backend_values_map_to_pure_jax():
     assert config.sort_backend == "jax"
 
 
-def test_compositor_backend_accepts_jax_or_pallas_only():
+def test_compositor_backend_accepts_explicit_gpu_paths():
     assert RasterizationConfig().compositor_backend == "jax"
     pallas = RasterizationConfig(compositor_backend="pallas")
+    cuda_ffi = RasterizationConfig(compositor_backend="cuda_ffi")
     assert pallas.compositor_backend == "pallas"
+    assert cuda_ffi.compositor_backend == "cuda_ffi"
     with pytest.raises(ValueError, match="compositor_backend"):
         RasterizationConfig(compositor_backend="invalid")
-    with pytest.raises(ValueError, match="intersections backend"):
-        RasterizationConfig(
-            backend="reference", compositor_backend="pallas"
-        )
+    for compositor_backend in ("pallas", "cuda_ffi"):
+        with pytest.raises(ValueError, match="intersections backend"):
+            RasterizationConfig(
+                backend="reference", compositor_backend=compositor_backend
+            )
 
 
 def test_intersection_backend_accepts_incremental_pallas_path():

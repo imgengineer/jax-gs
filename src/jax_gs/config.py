@@ -116,14 +116,17 @@ class RasterizationConfig:
             raise ValueError(
                 "intersection_backend must be 'auto', 'jax', or 'pallas'"
             )
-        if self.compositor_backend not in {"jax", "pallas"}:
-            raise ValueError("compositor_backend must be 'jax' or 'pallas'")
+        if self.compositor_backend not in {"jax", "pallas", "cuda_ffi"}:
+            raise ValueError(
+                "compositor_backend must be 'jax', 'pallas', or 'cuda_ffi'"
+            )
         if (
-            self.compositor_backend == "pallas"
+            self.compositor_backend in {"pallas", "cuda_ffi"}
             and self.backend == "reference"
         ):
             raise ValueError(
-                "the Pallas compositor requires the intersections backend"
+                "the Pallas and CUDA FFI compositors require the "
+                "intersections backend"
             )
         if self.intersection_mode not in {"auto", "aabb", "accutile"}:
             raise ValueError(

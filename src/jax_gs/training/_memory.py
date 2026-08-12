@@ -14,6 +14,7 @@ _training = sys.modules[__package__]
 from dataclasses import replace
 from typing import NamedTuple
 import math
+import operator
 
 import jax
 import numpy as np
@@ -206,9 +207,13 @@ def estimate_rasterization_memory_bytes(
     projection = capacity * 64
     if rasterizer.compositor_backend == "pallas":
         pixel_count = math.ceil(rasterizer.tile_size**2 / 128) * 128
-        # Render, alpha, and reverse-mode transmittance tile buffers. Count the
-        # residual conservatively even when no gradient is requested.
-        compositing = tile_count * pixel_count * (channels + 2) * 4
+        # Render, alpha, pre-update transmittance, last accepted slot, and
+        # accepted transmittance. Count reverse-mode residuals conservatively
+        # even when no gradient is requested.
+        compositing = tile_count * pixel_count * (channels + 4) * 4
+    elif rasterizer.compositor_backend == "cuda_ffi":
+        # Render/alpha plus accepted-transmittance and last-id residuals.
+        compositing = width * height * (channels + 3) * 4 + tile_count
     else:
         compositing = (
             min(rasterizer.tile_batch_size, tile_count)
@@ -325,7 +330,20 @@ def estimate_training_memory_bytes(
     render_tiles = tile_width * tile_height
     if config.rasterizer.compositor_backend == "pallas":
         pixel_count = math.ceil(tile_pixels / 128) * 128
-        raster_workspace = render_tiles * pixel_count * 5 * 4
+        # RGB plus alpha, pre-update transmittance, last accepted slot, and
+        # accepted transmittance.
+        raster_workspace = render_tiles * pixel_count * 7 * 4
+    elif config.rasterizer.compositor_backend == "cuda_ffi":
+        # Forward image/residual buffers plus direct per-Gaussian gradient
+        # outputs. The CUDA kernel uses only one tile's dynamic shared-memory
+        # batch at a time.
+        render_pixels = render_height * render_width
+        raster_workspace = (
+            render_pixels * 3 * 4
+            + render_pixels * (2 * 4 + 4)
+            + render_tiles
+            + render_capacity * 9 * 4
+        )
     else:
         raster_workspace = (
             config.rasterizer.tile_batch_size
@@ -373,7 +391,7 @@ def estimate_training_memory_bytes(
         config.data.batch_size,
         reverse_mode=True,
     )
-    return int(
+    total = (
         model_working_set
         + projection_working_set
         + strategy_bytes
@@ -383,6 +401,10 @@ def estimate_training_memory_bytes(
         + appearance_workspace
         + 512 * 2**20
     )
+    try:
+        return int(total)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(f"invalid training memory estimate: {total!r}") from exc
 
 
 def estimate_bucket_transition_memory_bytes(
@@ -396,8 +418,11 @@ def estimate_bucket_transition_memory_bytes(
 ) -> int:
     """Estimate the old/new coexistence peak while growing a storage bucket."""
 
-    old_capacity = int(old_capacity)
-    new_capacity = int(new_capacity)
+    try:
+        old_capacity = operator.index(old_capacity)
+        new_capacity = operator.index(new_capacity)
+    except TypeError as exc:
+        raise TypeError("bucket capacities must be integers") from exc
     if not 0 < old_capacity < new_capacity <= config.model.capacity:
         raise ValueError("invalid bucket transition")
     target_peak = estimate_training_memory_bytes(
@@ -416,7 +441,11 @@ def estimate_bucket_transition_memory_bytes(
         + _training_state_bytes(config, new_capacity)
         + 256 * 2**20
     )
-    return int(max(target_peak, migration_peak))
+    peak = max(target_peak, migration_peak)
+    try:
+        return int(peak)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(f"invalid bucket transition estimate: {peak!r}") from exc
 
 
 def _check_memory_budget(
@@ -447,7 +476,7 @@ def _check_memory_budget(
         (
             (device, limit)
             for device, _, limit in samples
-            if limit and estimate > int(limit * 0.70)
+            if limit and estimate * 10 > limit * 7
         ),
         None,
     )
@@ -492,7 +521,7 @@ def _check_bucket_transition_memory_budget(
         f"capacity_growth={old_capacity}->{new_capacity}",
         flush=True,
     )
-    if limit and projected > int(limit * 0.70):
+    if limit and projected * 10 > limit * 7:
         raise MemoryError(
             "bucket growth was stopped before allocation because old and new "
             "training states would exceed 70% of JAX's device-memory limit "
@@ -552,7 +581,7 @@ def _check_distributed_bucket_transition_memory_budget(
         (
             (device, value, limit)
             for device, value, limit in projections
-            if limit and value > int(limit * 0.70)
+            if limit and value * 10 > limit * 7
         ),
         None,
     )
@@ -573,12 +602,16 @@ def _check_distributed_bucket_transition_memory_budget(
 def _device_memory_usage(
     device: jax.Device | None = None,
 ) -> tuple[int, int]:
-    if device is None:
-        device = jax.devices()[0]
-    stats = device.memory_stats() or {}
-    return int(stats.get("bytes_in_use", 0) or 0), int(
-        stats.get("bytes_limit", 0) or 0
-    )
+    selected = jax.devices()[0] if device is None else device
+    stats = selected.memory_stats() or {}
+    try:
+        bytes_in_use = int(stats.get("bytes_in_use", 0) or 0)
+        bytes_limit = int(stats.get("bytes_limit", 0) or 0)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(
+            f"invalid device memory statistics reported by {selected}: {stats!r}"
+        ) from exc
+    return bytes_in_use, bytes_limit
 
 
 def _device_memory_samples(
@@ -628,7 +661,7 @@ def _check_evaluation_memory_budget(
         (
             (device, value, limit)
             for device, value, limit in projections
-            if limit and value > int(limit * 0.70)
+            if limit and value * 10 > limit * 7
         ),
         None,
     )
