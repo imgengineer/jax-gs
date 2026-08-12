@@ -140,8 +140,8 @@ def _parser() -> argparse.ArgumentParser:
         choices=("auto", "jax", "pallas"),
         default="auto",
         help=(
-            "intersection backend; Pallas currently replaces the AccuTile "
-            "count scan"
+            "intersection backend; Pallas replaces the AccuTile count and "
+            "pair-emission scans"
         ),
     )
     parser.add_argument(

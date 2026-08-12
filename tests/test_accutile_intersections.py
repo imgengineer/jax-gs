@@ -7,9 +7,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_gs._pallas_intersections import count_accutile_intersections_pallas
+from jax_gs._pallas_intersections import (
+    count_accutile_intersections_pallas,
+    emit_accutile_intersections_pallas,
+)
 from jax_gs.intersections import (
     _count_accutile_intersections_jax,
+    _emit_accutile_intersections_jax,
     _prepare_accutile_state_jax,
     intersect_tiles,
 )
@@ -30,9 +34,9 @@ def _supports_native_pallas() -> bool:
 
 
 @pytest.mark.parametrize("interpret", [True, False], ids=["interpret", "native"])
-def test_pallas_accutile_count_matches_jax_with_a_partial_final_block(interpret):
+def test_pallas_accutile_scan_matches_jax_with_partial_final_blocks(interpret):
     if not interpret and not _supports_native_pallas():
-        pytest.skip("native Pallas AccuTile counting requires a supported GPU")
+        pytest.skip("native Pallas AccuTile scans require a supported GPU")
     count = 129
     means = jnp.stack(
         (
@@ -73,6 +77,44 @@ def test_pallas_accutile_count_matches_jax_with_a_partial_final_block(interpret)
         )
     )()
     np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
+
+    required_cumulative = jnp.cumsum(expected, dtype=jnp.int32)
+    for capacity in (193, 1345):
+        cumulative = jnp.minimum(
+            required_cumulative, jnp.int32(capacity + 1)
+        )
+        valid_count = jnp.minimum(
+            required_cumulative[-1], jnp.int32(capacity)
+        )
+        expected_ids = jax.jit(
+            lambda: _emit_accutile_intersections_jax(
+                state,
+                cumulative,
+                valid_count,
+                capacity=capacity,
+                tile_size=4,
+                tile_width=7,
+                tile_height=5,
+            )
+        )()
+        actual_ids = jax.jit(
+            lambda: emit_accutile_intersections_pallas(
+                state,
+                cumulative,
+                valid_count,
+                capacity=capacity,
+                tile_size=4,
+                tile_width=7,
+                tile_height=5,
+                interpret=interpret,
+            )
+        )()
+        for actual_id, expected_id in zip(
+            actual_ids, expected_ids, strict=True
+        ):
+            np.testing.assert_array_equal(
+                np.asarray(actual_id), np.asarray(expected_id)
+            )
 
 
 class _ReferenceResult(NamedTuple):

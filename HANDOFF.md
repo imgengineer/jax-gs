@@ -1,6 +1,6 @@
-# jax-gs 性能与 Pallas compositor 交接
+# jax-gs 性能与 Pallas 交接
 
-更新日期：2026-08-11。兼容目标仍固定为 gsplat `main@2b902ff`。
+更新日期：2026-08-12。兼容目标仍固定为 gsplat `main@2b902ff`。
 
 ## 提交基线
 
@@ -24,9 +24,9 @@ Phase 3 已实现并完成 CPU 验收。本次提交的改动集中在：
 
 根目录未跟踪的 `CLAUDE.md` 不属于本阶段，除非用户另行确认，不要随 Phase 3 暂存或提交。
 
-Phase 3 已以 `498166d feat(training): support distributed appearance` 提交并推送到 `main`。Phase 4 已以 `1e325fc feat(checkpoints): load distributed inference snapshots` 提交并推送到 `main`。Phase 5 的 opt-in Pallas/Mosaic GPU 前向已以 `1ec52d8 perf(rasterizer): add experimental Pallas forward` 提交并推送到 `main`；Phase 6 的 compositor custom VJP、单设备训练与 benchmark 已以 `14f9a60 perf(rasterizer): add Pallas compositor backward` 提交并推送。当前 Phase 7 在真实 garden profile 后增量替换 AccuTile count、合并反向 scatter；仍须排除根目录用户文件 `CLAUDE.md`。
+Phase 3 已以 `498166d feat(training): support distributed appearance` 提交并推送到 `main`。Phase 4 已以 `1e325fc feat(checkpoints): load distributed inference snapshots` 提交并推送到 `main`。Phase 5 的 opt-in Pallas/Mosaic GPU 前向已以 `1ec52d8 perf(rasterizer): add experimental Pallas forward` 提交并推送到 `main`；Phase 6 的 compositor custom VJP、单设备训练与 benchmark 已以 `14f9a60 perf(rasterizer): add Pallas compositor backward` 提交并推送；Phase 7 的 AccuTile count 与合并反向 scatter 已以 `b76d243 perf(rasterizer): add Pallas AccuTile counting` 提交并推送。当前 Phase 8 增量替换 AccuTile pair emission，并隔离评估 Flax HiJAX；仍须排除根目录用户文件 `CLAUDE.md`。
 
-Phase 7 不改 projection、pair emission、sort、默认 pure-JAX compositor 或 checkpoint schema。新增的 `_pallas_intersections.py` 只负责 AccuTile count scan；`_pallas.py` 只把原有四次 Gaussian scatter 合并为一次宽 scatter。
+Phase 8 不改 projection、geometry state、prefix/searchsorted、sort、offsets、默认 pure-JAX 路径或 checkpoint schema。`_pallas_intersections.py` 现在负责 AccuTile count 与固定输出槽 pair-emission scan；`_pallas.py` 仍只把原有四次 Gaussian scatter 合并为一次宽 scatter。
 
 ## Phase 3 已实现设计
 
@@ -99,7 +99,21 @@ RTX 5090、JAX 0.11.0、`K=512`、tile batch 64 的质量等价完整 renderer �
 
 640×360 的实际 garden 输入产生 352,091 个 intersection，最忙 tile 1,992，无 overflow。四组交错 500 次 hot-forward 中，Pallas count 相对 JAX count 的完整 renderer mean 改善 8–11%；两组 200 次 `value_and_grad` 改善 2–4%，loss 相同。12 步真实 NNX/Adam 训练完整通过。当前 JAX 0.11 Mosaic GPU 无法为动态向量 Gaussian id 降低所需 atomic reduction，因此没有用更复杂的 kernel 强行取代最后一个 JAX scatter。
 
-默认仍为 JAX；Pallas count 要求单设备 Hopper 或更新 NVIDIA GPU，distributed factory 会提前拒绝。`compositor_backend` 仍不进入 checkpoint fingerprint；`intersection_backend` 历史上已属于训练 config，为兼容既有 v6 checkpoint 保持原契约。
+默认仍为 JAX；Pallas intersection 要求单设备 Hopper 或更新 NVIDIA GPU，distributed factory 会提前拒绝。`compositor_backend` 仍不进入 checkpoint fingerprint；`intersection_backend` 历史上已属于训练 config，为兼容既有 v6 checkpoint 保持原契约。
+
+## Phase 8：Pallas AccuTile pair emission 与 HiJAX 探针
+
+Phase 7 的 GPU trace 显示 count 已退出热点，剩余 intersection 端主要成本是 pure-JAX pair-emission outer scan。Phase 8 保留原有 count prefix，让 JAX 用 `searchsorted` 为每个固定输出槽解析 owner Gaussian；随后每 128 个输出槽由一个 Mosaic program 顺序走查各自 owner 的椭圆 outer 轴并直接写 Gaussian/tile id。geometry state、prefix/searchsorted、tuple sort 和 offsets 都没有迁移，AABB 与默认 JAX 路径也没有变化。
+
+同一 RTX 5090 进程中交错比较 Phase 7 的“Pallas count + JAX emit”和 Phase 8 的“Pallas count + Pallas emit”，输入为 garden 138,766 点、640×360、352,091 intersections、最忙 tile 1,992、无 overflow：
+
+- 500 次 hot-forward mean：1.294 → 1.058 ms，1.22×。
+- 200 次完整 `value_and_grad` mean：3.828 → 3.457 ms，1.11×。
+- 两路 render、alpha、排序后的 intersection ids、计数、loss 逐位相同；参数梯度最大绝对差 `8.44e-7`。
+
+低层测试用 129 个 Gaussian 及 193/1,345 个输出槽同时覆盖 overflow、无效 padding 和非整块尾部，CPU interpreter 与原生 Mosaic 都和 pure JAX ids 精确一致。Pallas intersection 仍只支持单设备 Hopper 或更新 NVIDIA GPU，distributed factory 继续提前拒绝。
+
+Flax 0.12.8 的实验性 HiJAX 只做了隔离探针，没有保留半成品入口。仓库当前 JAX 0.11.0 下，官方最小 Linear+Adam 结构在 `nnx.with_vars`/`nnx.vars_as(..., mutable=False)` 处就因 traced Variable 元数据失败；跳过 immutable view 后，`jax.grad` 又明确报告 HiJAX `get_variable` 没有 JVP。由于基础训练用例尚不能完成一步，而本项目还需要 NNX optimizer alias、条件分支和桶内拓扑 mutation，当前继续使用已验证的 `nnx.jit`，不复制第二套 Optax 状态机。
 
 ## 明确边界
 
@@ -146,12 +160,19 @@ RTX 5090、JAX 0.11.0、`K=512`、tile batch 64 的质量等价完整 renderer �
 - `./scripts/test_safe.sh` 完整 CPU 串行回归退出码 0；6 个 native Pallas case 与本机缺失的 stump 数据集按预期跳过，4 条 warning 是既有 Orbax generic checkpoint sharding 提示。
 - `git diff --check` 与 `compileall` 通过。Phase 7 未运行完整 GPU safe script，不得把隔离的 RTX 5090 定向结果写成全套 GPU 验收。
 
+## Phase 8 验收结果
+
+- CPU 相关整文件回归：AccuTile/intersection/config/storage/rasterization/training/CLI 共 243 passed、4 个 native-only skip；加强后的 overflow/padding scan 定向用例随后再次通过。
+- RTX 5090：AccuTile/Pallas/rasterization/training 定向选择 21 passed；真实 garden 的 Pallas emit 与 Phase 7 JAX emit 做了上述同进程交错 A/B，并额外确认完整 JAX 与完整 Pallas 的 render/alpha/排序 intersection metadata 精确相同。
+- 尚未重跑完整 CPU/GPU safe script；提交前以最终实际回归结果更新本节，不把定向结果写成全套验收。
+
 ## 后续迁移顺序
 
-1. 若继续性能线，先在 Phase 7 更新后的真实训练 trace 中分离剩余的 1.12 ms 宽 scatter、pair emission、tuple sort 与 optimizer；Mosaic 当前不能表达动态向量-id atomic，因此不要把宽 scatter 原样搬回 kernel。只有测到稳定瓶颈后才增加下一枚 Pallas kernel。distributed/AbsGrad/2DGS/Eval3D 必须各自做数值与 overflow 门禁，不能直接放开当前 guard。
+1. 若继续性能线，Phase 8 后优先重新量化约 1.12 ms 的宽 Gaussian scatter、JAX `searchsorted` 与 optimizer；tuple sort 和 pair emission 已不再是首要热点。Mosaic 当前不能表达动态向量-id atomic，因此不要把宽 scatter 原样搬回 kernel。只有测到稳定瓶颈后才增加下一枚 Pallas kernel。distributed/AbsGrad/2DGS/Eval3D 必须各自做数值与 overflow 门禁，不能直接放开当前 guard。
 2. 再设计 multi-process/multi-host host ownership、per-process checkpoint、数据加载与一致 preflight；现有 stacked host state helper 不能直接宣称支持它。
 3. 让 CLI render 默认消费 checkpoint 中动态增长后的 intersection/candidate high-water mark，再由显式 CLI 参数覆盖；当前仍使用保存的 TrainConfig 值，容量不足时会报告 overflow，最终输出应使用 `--strict-overflow` 或显式覆盖容量。
 4. 继续迁移 distributed UT/eval3d、非 pinhole、`sparse_grad` 和 AbsGrad；每项按 current-main 实际组合单独对齐，不用过时的“上游统一拒绝”归因。
 5. Phase 7 的完整 CPU safe script 已通过；GPU 仍按 case 隔离通过定向门禁，若扩大 Pallas surface 再运行完整 GPU safe script。
+6. HiJAX 只在 Flax/JAX 的官方最小 value-and-grad/update 模式能在锁定版本上稳定通过后再评估；在此之前不要为它复制训练循环或放宽 topology/alias 语义。
 
 提交或继续开发时仍应检查实际暂存清单，不能带入根目录用户文件 `CLAUDE.md`。

@@ -737,7 +737,7 @@ def _make_train_step(
         and distributed_world_size > 1
     ):
         raise NotImplementedError(
-            "Pallas AccuTile counting does not yet support distributed "
+            "Pallas AccuTile intersection does not yet support distributed "
             "Gaussian shards"
         )
     if config.rasterizer.compositor_backend == "pallas":

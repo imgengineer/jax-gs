@@ -7,7 +7,10 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-from ._pallas_intersections import count_accutile_intersections_pallas
+from ._pallas_intersections import (
+    count_accutile_intersections_pallas,
+    emit_accutile_intersections_pallas,
+)
 
 
 _DIRECT_SORT_MIN_CAPACITY = 65_536
@@ -569,8 +572,8 @@ def intersect_tiles(
     Memory is ``O(N + max_intersections + tile_count)``. When the exact number
     of intersections exceeds ``max_intersections``, the retained prefix is
     sorted normally and ``overflow`` is set. ``backend='pallas'`` replaces
-    only the AccuTile count scan; pair emission, sorting, and offsets
-    deliberately remain in JAX.
+    the AccuTile count and pair-emission scans; geometry preparation, prefix
+    sums, sorting, and offsets deliberately remain in JAX.
     """
 
     tile_size = _static_int("tile_size", tile_size, minimum=1)
@@ -707,16 +710,28 @@ def intersect_tiles(
         )
 
     if use_accutile:
-        with jax.named_scope("intersection_emit_accutile_jax"):
-            gaussian_ids, tile_ids = _emit_accutile_intersections_jax(
-                accutile_state,
-                cumulative,
-                valid_count,
-                capacity=capacity,
-                tile_size=tile_size,
-                tile_width=tile_width,
-                tile_height=tile_height,
-            )
+        if backend == "pallas":
+            with jax.named_scope("intersection_emit_accutile_pallas"):
+                gaussian_ids, tile_ids = emit_accutile_intersections_pallas(
+                    accutile_state,
+                    cumulative,
+                    valid_count,
+                    capacity=capacity,
+                    tile_size=tile_size,
+                    tile_width=tile_width,
+                    tile_height=tile_height,
+                )
+        else:
+            with jax.named_scope("intersection_emit_accutile_jax"):
+                gaussian_ids, tile_ids = _emit_accutile_intersections_jax(
+                    accutile_state,
+                    cumulative,
+                    valid_count,
+                    capacity=capacity,
+                    tile_size=tile_size,
+                    tile_width=tile_width,
+                    tile_height=tile_height,
+                )
     else:
         with jax.named_scope("intersection_map_jax"):
             gaussian_ids, tile_ids = _map_intersections_jax(
