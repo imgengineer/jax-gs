@@ -573,15 +573,18 @@ def intersect_tiles(
     of intersections exceeds ``max_intersections``, the retained prefix is
     sorted normally and ``overflow`` is set. ``backend='pallas'`` replaces
     the AccuTile count and pair-emission scans; geometry preparation, prefix
-    sums, sorting, and offsets deliberately remain in JAX.
+    sums, sorting, and offsets deliberately remain in JAX. The explicit
+    ``backend='cuda_tile'`` option uses NVIDIA cuTile for the same two scans.
     """
 
     tile_size = _static_int("tile_size", tile_size, minimum=1)
     tile_width = _static_int("tile_width", tile_width, minimum=1)
     tile_height = _static_int("tile_height", tile_height, minimum=1)
     capacity = _static_int("max_intersections", max_intersections, minimum=0)
-    if backend not in {"auto", "jax", "pallas"}:
-        raise ValueError("backend must be 'auto', 'jax', or 'pallas'")
+    if backend not in {"auto", "jax", "pallas", "cuda_tile"}:
+        raise ValueError(
+            "backend must be 'auto', 'jax', 'pallas', or 'cuda_tile'"
+        )
     if sort_backend not in {"auto", "jax"}:
         raise ValueError("sort_backend must be 'auto' or 'jax'")
     if mode not in {"auto", "aabb", "accutile"}:
@@ -662,6 +665,17 @@ def intersect_tiles(
                     tile_width=tile_width,
                     tile_height=tile_height,
                 )
+            elif backend == "cuda_tile":
+                from ._cutile_intersections import (
+                    count_accutile_intersections_cutile,
+                )
+
+                tiles_per_gaussian = count_accutile_intersections_cutile(
+                    accutile_state,
+                    tile_size=tile_size,
+                    tile_width=tile_width,
+                    tile_height=tile_height,
+                )
             else:
                 tiles_per_gaussian = _count_accutile_intersections_jax(
                     accutile_state,
@@ -727,6 +741,21 @@ def intersect_tiles(
                     tile_width=tile_width,
                     tile_height=tile_height,
                 )
+        elif backend == "cuda_tile":
+            from ._cutile_intersections import (
+                emit_accutile_intersections_cutile,
+            )
+
+            with jax.named_scope("intersection_emit_accutile_cuda_tile"):
+                gaussian_ids, tile_ids = emit_accutile_intersections_cutile(
+                    accutile_state,
+                    cumulative,
+                    valid_count,
+                    capacity=capacity,
+                    tile_size=tile_size,
+                    tile_width=tile_width,
+                    tile_height=tile_height,
+                )
         else:
             with jax.named_scope("intersection_emit_accutile_jax"):
                 gaussian_ids, tile_ids = _emit_accutile_intersections_jax(
@@ -769,7 +798,7 @@ def intersect_tiles(
         gaussian_ids = jnp.where(output_valid, gaussian_ids, -1).astype(jnp.int32)
         tile_ids = jnp.where(output_valid, tile_keys, -1).astype(jnp.int32)
         with jax.named_scope("intersection_offsets"):
-            if backend == "pallas" and use_accutile:
+            if backend in {"pallas", "cuda_tile"} and use_accutile:
                 tile_counts = jnp.bincount(
                     tile_keys, length=tile_count + 1
                 )

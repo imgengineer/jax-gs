@@ -1995,6 +1995,18 @@ def test_train_step_accepts_the_cuda_ffi_compositor():
     )
 
 
+def test_train_step_accepts_the_cuda_tile_accutile_counter():
+    assert callable(
+        make_train_step(
+            TrainConfig(
+                rasterizer=RasterizationConfig(
+                    intersection_backend="cuda_tile"
+                )
+            )
+        )
+    )
+
+
 def test_train_step_accepts_the_pallas_accutile_counter():
     assert callable(
         make_train_step(

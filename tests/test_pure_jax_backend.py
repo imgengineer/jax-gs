@@ -3,13 +3,8 @@ import subprocess
 import sys
 
 
-def test_project_has_no_cuda_tile_dependency_or_modules():
+def test_default_import_does_not_require_cuda_tile():
     project_root = Path(__file__).parents[1]
-    pyproject = (project_root / "pyproject.toml").read_text(encoding="utf-8")
-    lockfile = (project_root / "uv.lock").read_text(encoding="utf-8")
-    assert "cuda-tile" not in pyproject
-    assert "cuda-tile" not in lockfile
-    assert not list((project_root / "src" / "jax_gs").glob("cutile_*.py"))
 
     script = """
 import importlib

@@ -600,8 +600,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas"),
-        help="Pallas accelerates the AccuTile count and pair-emission scans",
+        choices=("auto", "jax", "pallas", "cuda_tile"),
+        help=(
+            "use Pallas or NVIDIA cuTile for AccuTile count and "
+            "pair-emission scans"
+        ),
     )
     train_parser.add_argument(
         "--intersection-mode",
@@ -658,8 +661,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas"),
-        help="Pallas accelerates the AccuTile count and pair-emission scans",
+        choices=("auto", "jax", "pallas", "cuda_tile"),
+        help=(
+            "use Pallas or NVIDIA cuTile for AccuTile count and "
+            "pair-emission scans"
+        ),
     )
     render_parser.add_argument(
         "--intersection-mode",

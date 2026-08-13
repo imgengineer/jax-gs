@@ -117,6 +117,163 @@ def test_pallas_accutile_scan_matches_jax_with_partial_final_blocks(interpret):
             )
 
 
+def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks():
+    device = jax.devices()[0]
+    if device.platform != "gpu" or "cuda" not in str(device).lower():
+        pytest.skip("cuTile AccuTile scans require an NVIDIA CUDA GPU")
+    pytest.importorskip("cuda.tile")
+    from jax_gs._cutile_intersections import (
+        count_accutile_intersections_cutile,
+        emit_accutile_intersections_cutile,
+    )
+
+    count = 129
+    means = jnp.stack(
+        (
+            jnp.linspace(-2.0, 25.0, count, dtype=jnp.float32),
+            jnp.linspace(19.0, -1.0, count, dtype=jnp.float32),
+        ),
+        axis=-1,
+    )
+    radii = jnp.full((count, 2), 4.0, jnp.float32)
+    conics = jnp.tile(
+        jnp.asarray([[0.18, 0.03, 0.24]], jnp.float32), (count, 1)
+    )
+    opacities = jnp.linspace(0.001, 0.9, count, dtype=jnp.float32)
+    valid = jnp.arange(count) % 7 != 0
+    state = _prepare_accutile_state_jax(
+        means,
+        radii,
+        conics,
+        opacities,
+        valid,
+        tile_size=4,
+        tile_width=7,
+        tile_height=5,
+        alpha_threshold=1.0 / 255.0,
+    )
+    expected = jax.jit(
+        lambda: _count_accutile_intersections_jax(
+            state, tile_size=4, tile_width=7, tile_height=5
+        )
+    )()
+    actual = jax.jit(
+        lambda: count_accutile_intersections_cutile(
+            state, tile_size=4, tile_width=7, tile_height=5
+        )
+    )()
+    np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
+
+    required_cumulative = jnp.cumsum(expected, dtype=jnp.int32)
+    for capacity in (193, 1345):
+        cumulative = jnp.minimum(
+            required_cumulative, jnp.int32(capacity + 1)
+        )
+        valid_count = jnp.minimum(
+            required_cumulative[-1], jnp.int32(capacity)
+        )
+        expected_ids = jax.jit(
+            lambda: _emit_accutile_intersections_jax(
+                state,
+                cumulative,
+                valid_count,
+                capacity=capacity,
+                tile_size=4,
+                tile_width=7,
+                tile_height=5,
+            )
+        )()
+        actual_ids = jax.jit(
+            lambda: emit_accutile_intersections_cutile(
+                state,
+                cumulative,
+                valid_count,
+                capacity=capacity,
+                tile_size=4,
+                tile_width=7,
+                tile_height=5,
+            )
+        )()
+        for actual_id, expected_id in zip(
+            actual_ids, expected_ids, strict=True
+        ):
+            np.testing.assert_array_equal(
+                np.asarray(actual_id), np.asarray(expected_id)
+            )
+
+
+def test_cuda_tile_intersect_tiles_matches_jax_direct_sort_and_overflow():
+    device = jax.devices()[0]
+    if device.platform != "gpu" or "cuda" not in str(device).lower():
+        pytest.skip("cuTile AccuTile scans require an NVIDIA CUDA GPU")
+    pytest.importorskip("cuda.tile")
+
+    count = 129
+    means = jnp.stack(
+        (
+            jnp.linspace(-2.0, 25.0, count, dtype=jnp.float32),
+            jnp.linspace(19.0, -1.0, count, dtype=jnp.float32),
+        ),
+        axis=-1,
+    )
+    radii = jnp.full((count, 2), 4.0, jnp.float32)
+    conics = jnp.tile(
+        jnp.asarray([[0.18, 0.03, 0.24]], jnp.float32), (count, 1)
+    )
+    opacities = jnp.linspace(0.001, 0.9, count, dtype=jnp.float32)
+    depths = jnp.linspace(4.0, 0.5, count, dtype=jnp.float32)
+    valid = jnp.arange(count) % 7 != 0
+
+    def run(backend, capacity):
+        return jax.jit(
+            lambda: intersect_tiles(
+                means,
+                radii,
+                depths,
+                valid,
+                tile_size=4,
+                tile_width=7,
+                tile_height=5,
+                max_intersections=capacity,
+                backend=backend,
+                sort_backend="jax",
+                conics=conics,
+                opacities=opacities,
+                mode="accutile",
+            )
+        )()
+
+    full_capacity = 65_536
+    expected = run("jax", full_capacity)
+    actual = run("cuda_tile", full_capacity)
+    for actual_value, expected_value in zip(
+        actual, expected, strict=True
+    ):
+        np.testing.assert_array_equal(
+            np.asarray(actual_value), np.asarray(expected_value)
+        )
+    valid_count = int(actual.valid_count)
+    np.testing.assert_array_equal(
+        np.asarray(actual.gaussian_ids)[valid_count:],
+        np.full((full_capacity - valid_count,), -1, np.int32),
+    )
+    np.testing.assert_array_equal(
+        np.asarray(actual.tile_ids)[valid_count:],
+        np.full((full_capacity - valid_count,), -1, np.int32),
+    )
+
+    overflow_capacity = 193
+    expected_overflow = run("jax", overflow_capacity)
+    actual_overflow = run("cuda_tile", overflow_capacity)
+    assert bool(actual_overflow.overflow)
+    for actual_value, expected_value in zip(
+        actual_overflow, expected_overflow, strict=True
+    ):
+        np.testing.assert_array_equal(
+            np.asarray(actual_value), np.asarray(expected_value)
+        )
+
+
 class _ReferenceResult(NamedTuple):
     gaussian_ids: np.ndarray
     tile_ids: np.ndarray

@@ -48,9 +48,10 @@ def test_compositor_backend_accepts_explicit_gpu_paths():
             )
 
 
-def test_intersection_backend_accepts_incremental_pallas_path():
-    config = RasterizationConfig(intersection_backend="pallas")
-    assert config.intersection_backend == "pallas"
+@pytest.mark.parametrize("backend", ["pallas", "cuda_tile"])
+def test_intersection_backend_accepts_explicit_gpu_paths(backend):
+    config = RasterizationConfig(intersection_backend=backend)
+    assert config.intersection_backend == backend
 
 
 def test_2dgs_training_config_round_trips_upstream_regularizers(tmp_path):

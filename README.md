@@ -12,7 +12,7 @@
 - 纯 JAX 3DGS EWA 投影、固定容量 visible packing、tile-intersection 构建、排序和多通道 forward/backward alpha compositing。
 - 实验性 `RasterizationConfig.compositor_backend="pallas"` 用一个 Mosaic GPU program 处理一个 tile，并按该 tile 的真实候选数执行动态循环；单独选择此字段不改变 JAX projection、intersection、排序与 overflow。自定义 VJP 在 tile 内逆序重算响应并输出 per-intersection 梯度，再由一个合并的 JAX scatter-add 回 Gaussian 行。
 - 显式 `compositor_backend="cuda_ffi"` 使用 JAX 0.11 typed FFI 调用 CUDA kernel：16×16 CTA、shared-memory Gaussian batch、per-pixel last-id、warp reduction 和直接 Gaussian atomic gradients。首次显式使用时通过 `nvcc` 缓存编译，也可用 `JAX_GS_CUDA_FFI_LIBRARY` 指向预编译库；普通导入和默认 `"jax"` 不要求 CUDA toolchain。当前支持 float32、tile size 16、通道数 1/2/3/4/8/16/32、单设备 3DGS reverse mode；AbsGrad、distributed、2DGS、Eval3D、reference backend、JVP 与高阶梯度不支持。
-- 普通 EWA 3DGS 默认执行 pure-JAX opacity-aware SNUGBOX + AccuTile 精确 count/emit；`RasterizationConfig.intersection_backend="pallas"` 把逐 Gaussian count scan 和固定输出槽的 pair-emission scan 换成 Mosaic kernel，state preparation、count prefix、tuple sort 仍保持 JAX。Pallas AccuTile 路径用 run-start marker 的 prefix-max 解析输出槽 owner，并用 tile histogram prefix 生成 offsets；缺少 conic/opacity、UT/畸变/2DGS 或显式选择 `aabb` 时使用保守 AABB 候选，继续安全回落到原有 JAX AABB/searchsorted 路径。
+- 普通 EWA 3DGS 默认执行 pure-JAX opacity-aware SNUGBOX + AccuTile 精确 count/emit；`RasterizationConfig.intersection_backend="pallas"` 把逐 Gaussian count scan 和固定输出槽的 pair-emission scan 换成 Mosaic kernel。显式 `intersection_backend="cuda_tile"` 则通过 NVIDIA `cuda.tile.jax.cutile_call()` 执行同样的 count/emit，直接进入 `jax.jit` 并复用 XLA CUDA stream；state preparation、count prefix、tuple sort 仍保持 JAX。两条 GPU 路径都保留 Gaussian-major 固定容量前缀、overflow 和 `-1` padding 契约；缺少 conic/opacity、UT/畸变/2DGS 或显式选择 `aabb` 时使用保守 AABB 候选，继续安全回落到原有 JAX AABB/searchsorted 路径。
 - 固定容量 intersection 使用 JAX tuple sort；padding 使用 sentinel，运行时 `valid_count` 限定有效前缀并生成每个 tile 的 offsets。
 - dense projection 后使用固定容量 visible packing；只有保留的可见项进入 SH、intersection、排序和 compositor，超出容量会显式报告 `visible_overflow`。
 - 常规颜色训练使用 split SH，避免百万槽每步先物化完整 `[N,K,3]` 拼接；appearance 模式直接消费分开的 `features`/`colors`；NNX train/refine/compaction 启用 buffer donation。
@@ -71,7 +71,7 @@ uv sync --all-groups
 uv run python -c "import jax; print(jax.devices())"
 ```
 
-`pyproject.toml` 使用 `jax[cuda13]`、Flax NNX、Grain 和 Optax，并通过 setuptools 构建 Python 包。`jax[cuda13]` 提供 JAX/XLA CUDA 运行环境及实验性 Pallas/Mosaic GPU API；仅显式选择 `cuda_ffi` 时，项目才延迟编译/加载随包提供的 CUDA compositor source。本机当前环境为 RTX 5090、JAX 0.11.0、Flax 0.12.8、Grain 0.2.18。
+`pyproject.toml` 使用 `jax[cuda13]`、Flax NNX、Grain 和 Optax，并通过 setuptools 构建 Python 包。`jax[cuda13]` 提供 JAX/XLA CUDA 运行环境及实验性 Pallas/Mosaic GPU API；仅显式选择 `cuda_ffi` 时，项目才延迟编译/加载随包提供的 CUDA compositor source。使用 Python cuTile intersection 路径时另行安装 `cuda-tile>=1.5.0`，例如 `uv pip install 'cuda-tile[tileiras]==1.5.0'`；默认安装和普通导入不要求它。本机当前环境为 RTX 5090、JAX 0.11.0、Flax 0.12.8、Grain 0.2.18。
 
 ## Rasterizer backend
 
@@ -87,9 +87,22 @@ uv run python -c "import jax; print(jax.devices())"
 
 旧配置中的 `backend="cutile"`、`intersection_backend="cutile"` 或 `sort_backend="cutile"` 会发出弃用警告并归一化为 `"jax"`；更早的 `backend="cuda_ffi"` 与 `sort_backend="cuda_ffi"` 也会在加载时迁移到 JAX。`intersection_backend="pallas"` 现在表示新的增量 AccuTile count/emit kernel，不再被配置迁移重写；这个入口不会加载旧依赖。
 
-`RasterizationConfig.intersection_backend` 的 `auto` 与 `jax` 都使用 pure JAX；`pallas` 替换 AccuTile count 与 pair-emission scan，geometry state、count prefix、run-start owner prefix-max、tuple sort 与 tile-histogram offsets 继续使用 JAX。`intersection_mode="auto"` 在普通 EWA 3DGS 上使用 opacity-aware AccuTile，`aabb` 强制矩形候选，`accutile` 强制精确椭圆路径；UT、非线性投影和 2DGS 自动使用 AABB，因为其近似 conic 不保证是保守边界。这里的 **AccuTile 是 gsplat/SpeedySplat 的保守椭圆与 tile 相交算法，不是 NVIDIA cuTile 编程模型**。Pallas intersection 当前要求单设备、NVIDIA Hopper 或更新架构；CPU、distributed 和其它组合应继续选 `auto`/`jax`。
+`RasterizationConfig.intersection_backend` 的 `auto` 与 `jax` 都使用 pure JAX；`pallas` 与 `cuda_tile` 替换 AccuTile count 与 pair-emission scan，geometry state、count prefix、tuple sort 与 tile-histogram offsets 继续使用 JAX。`cuda_tile` 需要 NVIDIA CUDA GPU 与 `cuda-tile>=1.5.0`，但依赖和 kernel 定义保持延迟加载，普通 `jax_gs` 导入及默认路径不要求该包。cuTile 1.5 还要求 NVIDIA Driver r580+，以及环境中的 Tile IR 编译器（`cuda-tile[tileiras]`）或 CUDA Toolkit 13.1+；其 13.2 `tileiras` 当前支持 Blackwell 与 Ampere/Ada，暂不支持 Hopper。`intersection_mode="auto"` 在普通 EWA 3DGS 上使用 opacity-aware AccuTile，`aabb` 强制矩形候选，`accutile` 强制精确椭圆路径；UT、非线性投影和 2DGS 自动使用 AABB，因为其近似 conic 不保证是保守边界。这里的 **AccuTile 是 gsplat/SpeedySplat 的保守椭圆与 tile 相交算法，cuTile 是可选的 NVIDIA Python kernel 编程模型**。Pallas 当前要求 NVIDIA Hopper 或更新架构；cuTile 尚未验证 distributed Gaussian-shard 训练。CPU 和其它组合应继续选 `auto`/`jax`。
 
 `RasterizationConfig.sort_backend` 的 `auto` 与 `jax` 都使用 JAX tuple sort。排序只消费 `valid_count` 指定的前缀，padding 使用 sentinel，并为每个 tile 生成 offsets。固定 capacity 仍是 JIT shape，改变它会触发新编译。
+
+显式 Python cuTile 组合示例：
+
+```bash
+uv pip install 'cuda-tile[tileiras]==1.5.0'
+uv run python benchmarks/benchmark_rasterization.py \
+  --npz /path/to/scene.npz --capacity 138766 --active 138766 \
+  --resolution 640x360 --backend intersections \
+  --intersection-mode accutile --intersection-backend cuda_tile \
+  --compositor-backend cuda_ffi --max-intersections 524288
+```
+
+cuTile 当前只替换 intersection count/emit；projection、prefix、sort、offsets 与现有 CUDA FFI compositor 保持原实现。RTX 5090 garden 138,766 Gaussian、640×360、352,091 intersections 的三次 fresh-process median-of-runs 中，完整 renderer 相对 Pallas intersection 为 forward `0.838→0.832 ms`、`value_and_grad` `1.587→1.511 ms`；render/alpha、排序 IDs/offsets 与 loss 完全一致。该数字只代表此场景和当前固定容量，cuTile emit 会对每个输出槽做 owner 二分查找，收益仍会随 capacity/填充率变化。
 
 可通过 metadata 检查固定容量结果是否发生截断：
 
