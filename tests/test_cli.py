@@ -1,4 +1,6 @@
+import argparse
 from types import SimpleNamespace
+from typing import cast
 
 from flax import nnx
 import jax
@@ -8,7 +10,8 @@ import pytest
 
 import jax_gs.cli as cli_module
 from jax_gs.checkpoints import save_distributed_checkpoint
-from jax_gs.config import ModelConfig, TrainConfig
+from jax_gs.config import ModelConfig, RasterizationConfig, TrainConfig
+from jax_gs.data import ColmapScene
 from jax_gs.exporter import load_ply_to_splats
 from jax_gs.optimizers import create_optimizer
 from jax_gs.strategy import DefaultStrategy
@@ -161,6 +164,98 @@ def test_train_cli_exposes_2dgs_and_upstream_regularizers(monkeypatch):
     assert config.dist_lambda == 0.2
     assert config.dist_start_iter == 7
     assert captured["resume_from"] is None
+
+
+def test_train_cli_uses_native_defaults_when_supported(monkeypatch):
+    captured = {}
+
+    def fake_train(config, *, resume_from=None):
+        captured["config"] = config
+        return SimpleNamespace(checkpoint="unused")
+
+    monkeypatch.setattr(cli_module, "train", fake_train)
+    monkeypatch.setattr(
+        cli_module, "_native_training_defaults_available", lambda: True
+    )
+
+    args = cli_module.build_parser().parse_args(["train"])
+    args.func(args)
+
+    rasterizer = captured["config"].rasterizer
+    assert rasterizer.backend == "intersections"
+    assert rasterizer.compositor_backend == "cuda_ffi"
+    assert rasterizer.intersection_backend == "cuda_tile_cub"
+    assert rasterizer.intersection_mode == "accutile"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["train", "--model-type", "2dgs"],
+        ["train", "--with-ut"],
+        ["train", "--distributed"],
+        ["train", "--intersection-backend", "jax"],
+        ["train", "--config", "scene.json"],
+        ["train", "--resume", "checkpoint"],
+    ],
+)
+def test_train_cli_keeps_jax_defaults_when_native_mode_does_not_apply(
+    monkeypatch, argv
+):
+    captured = {}
+
+    def fake_train(config, *, resume_from=None, distributed=False):
+        captured["config"] = config
+        captured["distributed"] = distributed
+        return SimpleNamespace(checkpoint="unused")
+
+    monkeypatch.setattr(cli_module, "train", fake_train)
+    monkeypatch.setattr(
+        cli_module, "_native_training_defaults_available", lambda: True
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "load_checkpoint_config",
+        lambda _path: TrainConfig(
+            rasterizer=RasterizationConfig(intersection_backend="jax")
+        ),
+    )
+    monkeypatch.setattr(
+        TrainConfig,
+        "load",
+        lambda _path: TrainConfig(
+            rasterizer=RasterizationConfig(intersection_backend="jax")
+        ),
+    )
+
+    args = cli_module.build_parser().parse_args(argv)
+    args.func(args)
+
+    rasterizer = captured["config"].rasterizer
+    assert rasterizer.compositor_backend == "jax"
+    assert rasterizer.intersection_backend in {"auto", "jax"}
+
+
+def test_train_cli_keeps_jax_defaults_when_native_mode_is_unavailable(
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_train(config, *, resume_from=None):
+        captured["config"] = config
+        return SimpleNamespace(checkpoint="unused")
+
+    monkeypatch.setattr(cli_module, "train", fake_train)
+    monkeypatch.setattr(
+        cli_module, "_native_training_defaults_available", lambda: False
+    )
+
+    args = cli_module.build_parser().parse_args(["train"])
+    args.func(args)
+
+    rasterizer = captured["config"].rasterizer
+    assert rasterizer.compositor_backend == "jax"
+    assert rasterizer.intersection_backend == "auto"
 
 
 def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
@@ -436,6 +531,7 @@ def test_checkpoint_loader_reconstructs_appearance_graph_and_manifest(
     assert loaded_config is config
     assert model.has_appearance
     assert appearance is captured["appearance_module"]
+    assert appearance is not None
     assert isinstance(captured["appearance_optimizer"], nnx.Optimizer)
     assert captured["appearance_image_names"] == ("a.png", "b.png")
     assert appearance.embeds.embedding.shape == (2, 4)
@@ -576,7 +672,7 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     expected_transform = (
         cli_module.SceneTransform(matrix)
         if has_scene_metadata
-        else cli_module._legacy_scene_transform(scene)
+        else cli_module._legacy_scene_transform(cast(ColmapScene, scene))
     )
     expected = expected_transform.world_to_camera(example["w2c"])
     np.testing.assert_allclose(captured["viewmat"], expected)
@@ -709,7 +805,10 @@ def test_cli_export_bakes_appearance_to_degree_zero_sh(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_module, "export_splats", fake_export)
 
     cli_module._export_command(
-        SimpleNamespace(checkpoint=str(tmp_path / "checkpoint"), output=tmp_path / "out.ply")
+        argparse.Namespace(
+            checkpoint=str(tmp_path / "checkpoint"),
+            output=tmp_path / "out.ply",
+        )
     )
 
     assert "features" not in captured["splats"]
@@ -733,7 +832,7 @@ def test_cli_export_materializes_real_distributed_checkpoint(
     output = tmp_path / ("appearance.ply" if app_opt else "sh.ply")
 
     cli_module._export_command(
-        SimpleNamespace(checkpoint=str(checkpoint), output=output)
+        argparse.Namespace(checkpoint=str(checkpoint), output=output)
     )
 
     restored = load_ply_to_splats(output)

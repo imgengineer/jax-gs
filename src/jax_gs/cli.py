@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 from typing import Sequence
 
 from flax import nnx
@@ -93,6 +96,77 @@ def _load_training_objects(checkpoint: Path):
         }
     step = restore_checkpoint(checkpoint, model, **restore_kwargs)
     return config, model, appearance, step
+
+
+def _native_training_defaults_available() -> bool:
+    try:
+        devices = jax.local_devices(backend="gpu")
+        capabilities = {
+            float(getattr(device, "compute_capability", 0.0))
+            for device in devices
+        }
+        cutile_available = importlib.util.find_spec("cuda.tile") is not None
+    except (ImportError, ModuleNotFoundError, RuntimeError, TypeError, ValueError):
+        return False
+    if not devices or any(
+        "cuda" not in str(device).lower() for device in devices
+    ):
+        return False
+    # cuda-tile 1.5 rejects Hopper; keep automatic routing conservative.
+    if (
+        len(capabilities) != 1
+        or min(capabilities) < 10.0
+        or not cutile_available
+    ):
+        return False
+    if shutil.which(os.environ.get("JAX_GS_NVCC", "nvcc")):
+        return True
+    return bool(
+        os.environ.get("JAX_GS_CUDA_FFI_LIBRARY")
+        and os.environ.get("JAX_GS_CUDA_INTERSECTIONS_FFI_LIBRARY")
+    )
+
+
+def _apply_training_defaults(
+    config: TrainConfig,
+    *,
+    distributed: bool,
+    rasterizer_overridden: bool,
+) -> TrainConfig:
+    if rasterizer_overridden:
+        return config
+    rasterizer = config.rasterizer
+    uses_defaults = (
+        rasterizer.backend == "auto"
+        and rasterizer.compositor_backend == "jax"
+        and rasterizer.intersection_backend == "auto"
+        and rasterizer.intersection_mode == "auto"
+        and rasterizer.sort_backend == "auto"
+    )
+    supported = (
+        uses_defaults
+        and not distributed
+        and config.model_type == "3dgs"
+        and config.camera_model == "pinhole"
+        and not config.with_ut
+        and not config.with_eval3d
+        and not config.strategy.absgrad
+        and not config.app_opt
+        and rasterizer.tile_size == 16
+        and _native_training_defaults_available()
+    )
+    if not supported:
+        return config
+    return replace(
+        config,
+        rasterizer=replace(
+            rasterizer,
+            backend="intersections",
+            compositor_backend="cuda_ffi",
+            intersection_backend="cuda_tile_cub",
+            intersection_mode="accutile",
+        ),
+    )
 
 
 def _train_command(args: argparse.Namespace) -> None:
@@ -269,14 +343,26 @@ def _train_command(args: argparse.Namespace) -> None:
         config = replace(config, with_ut=True)
     if args.with_eval3d:
         config = replace(config, with_eval3d=True, with_ut=True)
-    train_kwargs = {"resume_from": args.resume}
+    config = _apply_training_defaults(
+        config,
+        distributed=args.distributed,
+        rasterizer_overridden=(
+            args.resume is not None
+            or args.rasterizer_backend is not None
+            or args.compositor_backend is not None
+            or args.intersection_backend is not None
+            or args.intersection_mode is not None
+            or args.sort_backend is not None
+        ),
+    )
     if args.distributed:
         if config.strategy.target_primitives is not None:
             raise NotImplementedError(
                 "distributed training does not support target_primitives"
             )
-        train_kwargs["distributed"] = True
-    result = train(config, **train_kwargs)
+        result = train(config, resume_from=args.resume, distributed=True)
+    else:
+        result = train(config, resume_from=args.resume)
     print(f"checkpoint={result.checkpoint}")
 
 

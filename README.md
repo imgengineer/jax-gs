@@ -130,12 +130,7 @@ uv run jax-gs train \
 uv run jax-gs train \
   --config scene.json \
   --steps 30000 \
-  --strategy default \
-  --capacity 1000000 \
-  --target-primitives 1000000 \
-  --bucket-min-capacity 65536 \
-  --max-intersections 1048576 \
-  --max-candidates-per-tile 2048
+  --target-primitives 1000000
 ```
 
 2DGS：
@@ -150,14 +145,15 @@ uv run jax-gs train \
 
 `--target-primitives` 是可选的 DefaultStrategy 增长调度：它按剩余 refine 次数控制新增点数，同时仍受梯度候选、`--max-new-per-refine` 和逻辑/物理容量限制。它不会强制补足缺少的候选，也不会为了维持目标而抑制剪枝或强制缩小已有点集，因此目标是增长上限而非无条件精确的最终点数。未设置时保持原有阈值 densification；当前不支持 distributed 训练。
 
+训练入口默认使用 gsplat 风格的 16×16 tile、固定容量 intersection buffer 与 `active_mask`；模型和 workspace 按增长高水位自动分桶，避免每次数量变化都重新 JIT。默认 3DGS 配置会在支持的 NVIDIA 环境自动使用严格的 cuTile+CUB/CUDA FFI 路径；CPU、distributed、2DGS、UT、Eval3D、AbsGrad、appearance optimization 或缺少可选组件时保留纯 JAX 路径。恢复 checkpoint 或命令行显式覆盖任一 backend 时保持保存/指定的配置；`--intersection-backend jax` 可强制纯 JAX。通常只需设置数据、输出目录和训练步数，底层容量与 tile 参数留给默认值和 overflow replay 自动处理。
+
 训练配置也可以直接在 Python 中构造：
 
 ```python
-from jax_gs import DataConfig, RasterizationConfig, TrainConfig
+from jax_gs import DataConfig, TrainConfig
 
 config = TrainConfig(
     data=DataConfig(root="/path/to/scene", image_dir="images_8"),
-    rasterizer=RasterizationConfig(max_intersections=1_048_576),
     steps=30_000,
     output_dir="outputs/scene",
 )
