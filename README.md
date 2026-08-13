@@ -87,7 +87,7 @@ uv run python -c "import jax; print(jax.devices())"
 
 旧配置中的 `backend="cutile"`、`intersection_backend="cutile"` 或 `sort_backend="cutile"` 会发出弃用警告并归一化为 `"jax"`；更早的 `backend="cuda_ffi"` 与 `sort_backend="cuda_ffi"` 也会在加载时迁移到 JAX。`intersection_backend="pallas"` 现在表示新的增量 AccuTile count/emit kernel，不再被配置迁移重写；这个入口不会加载旧依赖。
 
-`RasterizationConfig.intersection_backend` 的 `auto` 与 `jax` 都使用 pure JAX；`pallas` 与 `cuda_tile` 替换 AccuTile count 与 pair-emission scan，geometry state、count prefix、tuple sort 与 tile-histogram offsets 继续使用 JAX。`cuda_tile` 需要 NVIDIA CUDA GPU 与 `cuda-tile>=1.5.0`，但依赖和 kernel 定义保持延迟加载，普通 `jax_gs` 导入及默认路径不要求该包。cuTile 1.5 还要求 NVIDIA Driver r580+，以及环境中的 Tile IR 编译器（`cuda-tile[tileiras]`）或 CUDA Toolkit 13.1+；其 13.2 `tileiras` 当前支持 Blackwell 与 Ampere/Ada，暂不支持 Hopper。`intersection_mode="auto"` 在普通 EWA 3DGS 上使用 opacity-aware AccuTile，`aabb` 强制矩形候选，`accutile` 强制精确椭圆路径；UT、非线性投影和 2DGS 自动使用 AABB，因为其近似 conic 不保证是保守边界。这里的 **AccuTile 是 gsplat/SpeedySplat 的保守椭圆与 tile 相交算法，cuTile 是可选的 NVIDIA Python kernel 编程模型**。Pallas 当前要求 NVIDIA Hopper 或更新架构；cuTile 尚未验证 distributed Gaussian-shard 训练。CPU 和其它组合应继续选 `auto`/`jax`。
+`RasterizationConfig.intersection_backend` 的 `auto` 与 `jax` 都使用 pure JAX；`pallas` 与 `cuda_tile` 替换 AccuTile count 与 pair-emission scan，geometry state、count prefix、tuple sort 与 tile-histogram offsets 继续使用 JAX。新的显式 `cuda_tile_cub` 保留权威 JAX projection/geometry state 和现有 cuTile count/emit，但把饱和 prefix、固定容量稳定 radix sort 与 tile offsets 移入同一 XLA CUDA stream 上的 CUDA FFI+CUB。它严格保留 overflow 前 Gaussian-major 截断、`(tile, depth, gaussian_id)` 顺序、`-1` padding 与 offsets，不是近似 projection 后端，并要求 `intersection_mode="accutile"` 及 conic/opacity 输入。`cuda_tile` 与 `cuda_tile_cub` 都需要 NVIDIA CUDA GPU 与 `cuda-tile>=1.5.0`，但依赖、kernel 定义和原生库均保持延迟加载，普通 `jax_gs` 导入及默认路径不要求 CUDA。cuTile 1.5 还要求 NVIDIA Driver r580+，以及环境中的 Tile IR 编译器（`cuda-tile[tileiras]`）或 CUDA Toolkit 13.1+；其 13.2 `tileiras` 当前支持 Blackwell 与 Ampere/Ada，暂不支持 Hopper。`intersection_mode="auto"` 在普通 EWA 3DGS 上使用 opacity-aware AccuTile，`aabb` 强制矩形候选，`accutile` 强制精确椭圆路径；UT、非线性投影和 2DGS 自动使用 AABB，因为其近似 conic 不保证是保守边界。这里的 **AccuTile 是 gsplat/SpeedySplat 的保守椭圆与 tile 相交算法，cuTile 是可选的 NVIDIA Python kernel 编程模型**。Pallas 当前要求 NVIDIA Hopper 或更新架构；cuTile/CUB 尚未验证 distributed Gaussian-shard 训练。CPU 和其它组合应继续选 `auto`/`jax`。
 
 `RasterizationConfig.sort_backend` 的 `auto` 与 `jax` 都使用 JAX tuple sort。排序只消费 `valid_count` 指定的前缀，padding 使用 sentinel，并为每个 tile 生成 offsets。固定 capacity 仍是 JIT shape，改变它会触发新编译。
 
@@ -98,11 +98,23 @@ uv pip install 'cuda-tile[tileiras]==1.5.0'
 uv run python benchmarks/benchmark_rasterization.py \
   --npz /path/to/scene.npz --capacity 138766 --active 138766 \
   --resolution 640x360 --backend intersections \
-  --intersection-mode accutile --intersection-backend cuda_tile \
+  --intersection-mode accutile --intersection-backend cuda_tile_cub \
   --compositor-backend cuda_ffi --max-intersections 524288
 ```
 
-cuTile 当前只替换 intersection count/emit；projection、prefix、sort、offsets 与现有 CUDA FFI compositor 保持原实现。RTX 5090 garden 138,766 Gaussian、640×360、352,091 intersections 的三次 fresh-process median-of-runs 中，完整 renderer 相对 Pallas intersection 为 forward `0.838→0.832 ms`、`value_and_grad` `1.587→1.511 ms`；render/alpha、排序 IDs/offsets 与 loss 完全一致。该数字只代表此场景和当前固定容量，cuTile emit 会对每个输出槽做 owner 二分查找，收益仍会随 capacity/填充率变化。
+`cuda_tile` 只替换 intersection count/emit；`cuda_tile_cub` 再替换 prefix、sort 与 offsets。CUDA FFI compositor 与 projection 保持不变。RTX 5090 garden 138,766 Gaussian、640×360、352,091 intersections、524,288 capacity 的保留门禁中，最终实现测得完整 forward 约 `0.734 ms`、完整 `value_and_grad` 约 `1.369 ms`；同轮开发期间的 `cuda_tile` fresh-process 基线约为 `0.997 / 1.646 ms`。render/alpha、排序 IDs/offsets、overflow metadata 与 loss 完全一致。该数字只代表此场景与固定容量。
+
+cuTile 编译参数可以作为语义等价 profile 单独调优；调优在 fresh process 中计时完整 renderer，不在 FFI execution 内运行：
+
+```bash
+uv run python benchmarks/autotune_cutile.py \
+  --npz /path/to/scene.npz --capacity 138766 --active 138766 \
+  --resolution 640x360 --max-intersections 524288 --radius-clip 3
+# 按输出设置，例如：
+export JAX_GS_CUTILE_TUNING=default
+```
+
+可选 profile 为 `default`、`small`、`wide` 与 `low_occupancy`。也可用 `JAX_GS_CUTILE_COUNT_BLOCK_SIZE`、`JAX_GS_CUTILE_EMIT_BLOCK_SIZE`、`JAX_GS_CUTILE_COUNT_OCCUPANCY` 与 `JAX_GS_CUTILE_EMIT_OCCUPANCY` 覆盖 profile。改变这些静态值会触发新的 cuTile/JAX 编译。
 
 可通过 metadata 检查固定容量结果是否发生截断：
 

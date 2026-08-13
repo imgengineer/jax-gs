@@ -1489,6 +1489,17 @@ def rasterization(
     it while passing ``absgrad=True``; it never changes forward values.
     """
 
+    if config.intersection_backend == "cuda_tile_cub":
+        if distributed:
+            raise NotImplementedError(
+                "the cuTile+CUB intersection backend does not support "
+                "distributed rasterization"
+            )
+        if with_eval3d or with_ut or camera_model != "pinhole":
+            raise NotImplementedError(
+                "the cuTile+CUB intersection backend currently supports "
+                "single-camera-style pinhole 3DGS AccuTile rendering only"
+            )
     if _means2d_absgrad_probe is not None and not absgrad:
         raise ValueError("_means2d_absgrad_probe requires absgrad=True")
     if config.compositor_backend in {"pallas", "cuda_ffi"} and absgrad:

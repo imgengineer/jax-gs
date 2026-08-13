@@ -117,10 +117,11 @@ class RasterizationConfig:
             "jax",
             "pallas",
             "cuda_tile",
+            "cuda_tile_cub",
         }:
             raise ValueError(
                 "intersection_backend must be 'auto', 'jax', 'pallas', "
-                "or 'cuda_tile'"
+                "'cuda_tile', or 'cuda_tile_cub'"
             )
         if self.compositor_backend not in {"jax", "pallas", "cuda_ffi"}:
             raise ValueError(

@@ -137,11 +137,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile"),
+        choices=("auto", "jax", "pallas", "cuda_tile", "cuda_tile_cub"),
         default="auto",
         help=(
-            "intersection backend; Pallas or NVIDIA cuTile implements the "
-            "AccuTile count and pair-emission scans"
+            "intersection backend; cuda_tile_cub additionally uses CUDA "
+            "FFI+CUB for prefix, sorting, and offsets"
         ),
     )
     parser.add_argument(

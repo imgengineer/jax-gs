@@ -1995,12 +1995,17 @@ def test_train_step_accepts_the_cuda_ffi_compositor():
     )
 
 
-def test_train_step_accepts_the_cuda_tile_accutile_counter():
+@pytest.mark.parametrize(
+    "intersection_backend", ["cuda_tile", "cuda_tile_cub"]
+)
+def test_train_step_accepts_the_cuda_tile_accutile_counter(
+    intersection_backend,
+):
     assert callable(
         make_train_step(
             TrainConfig(
                 rasterizer=RasterizationConfig(
-                    intersection_backend="cuda_tile"
+                    intersection_backend=intersection_backend
                 )
             )
         )
@@ -2073,11 +2078,18 @@ def test_distributed_train_step_rejects_the_cuda_ffi_compositor():
         )
 
 
-def test_distributed_train_step_rejects_the_pallas_accutile_counter():
+@pytest.mark.parametrize(
+    "intersection_backend", ["pallas", "cuda_tile_cub"]
+)
+def test_distributed_train_step_rejects_unsupported_accutile_counter(
+    intersection_backend,
+):
     with pytest.raises(NotImplementedError, match="distributed"):
         make_distributed_train_step(
             TrainConfig(
-                rasterizer=RasterizationConfig(intersection_backend="pallas")
+                rasterizer=RasterizationConfig(
+                    intersection_backend=intersection_backend
+                )
             ),
             world_size=2,
         )

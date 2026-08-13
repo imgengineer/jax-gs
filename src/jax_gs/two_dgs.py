@@ -1070,6 +1070,10 @@ def rasterization_2dgs(
         raise NotImplementedError(
             "the experimental Pallas and CUDA FFI compositors only support 3DGS"
         )
+    if config.intersection_backend == "cuda_tile_cub":
+        raise NotImplementedError(
+            "the cuTile+CUB intersection backend only supports 3DGS AccuTile"
+        )
     if _gradient_2dgs_absgrad_probe is not None and not absgrad:
         raise ValueError(
             "_gradient_2dgs_absgrad_probe requires absgrad=True"
@@ -1390,11 +1394,12 @@ def rasterization_2dgs(
             raise ValueError(
                 "_gradient_2dgs_absgrad_probe must have the same dtype as means"
             )
-    if active_mask is None:
-        active_mask = jnp.ones((gaussian_count,), dtype=jnp.bool_)
-    else:
-        active_mask = jnp.asarray(active_mask, dtype=jnp.bool_)
-    if active_mask.shape != (gaussian_count,):
+    active_mask_array = (
+        jnp.ones((gaussian_count,), dtype=jnp.bool_)
+        if active_mask is None
+        else jnp.asarray(active_mask, dtype=jnp.bool_)
+    )
+    if active_mask_array.shape != (gaussian_count,):
         raise ValueError("active_mask must have shape [N]")
 
     overrides: dict[str, Any] = {}
@@ -1428,10 +1433,10 @@ def rasterization_2dgs(
             near_plane=config.near_plane,
             far_plane=config.far_plane,
             radius_clip=config.radius_clip,
-            active_mask=active_mask,
+            active_mask=active_mask_array,
         )
     )
-    valid = jnp.all(radii > 0, axis=-1) & active_mask[None, :]
+    valid = jnp.all(radii > 0, axis=-1) & active_mask_array[None, :]
     projected_opacities = jnp.broadcast_to(
         opacities[None, :], (viewmats.shape[0], gaussian_count)
     )
@@ -1613,7 +1618,7 @@ def rasterization_2dgs(
         "intersection_capacity": tile_info["intersection_capacity"],
         "candidate_ids": tile_info["candidate_ids"],
         "candidate_valid": tile_info["candidate_valid"],
-        "active_count": jnp.count_nonzero(active_mask),
+        "active_count": jnp.count_nonzero(active_mask_array),
         "packed_requested": jnp.asarray(packed_metadata_requested),
         "packed_metadata_available": jnp.asarray(
             packed_metadata_available

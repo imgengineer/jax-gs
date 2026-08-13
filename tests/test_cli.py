@@ -185,6 +185,10 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
         ["train", "--compositor-backend", "cuda_ffi"]
     )
     cuda_ffi_args.func(cuda_ffi_args)
+    cuda_tile_cub_args = parser.parse_args(
+        ["train", "--intersection-backend", "cuda_tile_cub"]
+    )
+    cuda_tile_cub_args.func(cuda_tile_cub_args)
 
     sparse_config, sparse_resume = captured[0]
     assert sparse_config.packed
@@ -202,6 +206,12 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     cuda_ffi_config, cuda_ffi_resume = captured[3]
     assert cuda_ffi_config.rasterizer.compositor_backend == "cuda_ffi"
     assert cuda_ffi_resume is None
+    cuda_tile_cub_config, cuda_tile_cub_resume = captured[4]
+    assert (
+        cuda_tile_cub_config.rasterizer.intersection_backend
+        == "cuda_tile_cub"
+    )
+    assert cuda_tile_cub_resume is None
 
 
 def test_train_cli_forwards_local_device_distributed_mode(monkeypatch):

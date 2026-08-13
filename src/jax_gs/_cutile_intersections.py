@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 import math
+import operator
+import os
 from typing import Any, Generic, TypeVar
 
 import jax
@@ -9,6 +11,13 @@ import jax.numpy as jnp
 
 _COUNT_BLOCK_SIZE = 128
 _EMIT_BLOCK_SIZE = 128
+_TUNING_ENV = "JAX_GS_CUTILE_TUNING"
+_TUNING_PROFILES = {
+    "default": (128, 128, None, None),
+    "small": (64, 64, None, None),
+    "wide": (128, 256, None, None),
+    "low_occupancy": (128, 128, None, 1),
+}
 
 __all__ = [
     "count_accutile_intersections_cutile",
@@ -19,6 +28,64 @@ _T = TypeVar("_T")
 
 class _Constant(int, Generic[_T]):
     """Static-checking stand-in replaced by ``cuda.tile.Constant`` lazily."""
+
+
+def _static_optional_int(
+    name: str, value: str | None, *, minimum: int, maximum: int
+) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        result = operator.index(int(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if result < minimum or result > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return result
+
+
+def _tuning_profile() -> tuple[int, int, int | None, int | None]:
+    profile = os.environ.get(_TUNING_ENV, "default").strip().lower()
+    try:
+        count_block, emit_block, count_occupancy, emit_occupancy = (
+            _TUNING_PROFILES[profile]
+        )
+    except KeyError as exc:
+        raise ValueError(
+            f"{_TUNING_ENV} must name one of "
+            + ", ".join(sorted(_TUNING_PROFILES))
+        ) from exc
+    count_block = _static_optional_int(
+        "JAX_GS_CUTILE_COUNT_BLOCK_SIZE",
+        os.environ.get("JAX_GS_CUTILE_COUNT_BLOCK_SIZE"),
+        minimum=32,
+        maximum=1024,
+    ) or count_block
+    emit_block = _static_optional_int(
+        "JAX_GS_CUTILE_EMIT_BLOCK_SIZE",
+        os.environ.get("JAX_GS_CUTILE_EMIT_BLOCK_SIZE"),
+        minimum=32,
+        maximum=1024,
+    ) or emit_block
+    count_occupancy = _static_optional_int(
+        "JAX_GS_CUTILE_COUNT_OCCUPANCY",
+        os.environ.get("JAX_GS_CUTILE_COUNT_OCCUPANCY"),
+        minimum=1,
+        maximum=32,
+    ) or count_occupancy
+    emit_occupancy = _static_optional_int(
+        "JAX_GS_CUTILE_EMIT_OCCUPANCY",
+        os.environ.get("JAX_GS_CUTILE_EMIT_OCCUPANCY"),
+        minimum=1,
+        maximum=32,
+    ) or emit_occupancy
+    return count_block, emit_block, count_occupancy, emit_occupancy
+
+
+def available_tuning_profiles() -> tuple[str, ...]:
+    """Return semantic-equivalent cuTile variants for external autotuning."""
+
+    return tuple(sorted(_TUNING_PROFILES))
 
 
 def _cutile():
@@ -320,6 +387,11 @@ def _kernels():
             ct.where(final_valid, tile_id, -1),
         )
 
+    _, _, count_occupancy, emit_occupancy = _tuning_profile()
+    if count_occupancy is not None:
+        count_kernel = count_kernel.replace_hints(occupancy=count_occupancy)
+    if emit_occupancy is not None:
+        emit_kernel = emit_kernel.replace_hints(occupancy=emit_occupancy)
     _KERNELS = count_kernel, emit_kernel
     return _KERNELS
 
@@ -370,16 +442,17 @@ def count_accutile_intersections_cutile(
     _require_cuda_tile_device()
     ct, ctj = _cutile()
     count_kernel, _ = _kernels()
+    count_block_size, _, _, _ = _tuning_profile()
     output = ctj.OutputPlaceholder((gaussian_count,), jnp.int32)
     return ctj.cutile_call(
-        (ct.cdiv(gaussian_count, _COUNT_BLOCK_SIZE),),
+        (ct.cdiv(gaussian_count, count_block_size),),
         count_kernel,
         (
             *_state_arguments(state),
             output,
             tile_size,
             max(tile_width, tile_height),
-            _COUNT_BLOCK_SIZE,
+            count_block_size,
         ),
     )
 
@@ -407,10 +480,11 @@ def emit_accutile_intersections_cutile(
     _require_cuda_tile_device()
     ct, ctj = _cutile()
     _, emit_kernel = _kernels()
+    _, emit_block_size, _, _ = _tuning_profile()
     gaussian_output = ctj.OutputPlaceholder((capacity,), jnp.int32)
     tile_output = ctj.OutputPlaceholder((capacity,), jnp.int32)
     return ctj.cutile_call(
-        (ct.cdiv(capacity, _EMIT_BLOCK_SIZE),),
+        (ct.cdiv(capacity, emit_block_size),),
         emit_kernel,
         (
             state.valid.astype(jnp.uint8),
@@ -440,6 +514,6 @@ def emit_accutile_intersections_cutile(
             capacity,
             gaussian_count,
             math.ceil(math.log2(gaussian_count + 1)),
-            _EMIT_BLOCK_SIZE,
+            emit_block_size,
         ),
     )

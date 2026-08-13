@@ -48,7 +48,9 @@ def test_compositor_backend_accepts_explicit_gpu_paths():
             )
 
 
-@pytest.mark.parametrize("backend", ["pallas", "cuda_tile"])
+@pytest.mark.parametrize(
+    "backend", ["pallas", "cuda_tile", "cuda_tile_cub"]
+)
 def test_intersection_backend_accepts_explicit_gpu_paths(backend):
     config = RasterizationConfig(intersection_backend=backend)
     assert config.intersection_backend == backend

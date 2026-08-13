@@ -733,12 +733,18 @@ def _make_train_step(
     distributed_scene_scale: float = 1.0,
 ) -> Callable[..., dict[str, jax.Array]]:
     if (
-        config.rasterizer.intersection_backend == "pallas"
+        config.rasterizer.intersection_backend
+        in {"pallas", "cuda_tile_cub"}
         and distributed_world_size > 1
     ):
+        backend_name = (
+            "Pallas"
+            if config.rasterizer.intersection_backend == "pallas"
+            else "cuTile+CUB"
+        )
         raise NotImplementedError(
-            "Pallas AccuTile intersection does not yet support distributed "
-            "Gaussian shards"
+            f"{backend_name} AccuTile intersection does not yet support "
+            "distributed Gaussian shards"
         )
     if config.rasterizer.compositor_backend in {"pallas", "cuda_ffi"}:
         compositor_name = (
@@ -854,6 +860,7 @@ def _make_train_step(
                 (minimum_step != maximum_step)
                 | (minimum_sh_degree != maximum_sh_degree)
             )
+        optimizer_step = optimizer.step[...]
         uses_camera_modules = (
             config.pose_opt or config.pose_noise > 0.0 or config.app_opt
         )
@@ -884,8 +891,8 @@ def _make_train_step(
             expected_pose_contract = (
                 config.data.batch_size,
                 config.steps,
-                float(config.pose_opt_lr),
-                float(config.pose_opt_reg),
+                config.pose_opt_lr,
+                config.pose_opt_reg,
             )
             if (
                 getattr(
@@ -916,8 +923,8 @@ def _make_train_step(
             expected_appearance_contract = (
                 "appearance_multi_adam_v1",
                 config.data.batch_size,
-                float(config.app_opt_lr),
-                float(config.app_opt_reg),
+                config.app_opt_lr,
+                config.app_opt_reg,
             )
             if (
                 getattr(

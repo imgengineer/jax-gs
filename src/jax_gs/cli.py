@@ -600,10 +600,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile"),
+        choices=("auto", "jax", "pallas", "cuda_tile", "cuda_tile_cub"),
         help=(
-            "use Pallas or NVIDIA cuTile for AccuTile count and "
-            "pair-emission scans"
+            "use Pallas or NVIDIA cuTile for AccuTile scans; cuda_tile_cub "
+            "also uses CUDA FFI+CUB for prefix, sorting, and offsets"
         ),
     )
     train_parser.add_argument(
@@ -661,10 +661,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile"),
+        choices=("auto", "jax", "pallas", "cuda_tile", "cuda_tile_cub"),
         help=(
-            "use Pallas or NVIDIA cuTile for AccuTile count and "
-            "pair-emission scans"
+            "use Pallas or NVIDIA cuTile for AccuTile scans; cuda_tile_cub "
+            "also uses CUDA FFI+CUB for prefix, sorting, and offsets"
         ),
     )
     render_parser.add_argument(

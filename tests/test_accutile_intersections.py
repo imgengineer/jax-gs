@@ -202,7 +202,10 @@ def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks():
             )
 
 
-def test_cuda_tile_intersect_tiles_matches_jax_direct_sort_and_overflow():
+@pytest.mark.parametrize("backend", ["cuda_tile", "cuda_tile_cub"])
+def test_cuda_tile_intersect_tiles_matches_jax_direct_sort_and_overflow(
+    backend,
+):
     device = jax.devices()[0]
     if device.platform != "gpu" or "cuda" not in str(device).lower():
         pytest.skip("cuTile AccuTile scans require an NVIDIA CUDA GPU")
@@ -245,7 +248,7 @@ def test_cuda_tile_intersect_tiles_matches_jax_direct_sort_and_overflow():
 
     full_capacity = 65_536
     expected = run("jax", full_capacity)
-    actual = run("cuda_tile", full_capacity)
+    actual = run(backend, full_capacity)
     for actual_value, expected_value in zip(
         actual, expected, strict=True
     ):
@@ -262,9 +265,54 @@ def test_cuda_tile_intersect_tiles_matches_jax_direct_sort_and_overflow():
         np.full((full_capacity - valid_count,), -1, np.int32),
     )
 
+    if backend == "cuda_tile_cub":
+        zero_depths = depths.at[1].set(-0.0).at[2].set(0.0)
+        tied_depths = jnp.zeros_like(zero_depths)
+        for special_depths in (zero_depths, tied_depths):
+            expected_ties = jax.jit(
+                lambda: intersect_tiles(
+                    means,
+                    radii,
+                    special_depths,
+                    valid,
+                    tile_size=4,
+                    tile_width=7,
+                    tile_height=5,
+                    max_intersections=1345,
+                    backend="jax",
+                    sort_backend="jax",
+                    conics=conics,
+                    opacities=opacities,
+                    mode="accutile",
+                )
+            )()
+            actual_ties = jax.jit(
+                lambda: intersect_tiles(
+                    means,
+                    radii,
+                    special_depths,
+                    valid,
+                    tile_size=4,
+                    tile_width=7,
+                    tile_height=5,
+                    max_intersections=1345,
+                    backend=backend,
+                    sort_backend="jax",
+                    conics=conics,
+                    opacities=opacities,
+                    mode="accutile",
+                )
+            )()
+            for actual_value, expected_value in zip(
+                actual_ties, expected_ties, strict=True
+            ):
+                np.testing.assert_array_equal(
+                    np.asarray(actual_value), np.asarray(expected_value)
+                )
+
     overflow_capacity = 193
     expected_overflow = run("jax", overflow_capacity)
-    actual_overflow = run("cuda_tile", overflow_capacity)
+    actual_overflow = run(backend, overflow_capacity)
     assert bool(actual_overflow.overflow)
     for actual_value, expected_value in zip(
         actual_overflow, expected_overflow, strict=True
