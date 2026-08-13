@@ -214,6 +214,46 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     assert cuda_tile_cub_resume is None
 
 
+def test_train_cli_exposes_target_primitives(monkeypatch):
+    captured = {}
+
+    def fake_train(config, *, resume_from=None):
+        captured["config"] = config
+        return SimpleNamespace(checkpoint="unused")
+
+    monkeypatch.setattr(cli_module, "train", fake_train)
+    args = cli_module.build_parser().parse_args(
+        ["train", "--capacity", "32", "--target-primitives", "24"]
+    )
+
+    args.func(args)
+
+    assert captured["config"].strategy.target_primitives == 24
+
+
+def test_train_cli_rejects_distributed_target_primitives(monkeypatch):
+    monkeypatch.setattr(
+        cli_module,
+        "train",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("train must not be called")
+        ),
+    )
+    args = cli_module.build_parser().parse_args(
+        [
+            "train",
+            "--capacity",
+            "32",
+            "--target-primitives",
+            "24",
+            "--distributed",
+        ]
+    )
+
+    with pytest.raises(NotImplementedError, match="target_primitives"):
+        args.func(args)
+
+
 def test_train_cli_forwards_local_device_distributed_mode(monkeypatch):
     captured = {}
 

@@ -252,6 +252,7 @@ def _train_command(args: argparse.Namespace) -> None:
         name: getattr(args, name)
         for name in (
             "max_new_per_refine",
+            "target_primitives",
             "refine_every",
             "refine_stop",
         )
@@ -270,6 +271,10 @@ def _train_command(args: argparse.Namespace) -> None:
         config = replace(config, with_eval3d=True, with_ut=True)
     train_kwargs = {"resume_from": args.resume}
     if args.distributed:
+        if config.strategy.target_primitives is not None:
+            raise NotImplementedError(
+                "distributed training does not support target_primitives"
+            )
         train_kwargs["distributed"] = True
     result = train(config, **train_kwargs)
     print(f"checkpoint={result.checkpoint}")
@@ -619,6 +624,14 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--output", type=str)
     train_parser.add_argument("--strategy", choices=("default", "mcmc"))
     train_parser.add_argument("--max-new-per-refine", type=int)
+    train_parser.add_argument(
+        "--target-primitives",
+        type=int,
+        help=(
+            "optional final Gaussian target for the default strategy; "
+            "growth is paced across the remaining refine steps"
+        ),
+    )
     train_parser.add_argument("--refine-every", type=int)
     train_parser.add_argument("--refine-stop", type=int)
     train_parser.add_argument(

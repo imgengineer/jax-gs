@@ -1,4 +1,5 @@
 from dataclasses import replace
+import hashlib
 import json
 from pathlib import Path
 
@@ -39,15 +40,48 @@ def test_inference_compositor_does_not_change_the_training_fingerprint():
     assert _config_fingerprint(pallas) == _config_fingerprint(config)
 
 
+def test_target_primitives_preserves_legacy_fingerprint_when_disabled():
+    config = TrainConfig()
+    legacy_values = config.to_dict()
+    legacy_values["rasterizer"].pop("compositor_backend", None)
+    legacy_values["strategy"].pop("target_primitives", None)
+    legacy_payload = json.dumps(
+        legacy_values, sort_keys=True, separators=(",", ":")
+    )
+    assert _config_fingerprint(config) == hashlib.sha256(
+        legacy_payload.encode("utf-8")
+    ).hexdigest()
+
+
+def test_target_primitives_changes_the_training_fingerprint():
+    config = TrainConfig()
+    targeted = replace(
+        config,
+        strategy=replace(config.strategy, target_primitives=250_000),
+    )
+
+    assert _config_fingerprint(targeted) != _config_fingerprint(config)
+
+
 def test_orbax_checkpoint_round_trip(tmp_path: Path):
     model_config = ModelConfig(capacity=8, sh_degree=1)
     optimizer_config = OptimizerConfig(max_steps=10)
-    strategy_config = StrategyConfig(max_new_per_refine=2)
+    strategy_config = StrategyConfig(
+        max_new_per_refine=2,
+        refine_start=0,
+        refine_stop=2,
+        refine_every=1,
+        target_primitives=4,
+        grow_grad2d=0.1,
+        grow_scale3d=100.0,
+        prune_scale3d=100.0,
+    )
     model = GaussianModel.empty(model_config)
     model.active_mask[:2] = True
     model.means[:2] = jnp.array([[1, 2, 3], [4, 5, 6]], jnp.float32)
     optimizer = create_optimizer(model, optimizer_config)
     state = DefaultStrategy(strategy_config).initialize_state(8)
+    state.target_births_remaining[...] = 1
     checkpoint = save_checkpoint(
         tmp_path,
         model,
@@ -60,6 +94,7 @@ def test_orbax_checkpoint_round_trip(tmp_path: Path):
             strategy=strategy_config,
         ),
     )
+    state.target_births_remaining[...] = 0
     model.means[:] = 0.0
     model.active_mask[:] = False
     step = restore_checkpoint(
@@ -67,6 +102,7 @@ def test_orbax_checkpoint_round_trip(tmp_path: Path):
     )
     assert step == 3
     assert int(model.active_count) == 2
+    assert int(state.target_births_remaining[...]) == 1
     assert jnp.allclose(model.means[:2], jnp.array([[1, 2, 3], [4, 5, 6]]))
     assert load_checkpoint_scene_transform(checkpoint) is None
 

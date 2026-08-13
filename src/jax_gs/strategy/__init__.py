@@ -61,7 +61,13 @@ class Strategy:
 
 
 class StrategyState(nnx.Module):
-    def __init__(self, capacity: int = 0, *, scene_scale: float = 1.0) -> None:
+    def __init__(
+        self,
+        capacity: int = 0,
+        *,
+        scene_scale: float = 1.0,
+        track_target_primitives: bool = False,
+    ) -> None:
         capacity = self._validate_capacity(capacity)
         self.grad_accum = nnx.Variable(jnp.zeros((capacity,), jnp.float32))
         self.visible_count = nnx.Variable(jnp.zeros((capacity,), jnp.float32))
@@ -72,6 +78,10 @@ class StrategyState(nnx.Module):
         self.last_new_count = nnx.Variable(jnp.array(0, jnp.int32))
         self.last_pruned_count = nnx.Variable(jnp.array(0, jnp.int32))
         self.capacity_overflow = nnx.Variable(jnp.array(False))
+        if track_target_primitives:
+            self.target_births_remaining = nnx.Variable(
+                jnp.array(-1, jnp.int32)
+            )
 
     @staticmethod
     def _validate_capacity(capacity: int) -> int:
@@ -332,6 +342,22 @@ def _sample_weighted_ids(
     return jax.lax.stop_gradient(sampled_ids.astype(jnp.int32)), has_donor
 
 
+def _target_refine_scheduled(config: StrategyConfig, step: int) -> bool:
+    return (
+        config.refine_start <= step < config.refine_stop
+        and step % config.refine_every == 0
+        and step % config.reset_every >= config.pause_refine_after_reset
+    )
+
+
+def _target_refine_steps(config: StrategyConfig) -> tuple[int, ...]:
+    return tuple(
+        step
+        for step in range(config.refine_start, config.refine_stop)
+        if _target_refine_scheduled(config, step)
+    )
+
+
 class _DefaultGrowthEvents(NamedTuple):
     """Fixed-shape duplicate/split events selected for one refinement."""
 
@@ -409,6 +435,32 @@ def _default_growth_events(
     planned_new_count = jnp.minimum(
         jnp.count_nonzero(raw_valid), allocation_count
     )
+    if config.target_primitives is not None:
+        if step is None:
+            raise ValueError("step is required when target_primitives is set")
+        target_state = getattr(state, "target_births_remaining", None)
+        if target_state is None:
+            raise ValueError(
+                "target_primitives requires a strategy state initialized by "
+                "DefaultStrategy"
+            )
+        active_count = jnp.count_nonzero(active)
+        remaining = jnp.where(
+            target_state[...] < 0,
+            jnp.maximum(config.target_primitives - active_count, 0),
+            target_state[...],
+        )
+        refine_steps = jnp.asarray(_target_refine_steps(config), jnp.int32)
+        remaining_refines = jnp.maximum(
+            jnp.count_nonzero(
+                refine_steps >= jnp.asarray(step, jnp.int32)
+            ),
+            1,
+        )
+        target_budget = (
+            remaining + remaining_refines - 1
+        ) // remaining_refines
+        planned_new_count = jnp.minimum(planned_new_count, target_budget)
     selected = (
         jnp.arange(allocation_count, dtype=jnp.int32) < planned_new_count
     )
@@ -668,7 +720,23 @@ def _default_refine(
     prune = prune_candidates & ~events.capacity_overflow
     model.active_mask[...] = grown_active & ~prune
     reset_optimizer_slots(optimizer, new_slots | split_parents | prune)
-    state.last_new_count[...] = jnp.count_nonzero(valid_new)
+    new_count = jnp.count_nonzero(valid_new)
+    if config.target_primitives is not None:
+        target_state = state.target_births_remaining
+        initialized_remaining = jnp.where(
+            target_state[...] < 0,
+            jnp.maximum(
+                config.target_primitives - jnp.count_nonzero(events.active),
+                0,
+            ),
+            target_state[...],
+        )
+        target_state[...] = jnp.where(
+            events.capacity_overflow,
+            target_state[...],
+            jnp.maximum(initialized_remaining - new_count, 0),
+        )
+    state.last_new_count[...] = new_count
     state.last_pruned_count[...] = jnp.count_nonzero(prune)
     state.capacity_overflow[...] = events.capacity_overflow
     state.grad_accum[...] = jnp.where(
@@ -1132,6 +1200,7 @@ class DefaultStrategy(Strategy):
         return StrategyState(
             0 if capacity is None else capacity,
             scene_scale=scene_scale,
+            track_target_primitives=self.config.target_primitives is not None,
         )
 
     def check_sanity(
@@ -1156,6 +1225,8 @@ class DefaultStrategy(Strategy):
             )
 
     def should_refine(self, step: int) -> bool:
+        if self.config.target_primitives is not None:
+            return _target_refine_scheduled(self.config, step)
         return (
             self.config.refine_start < step < self.config.refine_stop
             and step % self.config.refine_every == 0

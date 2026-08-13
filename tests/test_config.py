@@ -1,6 +1,11 @@
 import pytest
 
-from jax_gs.config import ModelConfig, RasterizationConfig, TrainConfig
+from jax_gs.config import (
+    ModelConfig,
+    RasterizationConfig,
+    StrategyConfig,
+    TrainConfig,
+)
 
 
 def test_legacy_gpu_backends_migrate_without_rewriting_current_pallas():
@@ -178,6 +183,29 @@ def test_3dgs_regularization_weights_must_be_non_negative(name):
 def test_2dgs_rejects_3d_regularization_weights(name):
     with pytest.raises(ValueError, match="3DGS"):
         TrainConfig(model_type="2dgs", **{name: 0.01})
+
+
+def test_target_primitives_is_optional_validated_and_round_trips(tmp_path):
+    assert TrainConfig().strategy.target_primitives is None
+    config = TrainConfig(
+        model=ModelConfig(capacity=16),
+        strategy=StrategyConfig(target_primitives=12),
+    )
+    path = tmp_path / "target.json"
+    config.save(path)
+    assert TrainConfig.load(path) == config
+
+    with pytest.raises(TypeError, match="integer"):
+        TrainConfig.from_dict({"strategy": {"target_primitives": 1.5}})
+    with pytest.raises(ValueError, match="positive"):
+        StrategyConfig(target_primitives=0)
+    with pytest.raises(ValueError, match="default strategy"):
+        StrategyConfig(kind="mcmc", target_primitives=8)
+    with pytest.raises(ValueError, match="logical model capacity"):
+        TrainConfig(
+            model=ModelConfig(capacity=8),
+            strategy=StrategyConfig(target_primitives=9),
+        )
 
 
 def test_current_main_point_cloud_scale_multiplier_defaults_to_one():

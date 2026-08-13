@@ -1,4 +1,5 @@
 from dataclasses import replace
+import hashlib
 import json
 import os
 import subprocess
@@ -21,6 +22,7 @@ from jax_gs.capacity import (
 )
 from jax_gs.checkpoints import (
     is_distributed_checkpoint,
+    load_checkpoint_config,
     load_checkpoint_intersection_capacity,
     load_checkpoint_scene_transform,
     load_distributed_inference_checkpoint,
@@ -630,6 +632,13 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
                 optimizer=OptimizerConfig(max_steps=3)
             ),
             world_size=2,
+        )
+
+
+def test_distributed_train_step_rejects_target_primitives():
+    with pytest.raises(NotImplementedError, match="target_primitives"):
+        make_distributed_train_step(
+            _topology_plan_config(target_primitives=2), world_size=2
         )
 
 
@@ -2654,6 +2663,41 @@ def test_distributed_restore_rejects_a_different_shard_capacity(tmp_path):
         restore_distributed_checkpoint(
             path, *_two_rank_bundles(_topology_plan_config(capacity=4))
         )
+
+
+def test_distributed_restore_accepts_a_legacy_config_without_target_primitives(
+    tmp_path,
+):
+    config = _topology_plan_config()
+    path = save_distributed_checkpoint(
+        tmp_path, *_two_rank_bundles(config), step=0, config=config
+    )
+    config_path = path / "jax_gs_config.json"
+    legacy_values = json.loads(config_path.read_text(encoding="utf-8"))
+    legacy_values["strategy"].pop("target_primitives")
+    config_path.write_text(json.dumps(legacy_values), encoding="utf-8")
+    fingerprint_values = json.loads(json.dumps(legacy_values))
+    fingerprint_values["rasterizer"].pop("compositor_backend", None)
+    legacy_payload = json.dumps(
+        fingerprint_values, sort_keys=True, separators=(",", ":")
+    )
+    metadata_path = path / "jax_gs_checkpoint.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["config_fingerprint"] = hashlib.sha256(
+        legacy_payload.encode("utf-8")
+    ).hexdigest()
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    legacy_config = load_checkpoint_config(path)
+    assert legacy_config.strategy.target_primitives is None
+    assert (
+        restore_distributed_checkpoint(
+            path,
+            *_two_rank_bundles(legacy_config),
+            config=legacy_config,
+        )
+        == 0
+    )
 
 
 def test_distributed_restore_rejects_a_different_config(tmp_path):

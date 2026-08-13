@@ -132,6 +132,7 @@ uv run jax-gs train \
   --steps 30000 \
   --strategy default \
   --capacity 1000000 \
+  --target-primitives 1000000 \
   --bucket-min-capacity 65536 \
   --max-intersections 1048576 \
   --max-candidates-per-tile 2048
@@ -146,6 +147,8 @@ uv run jax-gs train \
   --normal-loss \
   --dist-loss
 ```
+
+`--target-primitives` 是可选的 DefaultStrategy 增长调度：它按剩余 refine 次数控制新增点数，同时仍受梯度候选、`--max-new-per-refine` 和逻辑/物理容量限制。它不会强制补足缺少的候选，也不会为了维持目标而抑制剪枝或强制缩小已有点集，因此目标是增长上限而非无条件精确的最终点数。未设置时保持原有阈值 densification；当前不支持 distributed 训练。
 
 训练配置也可以直接在 Python 中构造：
 

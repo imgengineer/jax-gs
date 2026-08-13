@@ -127,6 +127,15 @@ def _validate_camera_module_resume_config(
             f"({saved.data.batch_size} saved, "
             f"{config.data.batch_size} requested)"
         )
+    if (
+        saved.strategy.target_primitives
+        != config.strategy.target_primitives
+    ):
+        raise ValueError(
+            "resume requires target_primitives to match the checkpoint config "
+            f"({saved.strategy.target_primitives} saved, "
+            f"{config.strategy.target_primitives} requested)"
+        )
     if saved.pose_opt != config.pose_opt:
         raise ValueError(
             "resume requires pose_opt to match the checkpoint config "

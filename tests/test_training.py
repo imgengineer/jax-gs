@@ -3335,6 +3335,13 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
             "batch_size",
         ),
         (
+            TrainConfig(
+                strategy=StrategyConfig(target_primitives=250_000)
+            ),
+            TrainConfig(),
+            "target_primitives",
+        ),
+        (
             TrainConfig(normalize_world_space=True),
             TrainConfig(normalize_world_space=False),
             "normalize_world_space",

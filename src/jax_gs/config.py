@@ -185,6 +185,7 @@ class StrategyConfig:
     refine_every: int = 100
     reset_every: int = 3_000
     max_new_per_refine: int = 8_192
+    target_primitives: int | None = None
     grow_grad2d: float = 2.0e-4
     grow_scale3d: float = 0.01
     grow_scale2d: float = 0.05
@@ -211,6 +212,18 @@ class StrategyConfig:
             raise ValueError("refinement intervals must be positive")
         if self.max_new_per_refine <= 0:
             raise ValueError("max_new_per_refine must be positive")
+        if self.target_primitives is not None:
+            if (
+                not isinstance(self.target_primitives, int)
+                or isinstance(self.target_primitives, bool)
+            ):
+                raise TypeError("target_primitives must be an integer")
+            if self.target_primitives <= 0:
+                raise ValueError("target_primitives must be positive")
+            if self.kind != "default":
+                raise ValueError(
+                    "target_primitives is supported only by the default strategy"
+                )
         if self.key_for_gradient not in {"means2d", "gradient_2dgs"}:
             raise ValueError(
                 "key_for_gradient must be 'means2d' or 'gradient_2dgs'"
@@ -313,6 +326,13 @@ class TrainConfig:
             raise ValueError("unsupported camera_model")
         if self.steps < 0:
             raise ValueError("steps must be non-negative")
+        if (
+            self.strategy.target_primitives is not None
+            and self.strategy.target_primitives > self.model.capacity
+        ):
+            raise ValueError(
+                "target_primitives cannot exceed the logical model capacity"
+            )
         if not 0.0 <= self.ssim_lambda <= 1.0:
             raise ValueError("ssim_lambda must be in [0, 1]")
         if self.opacity_reg < 0.0 or self.scale_reg < 0.0:

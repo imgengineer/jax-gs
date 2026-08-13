@@ -1647,6 +1647,10 @@ def make_distributed_train_step(
         raise ValueError("world_size must be greater than one")
     if axis_name is None or not isinstance(axis_name, Hashable):
         raise TypeError("axis_name must be hashable")
+    if config.strategy.target_primitives is not None:
+        raise NotImplementedError(
+            "distributed training does not support target_primitives"
+        )
     try:
         scene_scale = float(scene_scale)
     except (TypeError, ValueError) as exc:

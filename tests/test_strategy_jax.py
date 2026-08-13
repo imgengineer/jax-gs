@@ -72,6 +72,196 @@ def test_compiled_default_strategy_copies_appearance_rows_to_children():
     assert jnp.array_equal(model.colors[1], model.colors[0])
 
 
+def test_default_strategy_target_schedule_starts_at_refine_start():
+    targeted = DefaultStrategy(
+        StrategyConfig(
+            refine_start=4,
+            refine_stop=9,
+            refine_every=2,
+            target_primitives=8,
+        )
+    )
+    default = DefaultStrategy(
+        StrategyConfig(refine_start=4, refine_stop=9, refine_every=2)
+    )
+
+    assert targeted.should_refine(4)
+    assert targeted.should_refine(6)
+    assert not default.should_refine(4)
+
+
+def test_default_strategy_target_paces_growth_and_caps_the_final_population():
+    model = GaussianModel.empty(
+        ModelConfig(capacity=32, bucket_min_capacity=32, sh_degree=0)
+    )
+    model.active_mask[:4] = True
+    model.opacity_logits[:4] = 2.0
+    strategy = DefaultStrategy(
+        StrategyConfig(
+            refine_start=0,
+            refine_stop=5,
+            refine_every=1,
+            max_new_per_refine=8,
+            target_primitives=8,
+            grow_grad2d=0.1,
+            grow_scale3d=100.0,
+            prune_scale3d=100.0,
+        )
+    )
+    state = strategy.initialize_state(32)
+    state.grad_accum[:8] = 1.0
+    state.visible_count[:8] = 1.0
+    optimizer = create_optimizer(model, OptimizerConfig(max_steps=10))
+
+    first_plan = strategy.plan_refine(model, state, 1.0, step=0)
+    assert int(first_plan["planned_new_count"]) == 1
+    first = strategy.refine(
+        model, state, optimizer, jax.random.key(0), 1.0, step=0
+    )
+    assert int(first["new_count"]) == 1
+    assert int(model.active_count) == 5
+
+    state.grad_accum[:8] = 1.0
+    state.visible_count[:8] = 1.0
+    final_plan = strategy.plan_refine(model, state, 1.0, step=4)
+    assert int(final_plan["planned_new_count"]) == 3
+    final = strategy.refine(
+        model, state, optimizer, jax.random.key(1), 1.0, step=4
+    )
+    assert int(final["new_count"]) == 3
+    assert int(model.active_count) == 8
+
+    state.grad_accum[:8] = 1.0
+    state.visible_count[:8] = 1.0
+    capped = strategy.plan_refine(model, state, 1.0, step=4)
+    assert int(capped["planned_new_count"]) == 0
+    assert int(capped["required_capacity"]) == 8
+
+
+def test_default_strategy_target_does_not_compensate_same_step_pruning():
+    model = GaussianModel.empty(
+        ModelConfig(capacity=8, bucket_min_capacity=8, sh_degree=0)
+    )
+    model.active_mask[:4] = True
+    model.opacity_logits[:4] = -10.0
+    strategy = DefaultStrategy(
+        StrategyConfig(
+            refine_start=0,
+            refine_stop=1,
+            refine_every=1,
+            max_new_per_refine=4,
+            target_primitives=6,
+            grow_grad2d=0.1,
+            grow_scale3d=100.0,
+            prune_scale3d=100.0,
+        )
+    )
+    state = strategy.initialize_state(8)
+    state.grad_accum[:4] = 1.0
+    state.visible_count[:4] = 1.0
+    optimizer = create_optimizer(model, OptimizerConfig(max_steps=10))
+
+    result = strategy.refine(
+        model, state, optimizer, jax.random.key(0), 1.0, step=0
+    )
+
+    assert int(result["new_count"]) == 2
+    assert int(result["pruned_count"]) == 6
+    assert int(model.active_count) == 0
+
+
+def test_default_strategy_target_does_not_replenish_births_after_pruning():
+    model = GaussianModel.empty(
+        ModelConfig(capacity=12, bucket_min_capacity=12, sh_degree=0)
+    )
+    model.active_mask[:4] = True
+    model.opacity_logits[:4] = 2.0
+    strategy = DefaultStrategy(
+        StrategyConfig(
+            refine_start=0,
+            refine_stop=2,
+            refine_every=1,
+            max_new_per_refine=8,
+            target_primitives=6,
+            grow_grad2d=0.1,
+            grow_scale3d=100.0,
+            prune_scale3d=100.0,
+        )
+    )
+    state = strategy.initialize_state(12)
+    state.grad_accum[:4] = 1.0
+    state.visible_count[:4] = 1.0
+    optimizer = create_optimizer(model, OptimizerConfig(max_steps=10))
+
+    first = strategy.refine(
+        model, state, optimizer, jax.random.key(0), 1.0, step=0
+    )
+    assert int(first["new_count"]) == 1
+    assert int(state.target_births_remaining[...]) == 1
+
+    model.active_mask[0] = False
+    state.grad_accum[:4] = 1.0
+    state.visible_count[:4] = 1.0
+    second = strategy.refine(
+        model, state, optimizer, jax.random.key(1), 1.0, step=1
+    )
+
+    assert int(second["new_count"]) == 1
+    assert int(state.target_births_remaining[...]) == 0
+    assert int(model.active_count) == 5
+
+
+def test_default_strategy_target_pacing_skips_reset_pause_windows():
+    model = GaussianModel.empty(
+        ModelConfig(capacity=16, bucket_min_capacity=16, sh_degree=0)
+    )
+    model.active_mask[:4] = True
+    strategy = DefaultStrategy(
+        StrategyConfig(
+            refine_start=0,
+            refine_stop=6,
+            refine_every=1,
+            reset_every=4,
+            pause_refine_after_reset=2,
+            max_new_per_refine=8,
+            target_primitives=8,
+            grow_grad2d=0.1,
+            grow_scale3d=100.0,
+            prune_scale3d=100.0,
+        )
+    )
+    state = strategy.initialize_state(16)
+    state.grad_accum[:4] = 1.0
+    state.visible_count[:4] = 1.0
+
+    plan = strategy.plan_refine(model, state, 1.0, step=2)
+
+    assert int(plan["planned_new_count"]) == 2
+
+
+def test_default_strategy_target_requires_a_step():
+    model = GaussianModel.empty(ModelConfig(capacity=2, sh_degree=0))
+    model.active_mask[0] = True
+    strategy = DefaultStrategy(
+        StrategyConfig(
+            target_primitives=2,
+            max_new_per_refine=1,
+            grow_grad2d=0.1,
+            grow_scale3d=100.0,
+        )
+    )
+    state = strategy.initialize_state(2)
+    state.grad_accum[0] = 1.0
+    state.visible_count[0] = 1.0
+
+    try:
+        strategy.plan_refine(model, state, 1.0)
+    except ValueError as exc:
+        assert "step is required" in str(exc)
+    else:
+        raise AssertionError("target_primitives must require step")
+
+
 def test_default_strategy_plan_does_not_grow_at_equal_gradient_threshold():
     model = GaussianModel.empty(ModelConfig(capacity=2, sh_degree=0))
     model.active_mask[0] = True

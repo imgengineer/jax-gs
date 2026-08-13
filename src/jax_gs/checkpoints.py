@@ -272,6 +272,8 @@ def _config_fingerprint(config: TrainConfig) -> str:
     # It does not change saved model or optimizer semantics, and older v6
     # checkpoints predate the field, so keep it outside the training contract.
     values["rasterizer"].pop("compositor_backend", None)
+    if values["strategy"].get("target_primitives") is None:
+        values["strategy"].pop("target_primitives")
     payload = json.dumps(
         values, sort_keys=True, separators=(",", ":")
     )
