@@ -480,7 +480,7 @@ def _training_loss(
         )
     )
     raster_distributed = plan.distributed
-    if plan.distributed and config.app_opt:
+    if plan.distributed and (config.app_opt or config.model_type == "2dgs"):
         assert distributed_axis_name is not None
         parameters = jax.tree.map(
             lambda value: jax.lax.all_gather(
@@ -752,7 +752,10 @@ def _make_train_step(
             if config.rasterizer.compositor_backend == "pallas"
             else "CUDA FFI"
         )
-        if distributed_world_size > 1:
+        if (
+            distributed_world_size > 1
+            and config.rasterizer.compositor_backend == "pallas"
+        ):
             raise NotImplementedError(
                 f"{compositor_name} compositor training does not yet support "
                 "distributed Gaussian shards"
@@ -1661,10 +1664,6 @@ def make_distributed_train_step(
         raise ValueError(
             "distributed training requires optimizer.max_steps to equal "
             "TrainConfig.steps so every rank uses one schedule horizon"
-        )
-    if config.model_type != "3dgs":
-        raise NotImplementedError(
-            "distributed training does not support 2DGS"
         )
     if config.sparse_grad:
         raise NotImplementedError(

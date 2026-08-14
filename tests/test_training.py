@@ -2065,17 +2065,17 @@ def test_distributed_train_step_rejects_the_pallas_compositor():
         )
 
 
-def test_distributed_train_step_rejects_the_cuda_ffi_compositor():
-    with pytest.raises(NotImplementedError, match="CUDA FFI.*distributed"):
-        make_distributed_train_step(
-            TrainConfig(
-                strategy=StrategyConfig(kind="mcmc"),
-                rasterizer=RasterizationConfig(
-                    compositor_backend="cuda_ffi"
-                ),
+def test_distributed_train_step_supports_the_cuda_ffi_compositor():
+    step = make_distributed_train_step(
+        TrainConfig(
+            strategy=StrategyConfig(kind="mcmc"),
+            rasterizer=RasterizationConfig(
+                compositor_backend="cuda_ffi"
             ),
-            world_size=2,
-        )
+        ),
+        world_size=2,
+    )
+    assert callable(step)
 
 
 @pytest.mark.parametrize(

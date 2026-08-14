@@ -195,8 +195,6 @@ def make_distributed_render_step(
     if axis_name is None or not isinstance(axis_name, Hashable):
         raise TypeError("axis_name must be hashable")
     _validate_2dgs_mode(config)
-    if config.model_type != "3dgs":
-        raise NotImplementedError("distributed rendering does not support 2DGS")
     if (
         config.with_ut
         or config.with_eval3d
@@ -206,6 +204,55 @@ def make_distributed_render_step(
             "distributed rendering supports standard pinhole EWA "
             "rasterization only"
         )
+    if config.model_type == "2dgs":
+        @nnx.jit
+        def render_step_2dgs(
+            model: GaussianModel,
+            viewmat: jax.Array,
+            K: jax.Array,
+            sh_degree: jax.Array,
+            *,
+            appearance_module: AppearanceOptModule | None = None,
+        ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+            del appearance_module
+            parameters = model.activated(split_sh=True)
+            parameters = jax.tree.map(
+                lambda value: jax.lax.all_gather(
+                    value, axis_name, axis=0, tiled=True
+                ),
+                parameters,
+            )
+            (
+                renders,
+                alphas,
+                _normals,
+                _normals_depth,
+                _distort,
+                _,
+                info,
+            ) = _training.rasterization_2dgs(
+                parameters["means"],
+                parameters["quats"],
+                parameters["scales"],
+                parameters["opacities"],
+                parameters["sh_coeffs"],
+                viewmat[None, ...],
+                K[None, ...],
+                width,
+                height,
+                active_mask=parameters["active_mask"],
+                sh_degree=sh_degree,
+                render_mode="RGB",
+                config=config.rasterizer,
+            )
+            return (
+                renders[0, ..., :3],
+                alphas[0],
+                info["tile_overflow"][0],
+                info["intersection_overflow"][0],
+            )
+
+        return render_step_2dgs
 
     @nnx.jit
     def render_step(
@@ -386,8 +433,10 @@ def train(
                 "camera-conditioned optimization requires a non-empty "
                 "training split"
             )
+    points: np.ndarray | None = None
     if resume_from is None:
         points = transform.points(scene.points)
+        assert points is not None
         storage_capacity = _initial_storage_capacity(config, len(points))
     else:
         storage_capacity = _training.load_checkpoint_storage_capacity(resume_from)
@@ -442,6 +491,7 @@ def train(
         image_width=training_width,
     )
     if resume_from is None:
+        assert points is not None
         model = GaussianModel.from_point_cloud(
             points,
             scene.points_rgb,
@@ -581,6 +631,8 @@ def train(
 
     evaluation_example = None
     evaluation_render_step = None
+    eval_height = None
+    eval_width = None
     if config.eval_every > 0:
         evaluation_source = _training.create_grain_dataset(
             scene,
@@ -675,6 +727,7 @@ def train(
                     np.asarray(max_overflow_tiles),
                     np.asarray(intersection_overflow_seen),
                 )
+            assert overflow is not None
             replay_start = overflow.replay_start
             if overflow.kind == "candidates":
                 # The per-tile bound is a promise the run made about its own
@@ -1029,6 +1082,8 @@ def train(
             last_checkpoint_step = step
 
         if do_evaluate:
+            assert eval_width is not None and eval_height is not None
+            assert evaluation_render_step is not None and evaluation_example is not None
             _check_evaluation_memory_budget(
                 config,
                 physical_capacity=model.capacity,

@@ -1490,11 +1490,6 @@ def rasterization(
     """
 
     if config.intersection_backend == "cuda_tile_cub":
-        if distributed:
-            raise NotImplementedError(
-                "the cuTile+CUB intersection backend does not support "
-                "distributed rasterization"
-            )
         if with_eval3d or with_ut or camera_model != "pinhole":
             raise NotImplementedError(
                 "the cuTile+CUB intersection backend currently supports "
@@ -1515,10 +1510,6 @@ def rasterization(
     if _means2d_absgrad_probe is not None and with_eval3d:
         raise ValueError(
             "_means2d_absgrad_probe is not supported with with_eval3d=True"
-        )
-    if distributed and config.compositor_backend == "cuda_ffi":
-        raise NotImplementedError(
-            "the CUDA FFI compositor does not support distributed rasterization"
         )
     if distributed and sparse_grad:
         raise NotImplementedError(

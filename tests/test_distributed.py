@@ -303,6 +303,111 @@ def test_all_to_all_rejects_runtime_ragged_layouts():
         all_gather_int32(2, 1)
 
 
+def _supports_cuda() -> bool:
+    device = jax.devices()[0]
+    return device.platform == "gpu" and "cuda" in str(device).lower()
+
+
+def test_distributed_rasterization_cuda_ffi_parity():
+    if not _supports_cuda():
+        pytest.skip("CUDA FFI compositor requires an NVIDIA CUDA GPU")
+
+    inputs = _distributed_render_inputs(None)
+    model_inputs = inputs[:6]
+    viewmats, Ks = inputs[6:]
+
+    cfg_jax = RasterizationConfig(
+        backend="intersections",
+        compositor_backend="jax",
+        intersection_backend="jax",
+        intersection_mode="accutile",
+        tile_size=16,
+        max_intersections=64,
+        max_candidates_per_tile=32,
+    )
+    cfg_ffi = RasterizationConfig(
+        backend="intersections",
+        compositor_backend="cuda_ffi",
+        intersection_backend="jax",
+        intersection_mode="accutile",
+        tile_size=16,
+        max_intersections=64,
+        max_candidates_per_tile=32,
+    )
+
+    def render_distributed_cfg(
+        cfg,
+        m_in,
+        q_in,
+        s_in,
+        o_in,
+        c_in,
+        e_in,
+    ):
+        def render_rank(
+            local_means,
+            local_quats,
+            local_scales,
+            local_opacities,
+            local_colors,
+            local_extra_signals,
+            local_viewmats,
+            local_Ks,
+        ):
+            rendered, alpha, info = jax_gs.rasterization(
+                local_means,
+                local_quats,
+                local_scales,
+                local_opacities,
+                local_colors,
+                local_viewmats,
+                local_Ks,
+                16,
+                16,
+                sh_degree=None,
+                packed=False,
+                distributed=True,
+                distributed_world_size=2,
+                distributed_axis_name="rank",
+                config=cfg,
+            )
+            return rendered, alpha
+
+        return jax.vmap(render_rank, axis_name="rank")(
+            m_in,
+            q_in,
+            s_in,
+            o_in,
+            c_in,
+            e_in,
+            viewmats,
+            Ks,
+        )
+
+    out_jax = render_distributed_cfg(cfg_jax, *model_inputs)
+    out_ffi = render_distributed_cfg(cfg_ffi, *model_inputs)
+
+    np.testing.assert_allclose(out_jax[0], out_ffi[0], rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(out_jax[1], out_ffi[1], rtol=1e-4, atol=1e-4)
+
+    def distributed_loss(cfg, m, q, s, o, c, e):
+        renders, alphas = render_distributed_cfg(cfg, m, q, s, o, c, e)
+        return jnp.sum(renders) + 0.01 * jnp.sum(alphas)
+
+    argnums = (0, 1, 2, 3, 4)
+    grad_jax = jax.grad(
+        lambda m, q, s, o, c, e: distributed_loss(cfg_jax, m, q, s, o, c, e),
+        argnums=argnums,
+    )(*model_inputs)
+    grad_ffi = jax.grad(
+        lambda m, q, s, o, c, e: distributed_loss(cfg_ffi, m, q, s, o, c, e),
+        argnums=argnums,
+    )(*model_inputs)
+
+    for g_jax, g_ffi in zip(grad_jax, grad_ffi, strict=True):
+        np.testing.assert_allclose(g_jax, g_ffi, rtol=1e-4, atol=1e-4)
+
+
 def test_cli_runs_one_worker_for_the_current_jax_process(monkeypatch):
     monkeypatch.delenv("LOCAL_RANK", raising=False)
     calls = []

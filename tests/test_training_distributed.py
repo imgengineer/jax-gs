@@ -609,10 +609,6 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
         make_distributed_train_step(
             _fixed_topology_config(), world_size=1
         )
-    with pytest.raises(NotImplementedError, match="2DGS"):
-        make_distributed_train_step(
-            _fixed_topology_config(model_type="2dgs"), world_size=2
-        )
     with pytest.raises(NotImplementedError, match="AbsGrad"):
         make_distributed_train_step(
             _fixed_topology_config(
@@ -1516,6 +1512,7 @@ def _run_local_device_distributed_host_loop():
         assert (
             resumed.output_dir / "renders" / "step_00000003.png"
         ).is_file()
+        assert resumed.checkpoint is not None
         final_manifest = load_distributed_checkpoint_manifest(
             resumed.checkpoint
         )
@@ -1595,8 +1592,9 @@ def _run_local_device_raster_overflow_replay():
             ),
         ):
             result = training_module.train(config, distributed=True)
+            assert result.checkpoint is not None
+            manifest = load_distributed_checkpoint_manifest(result.checkpoint)
 
-        manifest = load_distributed_checkpoint_manifest(result.checkpoint)
         assert manifest["intersection_capacity"] == 16
         assert manifest["candidate_bound"] == 8
         assert manifest["active_counts"] == [3, 2]
@@ -1711,6 +1709,7 @@ def _run_local_device_distributed_pose_host_loop():
             uninterrupted_model = _snapshot_graph_arrays(
                 uninterrupted.model
             )
+            assert uninterrupted.pose_adjust is not None
             uninterrupted_pose = np.asarray(
                 uninterrupted.pose_adjust.embeds.embedding[...]
             ).copy()
@@ -2026,7 +2025,9 @@ def test_distributed_checkpoint_round_trip(tmp_path):
     ]
     assert manifest["intersection_capacity"] == 64
     assert manifest["candidate_bound"] == 12
-    restored_transform, restored_scale = load_checkpoint_scene_transform(path)
+    scene_transform_info = load_checkpoint_scene_transform(path)
+    assert scene_transform_info is not None
+    restored_transform, restored_scale = scene_transform_info
     np.testing.assert_array_equal(restored_transform, scene_transform)
     assert restored_scale == 1.0
     assert load_checkpoint_intersection_capacity(path) == 64
@@ -3346,14 +3347,14 @@ def test_distributed_pose_step_mismatch_atomically_skips_update():
     np.testing.assert_array_equal(pose_steps, [0, 1])
 
 
-def test_distributed_train_step_still_rejects_2dgs():
-    with pytest.raises(NotImplementedError, match="2DGS"):
-        make_distributed_train_step(
-            _topology_plan_config(
-                refine_start=4, train={"model_type": "2dgs"}
-            ),
-            world_size=2,
-        )
+def test_distributed_train_step_supports_2dgs():
+    step = make_distributed_train_step(
+        _topology_plan_config(
+            refine_start=4, train={"model_type": "2dgs"}
+        ),
+        world_size=2,
+    )
+    assert callable(step)
 
 
 def test_visible_adam_updates_rows_seen_only_by_another_rank(monkeypatch):
@@ -3952,10 +3953,6 @@ def test_distributed_render_step_rejects_the_unsupported_combinations():
     config = _topology_plan_config(capacity=4, bucket=2)
     with pytest.raises(ValueError, match="world_size must be greater"):
         make_distributed_render_step(config, 4, 4, world_size=1)
-    with pytest.raises(NotImplementedError, match="2DGS"):
-        make_distributed_render_step(
-            replace(config, model_type="2dgs"), 4, 4, world_size=2
-        )
     with pytest.raises(NotImplementedError, match="pinhole"):
         make_distributed_render_step(
             replace(config, with_ut=True), 4, 4, world_size=2

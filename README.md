@@ -15,7 +15,7 @@
 - **多层后端加速**：
   - **Compositor**：Pure JAX、Pallas / Mosaic GPU 与 CUDA/XLA FFI（共享内存颜色加载 + Warp/Block 级遮挡尾部跳过）。
   - **Intersections**：Pure JAX、Pallas AccuTile、NVIDIA cuTile AccuTile 与 `cuda_tile_cub`（cuTile 计数/发射 + CUB 饱和前缀和、Radix Sort 与并行边界偏移量扫描）。
-- **分布式支持**：基于 JAX 原生 SPMD 的单机多 GPU 分布式训练。
+- **分布式支持**：基于 JAX 原生 SPMD 的单机多 GPU 分布式训练，支持 3DGS 与 2DGS，并支持在多卡分布式训练中启用高性能 `cuda_ffi` 光栅化加速。
 
 ---
 
@@ -151,7 +151,7 @@ uv run jax-gs export outputs/scene/checkpoints/step_00030000 model.splat
 | 模块 | 后端选项 | 说明 |
 | --- | --- | --- |
 | **Compositor** | `jax` | 默认纯 JAX，通用性最广 |
-| | `cuda_ffi` | 原生 CUDA/XLA FFI（Shared Memory 颜色加载 + Warp/Block 遮挡跳过） |
+| | `cuda_ffi` | 原生 CUDA/XLA FFI（Shared Memory 颜色加载 + Warp/Block 遮挡跳过，支持单卡及分布式各 GPU 局部光栅化） |
 | | `pallas` | Mosaic GPU 原生 Pallas 实验性后端 |
 | **Intersections** | `auto` / `jax` | 默认纯 JAX 拓扑流水线 |
 | | `cuda_tile` | NVIDIA cuTile AccuTile 计数与发射 |
