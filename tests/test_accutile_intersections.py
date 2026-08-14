@@ -117,7 +117,10 @@ def test_pallas_accutile_scan_matches_jax_with_partial_final_blocks(interpret):
             )
 
 
-def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks():
+def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks(
+    monkeypatch,
+):
+    monkeypatch.setenv("JAX_GS_CUTILE_EMIT_BLOCK_SIZE", "128")
     device = jax.devices()[0]
     if device.platform != "gpu" or "cuda" not in str(device).lower():
         pytest.skip("cuTile AccuTile scans require an NVIDIA CUDA GPU")
@@ -165,7 +168,8 @@ def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks():
     np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
 
     required_cumulative = jnp.cumsum(expected, dtype=jnp.int32)
-    for capacity in (193, 1345):
+    assert int(required_cumulative[-1]) <= 2000 - 128
+    for capacity in (193, 1345, 2000):
         cumulative = jnp.minimum(
             required_cumulative, jnp.int32(capacity + 1)
         )
@@ -679,14 +683,6 @@ def test_accutile_rotated_ellipse_is_a_strict_subset_of_aabb_pairs():
     radii = _opacity_radii(covariance[None], opacities, alpha_threshold)
     depths = np.array([1.0], dtype=np.float32)
     valid = np.array([True])
-    kwargs = dict(
-        tile_size=tile_size,
-        tile_width=tile_width,
-        tile_height=tile_height,
-        max_intersections=tile_width * tile_height,
-        sort_backend="jax",
-    )
-
     exact = _assert_matches_reference(
         means2d,
         radii,
@@ -705,8 +701,12 @@ def test_accutile_rotated_ellipse_is_a_strict_subset_of_aabb_pairs():
         jnp.asarray(radii),
         jnp.asarray(depths),
         jnp.asarray(valid),
+        tile_size=tile_size,
+        tile_width=tile_width,
+        tile_height=tile_height,
+        max_intersections=tile_width * tile_height,
         backend="jax",
-        **kwargs,
+        sort_backend="jax",
     )
     exact_pairs = set(exact.all_pairs)
     aabb_pairs = set(
@@ -760,12 +760,6 @@ def test_accutile_overflow_keeps_gaussian_major_prefix_and_padding_is_minus_one(
     radii = _opacity_radii(covariances, opacities, alpha_threshold)
     depths = np.array([2.0, 1.0, 0.5], dtype=np.float32)
     valid = np.ones((3,), dtype=np.bool_)
-    common = dict(
-        alpha_threshold=alpha_threshold,
-        tile_size=4,
-        tile_width=5,
-        tile_height=4,
-    )
     full = _reference(
         means2d,
         radii,
@@ -773,8 +767,11 @@ def test_accutile_overflow_keeps_gaussian_major_prefix_and_padding_is_minus_one(
         valid,
         conics,
         opacities,
+        alpha_threshold=alpha_threshold,
+        tile_size=4,
+        tile_width=5,
+        tile_height=4,
         capacity=60,
-        **common,
     )
     assert len(full.all_pairs) > 6
 
@@ -785,8 +782,11 @@ def test_accutile_overflow_keeps_gaussian_major_prefix_and_padding_is_minus_one(
         valid,
         conics,
         opacities,
+        alpha_threshold=alpha_threshold,
+        tile_size=4,
+        tile_width=5,
+        tile_height=4,
         capacity=len(full.all_pairs) - 3,
-        **common,
     )
     assert truncated.overflow
 
@@ -797,8 +797,11 @@ def test_accutile_overflow_keeps_gaussian_major_prefix_and_padding_is_minus_one(
         valid,
         conics,
         opacities,
+        alpha_threshold=alpha_threshold,
+        tile_size=4,
+        tile_width=5,
+        tile_height=4,
         capacity=len(full.all_pairs) + 4,
-        **common,
     )
     assert not padded.overflow
     np.testing.assert_array_equal(

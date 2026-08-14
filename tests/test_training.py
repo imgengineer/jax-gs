@@ -274,7 +274,8 @@ def _constant_training_rasterization(
     camera_count = viewmats.shape[0]
     capacity = means.shape[0]
     screen_probe = kwargs["_means2d_offset"]
-    signal = 0.25 + jnp.sum(means) * 0.0 + jnp.sum(screen_probe)
+    screen_signal = 0.0 if screen_probe is None else jnp.sum(screen_probe)
+    signal = 0.25 + jnp.sum(means) * 0.0 + screen_signal
     renders = jnp.full(
         (camera_count, height, width, 3), signal, dtype=means.dtype
     )
@@ -777,17 +778,20 @@ def _selective_training_rasterization(
             assert kwargs.get("_gradient_2dgs_offset") is None
             screen_probe = kwargs.get("_means2d_absgrad_probe")
             if screen_probe is None:
-                screen_probe = kwargs["_gradient_2dgs_absgrad_probe"]
+                screen_probe = kwargs.get("_gradient_2dgs_absgrad_probe")
         else:
             assert kwargs.get("_means2d_absgrad_probe") is None
             assert kwargs.get("_gradient_2dgs_absgrad_probe") is None
             screen_probe = kwargs.get("_means2d_offset")
             if screen_probe is None:
-                screen_probe = kwargs["_gradient_2dgs_offset"]
+                screen_probe = kwargs.get("_gradient_2dgs_offset")
+        screen_signal = (
+            0.0 if screen_probe is None else 1.0e-3 * jnp.sum(screen_probe)
+        )
         signal = (
             jnp.asarray(0.25, means.dtype)
             + 1.0e-3 * jnp.sum(means)
-            + 1.0e-3 * jnp.sum(screen_probe)
+            + screen_signal
         )
         renders = jnp.broadcast_to(
             signal, (camera_count, height, width, 3)
@@ -1347,9 +1351,23 @@ def test_default_stats_stop_at_refine_stop(monkeypatch):
         np.testing.assert_array_equal(actual, expected)
 
 
-def test_mcmc_train_step_never_accumulates_screen_stats(monkeypatch):
+def test_mcmc_train_step_never_builds_screen_stats(monkeypatch):
     monkeypatch.setattr(
-        training_module, "rasterization", _constant_training_rasterization
+        training_module,
+        "rasterization",
+        _mcmc_ut_training_rasterization(
+            with_ut=False,
+            with_eval3d=False,
+        ),
+    )
+
+    def unexpected_densification_stats(*_args, **_kwargs):
+        raise AssertionError("MCMC training must not build screen statistics")
+
+    monkeypatch.setattr(
+        training_module,
+        "build_densification_stats",
+        unexpected_densification_stats,
     )
     strategy_config = StrategyConfig(
         kind="mcmc",

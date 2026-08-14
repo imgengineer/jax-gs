@@ -246,7 +246,8 @@ def _kernels():
         coefficient_ref, outer_min_ref, outer_max_ref, cross_min_ref,
         cross_max_ref, outer_bbox_min_ref, outer_bbox_max_ref,
         cross_bbox_min_ref, cross_bbox_max_ref, argmin_outer_ref,
-        argmax_outer_ref, cumulative_ref, gaussian_ids_ref, tile_ids_ref,
+        argmax_outer_ref, cumulative_ref, valid_count_ref,
+        gaussian_ids_ref, tile_ids_ref,
         tile_size: _Constant[int], tile_width: _Constant[int],
         outer_steps: _Constant[int], capacity: _Constant[int],
         gaussian_count: _Constant[int], search_steps: _Constant[int],
@@ -257,7 +258,18 @@ def _kernels():
             block_size, dtype=ct.int32, start=block_id * block_size
         )
         shape = (block_size,)
-        output_valid = rank < capacity
+        valid_count = ct.maximum(
+            0,
+            ct.minimum(
+                ct.load(valid_count_ref, (0,), shape=()), capacity
+            ),
+        )
+        output_valid = rank < valid_count
+        if block_id * block_size >= valid_count:
+            padding = ct.full(shape, -1, ct.int32)
+            ct.store(gaussian_ids_ref, (block_id,), padding)
+            ct.store(tile_ids_ref, (block_id,), padding)
+            return
 
         low = ct.zeros(shape, ct.int32)
         high = ct.full(shape, gaussian_count, ct.int32)
@@ -469,7 +481,6 @@ def emit_accutile_intersections_cutile(
 ) -> tuple[jax.Array, jax.Array]:
     """Emit the fixed Gaussian-major AccuTile prefix with NVIDIA cuTile."""
 
-    del valid_count
     gaussian_count = state.valid.shape[0]
     if capacity == 0:
         empty = jnp.zeros((0,), dtype=jnp.int32)
@@ -506,6 +517,7 @@ def emit_accutile_intersections_cutile(
             state.argmin_outer,
             state.argmax_outer,
             cumulative,
+            jnp.asarray(valid_count, dtype=jnp.int32).reshape((1,)),
             gaussian_output,
             tile_output,
             tile_size,

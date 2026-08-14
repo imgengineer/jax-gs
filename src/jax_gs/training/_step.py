@@ -693,10 +693,7 @@ def _plan_train_step(
         distributed=distributed,
         # MCMC densifies from its own state, so the screen-space statistics are
         # only collected when something will read them.
-        collect_screen_stats=not (
-            config.strategy.kind == "mcmc"
-            and (config.with_ut or config.with_eval3d)
-        ),
+        collect_screen_stats=config.strategy.kind != "mcmc",
         mcmc_strategy=(
             MCMCStrategy(config.strategy)
             if config.strategy.kind == "mcmc"
