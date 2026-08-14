@@ -53,6 +53,18 @@ def test_compositor_backend_accepts_explicit_gpu_paths():
             )
 
 
+def test_projection_backend_accepts_explicit_strict_cuda_path():
+    assert RasterizationConfig().projection_backend == "jax"
+    config = RasterizationConfig(projection_backend="cuda_ffi_strict")
+    assert config.projection_backend == "cuda_ffi_strict"
+    with pytest.raises(ValueError, match="projection_backend"):
+        RasterizationConfig(projection_backend="invalid")
+    with pytest.raises(ValueError, match="intersections backend"):
+        RasterizationConfig(
+            backend="reference", projection_backend="cuda_ffi_strict"
+        )
+
+
 @pytest.mark.parametrize(
     "backend", ["pallas", "cuda_tile", "cuda_tile_cub"]
 )

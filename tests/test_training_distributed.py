@@ -2679,6 +2679,7 @@ def test_distributed_restore_accepts_a_legacy_config_without_target_primitives(
     config_path.write_text(json.dumps(legacy_values), encoding="utf-8")
     fingerprint_values = json.loads(json.dumps(legacy_values))
     fingerprint_values["rasterizer"].pop("compositor_backend", None)
+    fingerprint_values["rasterizer"].pop("projection_backend", None)
     legacy_payload = json.dumps(
         fingerprint_values, sort_keys=True, separators=(",", ":")
     )

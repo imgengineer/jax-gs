@@ -268,10 +268,11 @@ def _validate_scene_values(
 
 def _config_fingerprint(config: TrainConfig) -> str:
     values = config.to_dict()
-    # The compositor implementation is an inference-time execution choice.
-    # It does not change saved model or optimizer semantics, and older v6
-    # checkpoints predate the field, so keep it outside the training contract.
+    # Projection and compositor implementations are execution choices. They do
+    # not change saved model or optimizer semantics, and older v6 checkpoints
+    # predate these fields, so keep them outside the training contract.
     values["rasterizer"].pop("compositor_backend", None)
+    values["rasterizer"].pop("projection_backend", None)
     if values["strategy"].get("target_primitives") is None:
         values["strategy"].pop("target_primitives")
     payload = json.dumps(

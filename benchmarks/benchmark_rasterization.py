@@ -130,6 +130,12 @@ def _parser() -> argparse.ArgumentParser:
         default="auto",
     )
     parser.add_argument(
+        "--projection-backend",
+        choices=("jax", "cuda_ffi_strict"),
+        default="jax",
+        help="dense pinhole projection implementation",
+    )
+    parser.add_argument(
         "--compositor-backend",
         choices=("jax", "pallas", "cuda_ffi"),
         default="jax",
@@ -730,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
     _block(arrays)
     config = RasterizationConfig(
         backend=args.backend,
+        projection_backend=args.projection_backend,
         compositor_backend=args.compositor_backend,
         intersection_backend=args.intersection_backend,
         intersection_mode=args.intersection_mode,
@@ -823,6 +830,7 @@ def main(argv: list[str] | None = None) -> int:
             "tile_size": args.tile_size,
             "max_gaussians_per_tile": args.k,
             "rasterizer_backend": args.backend,
+            "projection_backend": args.projection_backend,
             "compositor_backend": args.compositor_backend,
             "intersection_backend": args.intersection_backend,
             "intersection_mode": args.intersection_mode,

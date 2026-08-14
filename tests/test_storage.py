@@ -40,10 +40,24 @@ def test_inference_compositor_does_not_change_the_training_fingerprint():
     assert _config_fingerprint(pallas) == _config_fingerprint(config)
 
 
+def test_projection_backend_does_not_change_the_training_fingerprint():
+    config = TrainConfig()
+    native = replace(
+        config,
+        rasterizer=replace(
+            config.rasterizer,
+            projection_backend="cuda_ffi_strict",
+        ),
+    )
+
+    assert _config_fingerprint(native) == _config_fingerprint(config)
+
+
 def test_target_primitives_preserves_legacy_fingerprint_when_disabled():
     config = TrainConfig()
     legacy_values = config.to_dict()
     legacy_values["rasterizer"].pop("compositor_backend", None)
+    legacy_values["rasterizer"].pop("projection_backend", None)
     legacy_values["strategy"].pop("target_primitives", None)
     legacy_payload = json.dumps(
         legacy_values, sort_keys=True, separators=(",", ":")

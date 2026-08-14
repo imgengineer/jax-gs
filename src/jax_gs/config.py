@@ -83,6 +83,7 @@ class RasterizationConfig:
     rasterize_mode: str = "classic"
     ut_chunk_size: int = 16_384
     backend: str = "auto"
+    projection_backend: str = "jax"
     compositor_backend: str = "jax"
     intersection_backend: str = "auto"
     intersection_mode: str = "auto"
@@ -111,6 +112,14 @@ class RasterizationConfig:
         }:
             raise ValueError(
                 "backend must be 'auto', 'jax', 'intersections', or 'reference'"
+            )
+        if self.projection_backend not in {"jax", "cuda_ffi_strict"}:
+            raise ValueError(
+                "projection_backend must be 'jax' or 'cuda_ffi_strict'"
+            )
+        if self.projection_backend == "cuda_ffi_strict" and self.backend == "reference":
+            raise ValueError(
+                "the strict CUDA FFI projection requires the intersections backend"
             )
         if self.intersection_backend not in {
             "auto",

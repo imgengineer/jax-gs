@@ -275,6 +275,14 @@ def _train_command(args: argparse.Namespace) -> None:
                 config.rasterizer, backend=args.rasterizer_backend
             ),
         )
+    if args.projection_backend is not None:
+        config = replace(
+            config,
+            rasterizer=replace(
+                config.rasterizer,
+                projection_backend=args.projection_backend,
+            ),
+        )
     if args.compositor_backend is not None:
         config = replace(
             config,
@@ -349,6 +357,7 @@ def _train_command(args: argparse.Namespace) -> None:
         rasterizer_overridden=(
             args.resume is not None
             or args.rasterizer_backend is not None
+            or args.projection_backend is not None
             or args.compositor_backend is not None
             or args.intersection_backend is not None
             or args.intersection_mode is not None
@@ -404,6 +413,14 @@ def _render_command(args: argparse.Namespace) -> None:
             config,
             rasterizer=replace(
                 config.rasterizer, backend=args.rasterizer_backend
+            ),
+        )
+    if args.projection_backend is not None:
+        config = replace(
+            config,
+            rasterizer=replace(
+                config.rasterizer,
+                projection_backend=args.projection_backend,
             ),
         )
     if args.compositor_backend is not None:
@@ -681,6 +698,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("auto", "jax", "intersections", "reference"),
     )
     train_parser.add_argument(
+        "--projection-backend",
+        choices=("jax", "cuda_ffi_strict"),
+        help=(
+            "dense pinhole projection backend; strict CUDA FFI uses native "
+            "forward projection and authoritative JAX-recompute gradients"
+        ),
+    )
+    train_parser.add_argument(
         "--compositor-backend",
         choices=("jax", "pallas", "cuda_ffi"),
         help=(
@@ -749,6 +774,11 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument(
         "--rasterizer-backend",
         choices=("auto", "jax", "intersections", "reference"),
+    )
+    render_parser.add_argument(
+        "--projection-backend",
+        choices=("jax", "cuda_ffi_strict"),
+        help="dense pinhole projection backend",
     )
     render_parser.add_argument(
         "--compositor-backend",

@@ -1495,6 +1495,20 @@ def rasterization(
                 "the cuTile+CUB intersection backend currently supports "
                 "single-camera-style pinhole 3DGS AccuTile rendering only"
             )
+    if config.projection_backend == "cuda_ffi_strict":
+        if distributed:
+            raise NotImplementedError(
+                "the strict CUDA FFI projection does not support distributed rendering"
+            )
+        if sparse_grad:
+            raise NotImplementedError(
+                "the strict CUDA FFI projection does not support sparse_grad"
+            )
+        if with_ut or with_eval3d or camera_model != "pinhole" or covars is not None:
+            raise NotImplementedError(
+                "the strict CUDA FFI projection supports pinhole quaternion/scale "
+                "3DGS only"
+            )
     if _means2d_absgrad_probe is not None and not absgrad:
         raise ValueError("_means2d_absgrad_probe requires absgrad=True")
     if config.compositor_backend in {"pallas", "cuda_ffi"} and absgrad:
@@ -2110,8 +2124,28 @@ def rasterization(
             )
     else:
         with jax.named_scope("projection"):
-            radii, means2d, depths, conics, compensations, projection_valid = (
-                fully_fused_projection(
+            if config.projection_backend == "cuda_ffi_strict":
+                from ._cuda_projection_ffi import fully_fused_projection_cuda_ffi
+
+                projection_outputs = fully_fused_projection_cuda_ffi(
+                    means,
+                    viewmats,
+                    Ks,
+                    width,
+                    height,
+                    quats=quats,
+                    scales=scales,
+                    opacities=opacities,
+                    eps2d=config.eps2d,
+                    near_plane=config.near_plane,
+                    far_plane=config.far_plane,
+                    radius_clip=config.radius_clip,
+                    calc_compensations=calc_compensations,
+                    alpha_threshold=config.alpha_clip,
+                    active_mask=active_mask,
+                )
+            else:
+                projection_outputs = fully_fused_projection(
                     means,
                     viewmats,
                     Ks,
@@ -2125,11 +2159,13 @@ def rasterization(
                     far_plane=config.far_plane,
                     radius_clip=config.radius_clip,
                     calc_compensations=calc_compensations,
-                    camera_model=camera_model,
+                    camera_model=camera_model,  # pyright: ignore[reportArgumentType]
                     opacities=opacities,
                     active_mask=active_mask,
                     alpha_threshold=config.alpha_clip,
                 )
+            radii, means2d, depths, conics, compensations, projection_valid = (
+                projection_outputs
             )
     if _means2d_offset is not None:
         means2d_offset = jnp.asarray(_means2d_offset, dtype=means2d.dtype)

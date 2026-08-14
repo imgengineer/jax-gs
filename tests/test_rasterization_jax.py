@@ -2061,26 +2061,30 @@ def test_gpu_compositors_reject_eval3d(compositor_backend):
         )
 
 
-def test_cuda_ffi_rejects_distributed_rasterization_before_dispatch():
+def test_cuda_ffi_supports_single_rank_distributed_rasterization():
+    device = jax.devices()[0]
+    if device.platform != "gpu" or "cuda" not in str(device).lower():
+        pytest.skip("CUDA FFI requires a CUDA GPU")
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
-    with pytest.raises(NotImplementedError, match="CUDA FFI.*distributed"):
-        rasterization(
-            means,
-            quats,
-            scales,
-            opacities,
-            colors,
-            viewmats,
-            Ks,
-            32,
-            32,
-            distributed=True,
-            config=RasterizationConfig(
-                backend="intersections",
-                compositor_backend="cuda_ffi",
-                max_intersections=64,
-            ),
-        )
+    config = RasterizationConfig(
+        backend="intersections",
+        compositor_backend="cuda_ffi",
+        max_intersections=64,
+    )
+    expected = rasterization(
+        means, quats, scales, opacities, colors, viewmats, Ks, 32, 32,
+        config=config,
+    )
+    actual = rasterization(
+        means, quats, scales, opacities, colors, viewmats, Ks, 32, 32,
+        distributed=True,
+        config=config,
+    )
+
+    np.testing.assert_array_equal(np.asarray(actual[0]), np.asarray(expected[0]))
+    np.testing.assert_array_equal(np.asarray(actual[1]), np.asarray(expected[1]))
+    assert int(actual[2]["distributed_world_size"]) == 1
+    assert bool(actual[2]["distributed_requested"])
 
 
 def test_cuda_ffi_rejects_high_level_absgrad():

@@ -36,6 +36,7 @@
 - **严格数学与拓扑对齐**：完整支持 3DGS、2DGS（法线一致性与深度畸变损失）、3DGUT、Eval3D、相机畸变、Rolling Shutter 与 LiDAR 扩展。严格保证 `MAX_ALPHA = 0.999`、饱和透射率截断与精确梯度传播。
 - **极致的原生 CUDA 加速流水线**：
   - **CUDA FFI Compositor**：Shared Memory 颜色预加载、Warp / Block 级遮挡饱和快速跳过，前向耗时压至 **315 µs**，反向压至 **966 µs**（RTX 5090 实测）。
+  - **Strict CUDA FFI Projection**：可选的 float32 Pinhole 3DGS 原生稠密投影；严格保持 radii、valid、conics、AccuTile 交点与排序结果，反向使用权威 JAX 重计算 VJP。
   - **cuTile + CUB Topology**：NVIDIA cuTile AccuTile 几何计数与发射，结合 CUDA FFI / CUB 饱和前缀和、Radix Sort 与并行边界偏移量扫描。
 - **全功能分布式多卡训练（Distributed Multi-GPU）**：
   - 基于 JAX 原生 SPMD 的 Gaussian-Sharding 模型并行与数据并行混合架构。
@@ -127,6 +128,7 @@ print("Alpha Output Shape:", alphas.shape)    # [C, H, W, 1]
 # 2. 显式启用最高性能 NVIDIA 原生流水线
 config_native = RasterizationConfig(
     backend="intersections",
+    projection_backend="cuda_ffi_strict",
     compositor_backend="cuda_ffi",
     intersection_backend="cuda_tile_cub",
     intersection_mode="accutile",
@@ -193,6 +195,11 @@ uv run jax-gs train \
   --steps 30000 \
   --target-primitives 1000000
 
+# 显式启用严格原生投影（默认不会自动选择）
+uv run jax-gs train \
+  --config scene_config.json \
+  --projection-backend cuda_ffi_strict
+
 # 强制使用纯 JAX 后端运行（开发与跨平台对照）
 uv run jax-gs train \
   --config scene_config.json \
@@ -239,6 +246,8 @@ uv run jax-gs estimate-memory \
 
 | 模块 | 选项名称 | 说明 | 适用场景 |
 | --- | --- | --- | --- |
+| **Projection** | `jax` | 权威纯 JAX 稠密投影 | 所有相机模型、Antialiased、分布式与大形状 Factor 路径 |
+| | `cuda_ffi_strict` | JAX 相机空间准备 + 原生 CUDA Pinhole 投影；JAX 重计算 VJP | 单卡 float32 Classic Pinhole 3DGS；Antialiased 与 `N >= 262144` 自动回退 JAX |
 | **Compositor** | `jax` | 纯 JAX 实现，具备极致通用性与跨平台性 | CPU / TPU / 通用 GPU / 算法原型验证 |
 | | `cuda_ffi` | **原生 CUDA FFI 算子**：Shared Memory 颜色加载 + Warp/Block 级遮挡跳过 | **推荐生产训练与推理**（单卡/多卡最高速） |
 | | `pallas` | JAX 原生 Mosaic GPU Pallas 算子 | Pallas GPU 原生实验 |
@@ -255,6 +264,8 @@ uv run jax-gs estimate-memory \
 2. NVIDIA GPU Compute Capability $\ge 10.0$。
 3. Python 环境已安装 `cuda.tile` 且宿主机具备可用 `nvcc`。
 4. 单 GPU 训练（多 GPU 分布式训练自动组合 `cuda_ffi` 与 JAX 拓扑）。
+
+`projection_backend="cuda_ffi_strict"` 当前仅显式启用，不参与自动路由；这样可避免在原生 backward 完成前改变训练默认值。
 
 ---
 
@@ -304,7 +315,9 @@ uv run jax-gs estimate-memory \
 | **Full Raster Forward** | ~1,585 µs | **606 µs** | **2.61×** |
 | **Value & Grad (Step)** | ~3,450 µs | **1,369 µs** | **2.52×** |
 
-> *注：测试环境为 Ubuntu 24.04, Python 3.12, CUDA 13.3, JAX 0.11.0, RTX 5090 32GB。*
+严格原生投影的独立配对测量为 **121.8 → 103.8 µs（1.17×）**；完整 Garden 前向 fresh-process 中位数约为 **0.805 → 0.783 ms（1.03×）**。当前 backward 仍重计算权威 JAX 投影，独立 value-and-grad 约为 **326.6 → 341.5 µs**，因此该后端保持显式可选而非默认。
+
+> *注：测试环境为 Ubuntu 24.04, Python 3.12, CUDA 13.3, JAX 0.11.0, RTX 5090 32GB。投影 A/B 测量期间另有 COLMAP 进程占用约 5.6 GiB 显存，分布存在噪声，以上仅报告保守中位数。*
 
 ### 运行性能基准与自动调优工具
 
@@ -316,6 +329,7 @@ uv run python benchmarks/benchmark_rasterization.py \
   --active 138766 \
   --resolution 640x360 \
   --backend intersections \
+  --projection-backend cuda_ffi_strict \
   --compositor-backend cuda_ffi \
   --intersection-backend cuda_tile_cub \
   --intersection-mode accutile \
