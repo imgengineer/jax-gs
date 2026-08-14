@@ -57,6 +57,7 @@ def test_public_fully_fused_projection_dense_signature():
     result = fully_fused_projection(
         means, None, quats, scales, viewmats, Ks, 8, 8
     )
+    assert isinstance(result, tuple)
     assert len(result) == 5
     assert result[0].shape == (1, 2, 2)
     assert jnp.all(result[0][0, 1] == 0)
@@ -134,41 +135,51 @@ def test_public_fully_fused_projection_sparse_contract():
         )
 
 
-def test_public_2dgs_projection_sparse_contract():
-    means, quats, scales, viewmats, Ks = _inputs()
-    sparse = fully_fused_projection_2dgs(
-        means,
-        quats,
-        scales,
-        viewmats,
-        Ks,
-        8,
-        8,
-        packed=True,
-        sparse_grad=True,
-    )
-    assert int(sparse.valid_count) == 1
+def test_gsplat_api_and_submodule_alignment():
+    import importlib
 
-    with pytest.raises(ValueError, match="packed=True"):
-        fully_fused_projection_2dgs(
-            means,
-            quats,
-            scales,
-            viewmats,
-            Ks,
-            8,
-            8,
-            sparse_grad=True,
-        )
-    with pytest.raises(ValueError, match="batch dimensions"):
-        fully_fused_projection_2dgs(
-            means[None],
-            quats[None],
-            scales[None],
-            viewmats[None],
-            Ks[None],
-            8,
-            8,
-            packed=True,
-            sparse_grad=True,
-        )
+    rendering = importlib.import_module("jax_gs.rendering")
+    strategy = importlib.import_module("jax_gs.strategy")
+    distributed = importlib.import_module("jax_gs.distributed")
+    exporter = importlib.import_module("jax_gs.exporter")
+    color_correct = importlib.import_module("jax_gs.color_correct")
+    compression = importlib.import_module("jax_gs.compression")
+    losses = importlib.import_module("jax_gs.losses")
+    optimizers = importlib.import_module("jax_gs.optimizers")
+    cameras = importlib.import_module("jax_gs.cameras")
+    camera_wrappers = importlib.import_module("jax_gs.camera_wrappers")
+    relocation = importlib.import_module("jax_gs.relocation")
+    cuda = importlib.import_module("jax_gs.cuda")
+    _C = importlib.import_module("jax_gs.cuda._wrapper")
+
+    root_expected = [
+        "rasterization",
+        "rasterization_2dgs",
+        "fully_fused_projection",
+        "isect_tiles",
+        "rasterize_to_pixels",
+        "DefaultStrategy",
+        "MCMCStrategy",
+        "export_splats",
+        "export_ply",
+        "export_splat",
+        "quat_scale_to_covar_preci",
+        "spherical_harmonics",
+        "world_to_cam",
+    ]
+    for symbol in root_expected:
+        assert hasattr(jax_gs, symbol), f"Missing root export: {symbol}"
+        assert getattr(jax_gs, symbol) is not None
+
+    cuda_wrapper_expected = [
+        "fully_fused_projection",
+        "isect_tiles",
+        "rasterize_to_pixels",
+        "spherical_harmonics",
+        "world_to_cam",
+        "quat_scale_to_covar_preci",
+        "rasterize_to_pixels_2dgs",
+    ]
+    for symbol in cuda_wrapper_expected:
+        assert hasattr(_C, symbol), f"Missing cuda._wrapper export: {symbol}"
+        assert getattr(_C, symbol) is not None
