@@ -71,7 +71,11 @@ def _render_distributed_shards(
     Ks,
     *,
     sh_degree,
+    active_masks=None,
 ):
+    if active_masks is None:
+        active_masks = jnp.ones(means.shape[:2], dtype=jnp.bool_)
+
     def render_rank(
         local_means,
         local_quats,
@@ -81,6 +85,7 @@ def _render_distributed_shards(
         local_extra_signals,
         local_viewmats,
         local_Ks,
+        local_active_mask,
     ):
         rendered, alpha, info = jax_gs.rasterization(
             local_means,
@@ -94,6 +99,7 @@ def _render_distributed_shards(
             8,
             sh_degree=sh_degree,
             packed=False,
+            active_mask=local_active_mask,
             distributed=True,
             extra_signals=local_extra_signals,
             extra_signals_sh_degree=sh_degree,
@@ -107,6 +113,7 @@ def _render_distributed_shards(
             info["render_extra_signals"],
             info["distributed_requested"],
             info["distributed_world_size"],
+            info["distributed_active_mask"],
         )
 
     return jax.vmap(render_rank, axis_name="rank")(
@@ -118,6 +125,7 @@ def _render_distributed_shards(
         extra_signals,
         viewmats,
         Ks,
+        active_masks,
     )
 
 
@@ -242,16 +250,36 @@ def test_root_distributed_flag_matches_concatenated_scene_and_shard_gradients(
         np.asarray(distributed_outputs[3]), [True, True]
     )
     np.testing.assert_array_equal(np.asarray(distributed_outputs[4]), [2, 2])
+    np.testing.assert_array_equal(
+        np.asarray(distributed_outputs[5]),
+        np.ones((2, 2), dtype=np.bool_),
+    )
 
     def distributed_loss(*values):
         outputs = _render_distributed_shards(
-            *values, viewmats, Ks, sh_degree=sh_degree
+            values[0],
+            values[1],
+            values[2],
+            values[3],
+            values[4],
+            values[5],
+            viewmats,
+            Ks,
+            sh_degree=sh_degree,
         )
         return sum(jnp.sum(value) for value in outputs[:3])
 
     def baseline_loss(*values):
         outputs = _render_concatenated_baseline(
-            *values, viewmats, Ks, sh_degree=sh_degree
+            values[0],
+            values[1],
+            values[2],
+            values[3],
+            values[4],
+            values[5],
+            viewmats,
+            Ks,
+            sh_degree=sh_degree,
         )
         return sum(jnp.sum(value) for value in outputs)
 
@@ -268,6 +296,18 @@ def test_root_distributed_flag_matches_concatenated_scene_and_shard_gradients(
         np.testing.assert_allclose(
             distributed_gradient, baseline_gradient, rtol=2e-5, atol=2e-6
         )
+
+
+def test_distributed_active_mask_preserves_rank_major_inactive_slots():
+    outputs = _render_distributed_shards(
+        *_distributed_render_inputs(None),
+        sh_degree=None,
+        active_masks=jnp.asarray([[True], [False]]),
+    )
+    np.testing.assert_array_equal(
+        np.asarray(outputs[5]),
+        np.asarray([[True, False], [True, False]]),
+    )
 
 
 def test_root_distributed_flag_requires_named_axis_for_multiple_ranks():

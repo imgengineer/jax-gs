@@ -765,6 +765,24 @@ def test_named_two_rank_train_step_updates_shards_with_global_rendering():
     assert np.all(np.asarray(strategy_state.visible_count[...]) > 0.0)
 
 
+def test_distributed_train_step_reuses_renderer_active_mask():
+    bool_gathers = []
+    all_gather = jax.lax.all_gather
+
+    def tracked_all_gather(value, *args, **kwargs):
+        array = jnp.asarray(value)
+        if array.dtype == jnp.bool_ and array.shape == (1,):
+            bool_gathers.append(array.shape)
+        return all_gather(value, *args, **kwargs)
+
+    with mock.patch.object(
+        jax.lax, "all_gather", side_effect=tracked_all_gather
+    ):
+        _run_two_rank_update(nnx.vmap)
+
+    assert bool_gathers == [(1,)]
+
+
 def _run_two_rank_screen_stats(map_transform):
     with mock.patch.object(
         training_module, "rasterization", _screen_stats_rasterization
@@ -3388,13 +3406,15 @@ def test_distributed_pose_step_mismatch_atomically_skips_update():
 
 
 def test_distributed_train_step_supports_2dgs():
-    step = make_distributed_train_step(
-        _topology_plan_config(
-            refine_start=4, train={"model_type": "2dgs"}
-        ),
-        world_size=2,
+    config = _topology_plan_config(
+        refine_start=4, train={"model_type": "2dgs"}
     )
-    assert callable(step)
+    _, optimizer, _, _, metrics = _run_two_rank_update(
+        nnx.vmap, config=config
+    )
+
+    np.testing.assert_array_equal(optimizer.step[...], [1, 1])
+    assert np.all(np.isfinite(metrics["loss"]))
 
 
 def test_visible_adam_updates_rows_seen_only_by_another_rank(monkeypatch):

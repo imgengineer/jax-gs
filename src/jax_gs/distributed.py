@@ -355,6 +355,7 @@ def rasterization(
     info = dict(info)
     info["distributed_world_size"] = jnp.asarray(world_size, dtype=jnp.int32)
     info["distributed_requested"] = jnp.asarray(True)
+    info["distributed_active_mask"] = active_mask
     return renders, alphas, info
 
 

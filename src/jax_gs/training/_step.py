@@ -596,6 +596,9 @@ def _training_loss(
         )
         normal_loss_value = jnp.zeros((), dtype=renders.dtype)
         distortion_loss_value = jnp.zeros((), dtype=renders.dtype)
+    if plan.distributed and not raster_distributed:
+        info = dict(info)
+        info["distributed_active_mask"] = parameters["active_mask"]
     rgb = renders[..., :3]
     l1_value = jnp.mean(l1_loss(rgb, batch.targets))
     ssim_value = ssim(rgb, batch.targets)
@@ -1103,23 +1106,35 @@ def _make_train_step(
                 grads,
             )
         owner_start = None
+        global_active_mask = active_mask
         if distributed:
             assert distributed_axis_name is not None
             owner_start = (
                 jax.lax.axis_index(distributed_axis_name) * model.capacity
             )
-        if config.packed:
-            packed_active_mask = active_mask
-            if distributed:
-                assert distributed_axis_name is not None
-                # Packed ids index the gathered scene, so the metadata unpacks
-                # against the global active mask and is sliced afterwards.
-                packed_active_mask = jax.lax.all_gather(
+            global_active_mask = info.get("distributed_active_mask")
+            if global_active_mask is None:
+                global_active_mask = jax.lax.all_gather(
                     active_mask,
                     distributed_axis_name,
                     axis=0,
                     tiled=True,
                 )
+            global_active_mask = jnp.asarray(
+                global_active_mask, dtype=jnp.bool_
+            )
+            expected_mask_shape = (
+                model.capacity * distributed_world_size,
+            )
+            if global_active_mask.shape != expected_mask_shape:
+                raise ValueError(
+                    "distributed_active_mask must have shape "
+                    f"{expected_mask_shape}"
+                )
+        if config.packed:
+            # Packed ids index the gathered scene; after unpacking, visibility
+            # is sliced back to the current owner below.
+            packed_active_mask = global_active_mask
             stats_projection_radii, stats_projection_valid, visible = (
                 _unpack_training_projection_metadata(
                     info,
@@ -1146,7 +1161,7 @@ def _make_train_step(
         else:
             stats_projection_radii = info["radii"]
             stats_projection_valid = info["valid"]
-            stats_active_mask = active_mask
+            stats_active_mask = global_active_mask
             visible = jnp.any(
                 jnp.asarray(stats_projection_valid, dtype=jnp.bool_)
                 & jnp.all(jnp.asarray(stats_projection_radii) > 0, axis=-1),
@@ -1160,12 +1175,6 @@ def _make_train_step(
                         distributed_axis_name,
                     )
                     > 0
-                )
-                stats_active_mask = jax.lax.all_gather(
-                    active_mask,
-                    distributed_axis_name,
-                    axis=0,
-                    tiled=True,
                 )
                 visible = jax.lax.dynamic_slice_in_dim(
                     visible,
