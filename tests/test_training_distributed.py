@@ -1084,6 +1084,31 @@ def test_scheduled_opacity_reset_stops_at_refine_stop():
     )
 
 
+def _assert_unscheduled_default_refinement_skips_planning(map_transform):
+    calls = []
+    original = DefaultStrategy.plan_refine
+
+    def tracked_plan(self, *args, **kwargs):
+        jax.debug.callback(lambda _: calls.append(None), jnp.asarray(0))
+        return original(self, *args, **kwargs)
+
+    config = _topology_plan_config(refine_start=4)
+    with (
+        mock.patch.object(DefaultStrategy, "plan_refine", tracked_plan),
+        mock.patch.object(
+            training_module, "rasterization", _no_statistics_rasterization
+        ),
+    ):
+        _, _, _, _, metrics = _run_two_rank_update(
+            map_transform, config=config
+        )
+    jax.effects_barrier()
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [False, False])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [0, 0])
+    assert calls == []
+
+
 def test_single_rank_plan_overflow_atomically_skips_every_rank():
     config = _topology_plan_config(
         refine_scale2d_stop_iter=100, grow_scale2d=0.05
@@ -1287,8 +1312,12 @@ def test_two_virtual_cpu_nnx_pmap_smoke():
             "_run_two_rank_growth_commit(nnx.pmap)",
             "_run_two_rank_pose_update(nnx.pmap)",
             "from tests.test_training_distributed import "
-            "_run_two_rank_pmap_resize_lifecycle",
+            "_run_two_rank_pmap_resize_lifecycle, "
+            "_assert_unscheduled_default_refinement_skips_planning, "
+            "_assert_unscheduled_mcmc_refinement_skips_planning",
             "_run_two_rank_pmap_resize_lifecycle()",
+            "_assert_unscheduled_default_refinement_skips_planning(nnx.pmap)",
+            "_assert_unscheduled_mcmc_refinement_skips_planning(nnx.pmap)",
         )
     )
     environment = os.environ.copy()
@@ -3479,6 +3508,38 @@ def _mcmc_rank_bundle(config: TrainConfig, point_count: int):
         model.capacity
     )
     return model, optimizer, strategy_state, TrainingSafetyState()
+
+
+def _assert_unscheduled_mcmc_refinement_skips_planning(map_transform):
+    calls = []
+    original = MCMCStrategy.plan_refine
+
+    def tracked_plan(self, *args, **kwargs):
+        jax.debug.callback(lambda _: calls.append(None), jnp.asarray(0))
+        return original(self, *args, **kwargs)
+
+    config = _mcmc_config(24)
+    config = replace(
+        config,
+        strategy=replace(config.strategy, refine_start=4),
+    )
+    bundles = _stack_graphs(
+        _mcmc_rank_bundle(config, 20), _mcmc_rank_bundle(config, 20)
+    )
+    with (
+        mock.patch.object(MCMCStrategy, "plan_refine", tracked_plan),
+        mock.patch.object(
+            training_module, "rasterization", _no_overflow_rasterization
+        ),
+    ):
+        _, _, _, _, metrics = _run_two_rank_update(
+            map_transform, config=config, bundles=bundles
+        )
+    jax.effects_barrier()
+
+    np.testing.assert_array_equal(metrics["refine_scheduled"], [False, False])
+    np.testing.assert_array_equal(metrics["refine_planned_new_count"], [0, 0])
+    assert calls == []
 
 
 def test_mcmc_capacity_overflow_is_reduced_across_ranks(monkeypatch):

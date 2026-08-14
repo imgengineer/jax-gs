@@ -1267,17 +1267,42 @@ def _make_train_step(
                 & (training_step % config.strategy.refine_every == 0)
             )
             assert mcmc_strategy is not None
-            refine_plan = mcmc_strategy.plan_refine(
-                model,
-                strategy_state,
-                strategy_state.scene_scale[...],
-                step=training_step,
-            )
-            strategy_capacity_overflow = (
-                mcmc_should_refine & refine_plan["capacity_overflow"]
-            )
             if distributed:
                 assert distributed_axis_name is not None
+                mcmc_plan_strategy = mcmc_strategy
+
+                def plan_mcmc_refine(_model, _state):
+                    refine_plan = mcmc_plan_strategy.plan_refine(
+                        _model,
+                        _state,
+                        _state.scene_scale[...],
+                        step=training_step,
+                    )
+                    return (
+                        refine_plan["planned_new_count"],
+                        refine_plan["required_capacity"],
+                        refine_plan["capacity_overflow"],
+                    )
+
+                def skip_mcmc_refine(_model, _state):
+                    del _model, _state
+                    return (
+                        jnp.asarray(0, dtype=jnp.int32),
+                        jnp.asarray(0, dtype=jnp.int32),
+                        jnp.asarray(False),
+                    )
+
+                (
+                    planned_new_count,
+                    planned_required_capacity,
+                    strategy_capacity_overflow,
+                ) = nnx.cond(
+                    mcmc_should_refine,
+                    plan_mcmc_refine,
+                    skip_mcmc_refine,
+                    model,
+                    strategy_state,
+                )
                 # Every shard caps and grows its own rows exactly as an
                 # independent upstream rank does, but one shard that cannot
                 # allocate must not advance its schedule alone.
@@ -1293,7 +1318,7 @@ def _make_train_step(
                     "refine_planned_new_count": jnp.where(
                         mcmc_should_refine,
                         jax.lax.psum(
-                            refine_plan["planned_new_count"],
+                            planned_new_count,
                             distributed_axis_name,
                         ),
                         0,
@@ -1301,15 +1326,26 @@ def _make_train_step(
                     "refine_required_capacity": jnp.where(
                         mcmc_should_refine,
                         jax.lax.pmax(
-                            refine_plan["required_capacity"],
+                            planned_required_capacity,
                             distributed_axis_name,
                         ),
                         0,
                     ),
                     "refine_capacity_overflow": strategy_capacity_overflow,
                 }
+            else:
+                refine_plan = mcmc_strategy.plan_refine(
+                    model,
+                    strategy_state,
+                    strategy_state.scene_scale[...],
+                    step=training_step,
+                )
+                strategy_capacity_overflow = (
+                    mcmc_should_refine & refine_plan["capacity_overflow"]
+                )
         elif distributed_plan_strategy is not None:
             assert distributed_axis_name is not None
+            owner_plan_strategy = distributed_plan_strategy
             refine_scheduled = (
                 (training_step > config.strategy.refine_start)
                 & (training_step < config.strategy.refine_stop)
@@ -1324,29 +1360,59 @@ def _make_train_step(
                 & (training_step < config.strategy.refine_stop)
                 & (training_step % config.strategy.reset_every == 0)
             )
-            # Every shard decides on its own rows. The step's scene scale is
-            # the value already checked against the optimizer, so no rank can
-            # score growth or pruning against a different threshold.
-            owner_plan = distributed_plan_strategy.plan_refine(
+
+            def plan_owner_refine(_model, _state):
+                # Every shard decides on its own rows. The step's scene scale
+                # is already checked against the optimizer, so thresholds
+                # cannot differ across ranks.
+                owner_plan = owner_plan_strategy.plan_refine(
+                    _model,
+                    _state,
+                    distributed_scene_scale,
+                    step=training_step,
+                )
+                return (
+                    owner_plan["planned_new_count"],
+                    owner_plan["pruned_count"],
+                    owner_plan["required_capacity"],
+                    owner_plan["capacity_overflow"],
+                )
+
+            def skip_owner_refine(_model, _state):
+                del _model, _state
+                return (
+                    jnp.asarray(0, dtype=jnp.int32),
+                    jnp.asarray(0, dtype=jnp.int32),
+                    jnp.asarray(0, dtype=jnp.int32),
+                    jnp.asarray(False),
+                )
+
+            (
+                owner_new_count,
+                owner_pruned_count,
+                owner_required_capacity,
+                owner_capacity_overflow,
+            ) = nnx.cond(
+                refine_scheduled,
+                plan_owner_refine,
+                skip_owner_refine,
                 model,
                 strategy_state,
-                distributed_scene_scale,
-                step=training_step,
             )
-            # Only the plan's scalar summaries cross ranks; the owner-local
-            # [L] decision arrays must never be reduced.
+            # Only scalar summaries cross ranks, and the collectives remain
+            # unconditional so every step preserves one collective order.
             planned_new_count = jax.lax.psum(
-                owner_plan["planned_new_count"], distributed_axis_name
+                owner_new_count, distributed_axis_name
             )
             planned_pruned_count = jax.lax.psum(
-                owner_plan["pruned_count"], distributed_axis_name
+                owner_pruned_count, distributed_axis_name
             )
             planned_required_capacity = jax.lax.pmax(
-                owner_plan["required_capacity"], distributed_axis_name
+                owner_required_capacity, distributed_axis_name
             )
             any_rank_capacity_overflow = (
                 jax.lax.pmax(
-                    owner_plan["capacity_overflow"].astype(jnp.int32),
+                    owner_capacity_overflow.astype(jnp.int32),
                     distributed_axis_name,
                 )
                 > 0
