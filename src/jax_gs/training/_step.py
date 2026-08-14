@@ -1189,35 +1189,33 @@ def _make_train_step(
             )
             if distributed:
                 assert distributed_axis_name is not None
-                # The per-camera norm is already in these scalar statistics.
-                # Reduce globally before slicing the current Gaussian owner.
-                global_stats = DensificationStats(
-                    jax.lax.psum(
-                        densification_stats.grad_sum,
-                        distributed_axis_name,
-                    ),
-                    jax.lax.psum(
-                        densification_stats.count,
-                        distributed_axis_name,
-                    ),
-                    jax.lax.pmax(
-                        densification_stats.max_radii,
-                        distributed_axis_name,
-                    ),
+                # The additive values can reduce directly into each owner's
+                # contiguous shard. Max radii keeps its exact all-reduce max
+                # semantics and only then slices the current owner.
+                additive_stats = jnp.stack(
+                    (densification_stats.grad_sum, densification_stats.count),
+                    axis=-1,
                 )
-
-                def owner_slice(value):
-                    return jax.lax.dynamic_slice_in_dim(
-                        value,
-                        owner_start,
-                        model.capacity,
-                        axis=0,
-                    )
-
+                owner_additive_stats = jax.lax.psum_scatter(
+                    additive_stats,
+                    distributed_axis_name,
+                    scatter_dimension=0,
+                    tiled=True,
+                )
+                global_max_radii = jax.lax.pmax(
+                    densification_stats.max_radii,
+                    distributed_axis_name,
+                )
+                owner_max_radii = jax.lax.dynamic_slice_in_dim(
+                    global_max_radii,
+                    owner_start,
+                    model.capacity,
+                    axis=0,
+                )
                 densification_stats = DensificationStats(
-                    owner_slice(global_stats.grad_sum),
-                    owner_slice(global_stats.count),
-                    owner_slice(global_stats.max_radii),
+                    owner_additive_stats[:, 0],
+                    owner_additive_stats[:, 1],
+                    owner_max_radii,
                 )
         overflow_tiles = jnp.count_nonzero(info["tile_overflow"])
         intersection_overflow = jnp.any(info["intersection_overflow"])

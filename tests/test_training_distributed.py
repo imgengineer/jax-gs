@@ -1,3 +1,6 @@
+# pyright: reportArgumentType=false, reportCallIssue=false
+# pyright: reportMissingImports=false, reportOptionalMemberAccess=false
+
 from dataclasses import replace
 import hashlib
 import json
@@ -781,7 +784,14 @@ def _run_two_rank_screen_stats(map_transform):
 
 
 def test_named_two_rank_screen_statistics_reduce_before_owner_slice():
-    _run_two_rank_screen_stats(nnx.vmap)
+    with mock.patch.object(
+        jax.lax,
+        "psum_scatter",
+        wraps=jax.lax.psum_scatter,
+    ) as psum_scatter:
+        _run_two_rank_screen_stats(nnx.vmap)
+
+    assert psum_scatter.call_count == 1
 
 
 def test_distributed_train_step_plans_a_refinement_schedule():
