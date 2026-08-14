@@ -154,27 +154,46 @@ __global__ void finalize_sorted_ids_kernel(const uint64_t* keys,
 }
 
 __global__ void find_tile_offsets_kernel(const uint64_t* keys,
-                                         const int32_t* valid_count,
+                                         const int32_t* valid_count_ptr,
                                          int capacity, int tile_count,
                                          int32_t* offsets) {
-  const int tile_id = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tile_id >= tile_count) {
+  const int count = valid_count_ptr[0] < 0
+                        ? 0
+                        : (valid_count_ptr[0] > capacity ? capacity
+                                                         : valid_count_ptr[0]);
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (count <= 0) {
+    if (idx < tile_count) {
+      offsets[idx] = 0;
+    }
     return;
   }
-  int low = 0;
-  int high = valid_count[0] < 0
-                 ? 0
-                 : (valid_count[0] > capacity ? capacity : valid_count[0]);
-  const uint64_t target = static_cast<uint64_t>(tile_id) << 32;
-  while (low < high) {
-    const int middle = low + (high - low) / 2;
-    if (keys[middle] < target) {
-      low = middle + 1;
-    } else {
-      high = middle;
+  if (idx >= count) {
+    return;
+  }
+
+  const int32_t tile_curr =
+      min(static_cast<int32_t>(keys[idx] >> 32), tile_count);
+
+  if (idx == 0) {
+    for (int32_t i = 0; i <= tile_curr && i < tile_count; ++i) {
+      offsets[i] = 0;
     }
   }
-  offsets[tile_id] = low;
+  if (idx == count - 1) {
+    for (int32_t i = tile_curr + 1; i < tile_count; ++i) {
+      offsets[i] = count;
+    }
+  }
+  if (idx > 0) {
+    const int32_t tile_prev =
+        min(static_cast<int32_t>(keys[idx - 1] >> 32), tile_count);
+    if (tile_prev != tile_curr) {
+      for (int32_t i = tile_prev + 1; i <= tile_curr && i < tile_count; ++i) {
+        offsets[i] = idx;
+      }
+    }
+  }
 }
 
 int radix_end_bit(int tile_count) {
@@ -358,7 +377,8 @@ ffi::Error intersection_sort_offsets_host(
     return cuda_error("CUDA intersection ID finalization launch failed", error);
   }
 
-  const int offset_blocks = (tile_count + kThreads - 1) / kThreads;
+  const int offset_blocks =
+      (max(capacity, tile_count) + kThreads - 1) / kThreads;
   find_tile_offsets_kernel<<<offset_blocks, kThreads, 0, stream>>>(
       keys_out, effective_valid_count->typed_data(), capacity, tile_count,
       offsets->typed_data());

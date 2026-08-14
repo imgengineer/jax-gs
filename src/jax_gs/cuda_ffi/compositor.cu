@@ -107,6 +107,7 @@ __global__ void compositor_forward_kernel(
   float2* batch_means = reinterpret_cast<float2*>(batch_ids + kTilePixels);
   float3* batch_conics = reinterpret_cast<float3*>(batch_means + kTilePixels);
   float* batch_opacities = reinterpret_cast<float*>(batch_conics + kTilePixels);
+  float* batch_colors = batch_opacities + kTilePixels;
 
   float transmittance = 1.0f;
   float accepted_transmittance = 1.0f;
@@ -128,6 +129,11 @@ __global__ void compositor_forward_kernel(
         batch_means[tid] = reinterpret_cast<const float2*>(means)[gaussian_id];
         batch_conics[tid] = reinterpret_cast<const float3*>(conics)[gaussian_id];
         batch_opacities[tid] = opacities[gaussian_id];
+#pragma unroll
+        for (int channel = 0; channel < Channels; ++channel) {
+          batch_colors[tid * Channels + channel] =
+              colors[gaussian_id * Channels + channel];
+        }
       }
     }
     __syncthreads();
@@ -152,7 +158,7 @@ __global__ void compositor_forward_kernel(
       const float weight = alpha * transmittance;
 #pragma unroll
       for (int channel = 0; channel < Channels; ++channel) {
-        rendered[channel] += colors[gaussian_id * Channels + channel] * weight;
+        rendered[channel] += batch_colors[t * Channels + channel] * weight;
       }
       transmittance = next_transmittance;
       accepted_transmittance = next_transmittance;
@@ -216,6 +222,32 @@ __global__ void compositor_backward_kernel(
 
   float transmittance = inside ? accepted_final_transmittance[pixel_id] : 1.0f;
   const int32_t pixel_last_id = inside ? last_ids[pixel_id] : -1;
+  int warp_last_id = pixel_last_id;
+  warp_last_id = max(warp_last_id, __shfl_xor_sync(0xffffffffu, warp_last_id, 16));
+  warp_last_id = max(warp_last_id, __shfl_xor_sync(0xffffffffu, warp_last_id, 8));
+  warp_last_id = max(warp_last_id, __shfl_xor_sync(0xffffffffu, warp_last_id, 4));
+  warp_last_id = max(warp_last_id, __shfl_xor_sync(0xffffffffu, warp_last_id, 2));
+  warp_last_id = max(warp_last_id, __shfl_xor_sync(0xffffffffu, warp_last_id, 1));
+
+  __shared__ int s_block_last_id;
+  if (tid < 8) {
+    reinterpret_cast<int*>(shared)[tid] = -1;
+  }
+  __syncthreads();
+  if ((tid & 31) == 0) {
+    reinterpret_cast<int*>(shared)[tid >> 5] = warp_last_id;
+  }
+  __syncthreads();
+  if (tid == 0) {
+    int max_id = -1;
+#pragma unroll
+    for (int w = 0; w < 8; ++w) {
+      max_id = max(max_id, reinterpret_cast<int*>(shared)[w]);
+    }
+    s_block_last_id = max_id;
+  }
+  __syncthreads();
+
   float trailing_cotangent = 0.0f;
   float render_gradient[Channels] = {};
   float output_alpha_gradient = 0.0f;
@@ -231,6 +263,9 @@ __global__ void compositor_backward_kernel(
   for (int batch = 0; batch < batches; ++batch) {
     const int batch_end = rendered_end - 1 - batch * kTilePixels;
     const int batch_size = min(kTilePixels, batch_end + 1 - start);
+    if (batch_end - (batch_size - 1) > s_block_last_id) {
+      continue;
+    }
     const int position = batch_end - tid;
     if (position >= start) {
       const int raw_id = ids[position];
@@ -249,7 +284,8 @@ __global__ void compositor_backward_kernel(
     }
     __syncthreads();
 
-    for (int t = 0; t < batch_size; ++t) {
+    const int t_start = max(0, batch_end - warp_last_id);
+    for (int t = t_start; t < batch_size; ++t) {
       const int current_position = batch_end - t;
       const int gaussian_id = batch_ids[t];
       bool valid =
@@ -351,7 +387,7 @@ ffi::Error launch_forward(
     bool* tile_overflow) {
   const size_t shared_bytes =
       kTilePixels * (sizeof(int32_t) + sizeof(float2) + sizeof(float3) +
-                     sizeof(float));
+                     sizeof(float) + sizeof(float) * Channels);
   compositor_forward_kernel<Channels><<<tile_count, kTilePixels, shared_bytes,
                                         stream>>>(
       gaussian_count, input_capacity, image_width, image_height, tile_width,
