@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """Single-process, multi-device host orchestration for sharded training."""
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ import gc
 from pathlib import Path
 import sys
 import time
+from typing import Any
 
 from flax import nnx
 import jax
@@ -41,7 +44,6 @@ from ._memory import (
     _training_config_with_candidate_bound,
     _training_config_with_intersection_capacity,
     _training_intersection_limit,
-    _training_overflow_status,
 )
 from ._scene import (
     SceneTransform,
@@ -65,6 +67,8 @@ from .appearance import (
 from .pose import CameraOptModule
 
 
+if __package__ is None:
+    raise RuntimeError("training package context is unavailable")
 _training = sys.modules[__package__]
 _RANK_AXIS = "rank"
 
@@ -331,25 +335,70 @@ def _runtime_training_config(
     return runtime
 
 
-def _mapped_overflow(metrics: dict[str, jax.Array]):
-    values = jax.device_get(
-        (
-            metrics["overflow_tiles"],
-            metrics["intersection_overflow"],
-            metrics["intersection_required_count"],
-            metrics["busiest_tile_candidates"],
-        )
+def _mapped_scalars(
+    metrics: dict[str, jax.Array], names: Sequence[str]
+) -> dict[str, Any]:
+    values = jax.device_get(tuple(metrics[name] for name in names))
+    return {
+        name: np.asarray(value).reshape(-1)[0].item()
+        for name, value in zip(names, values, strict=True)
+    }
+
+
+def _mapped_step_status(
+    metrics: dict[str, jax.Array],
+) -> dict[str, Any]:
+    """Transfer normal-path host control scalars in one synchronization."""
+
+    names = (
+        "distributed_state_mismatch",
+        "max_overflow_tiles",
+        "intersection_overflow_seen",
+        "busiest_tile_candidates",
+        "refine_capacity_overflow",
+        "refine_commit_overflow",
     )
-    overflow_tiles, intersection, required, busiest = map(np.asarray, values)
-    if np.any(intersection):
-        return "intersection", int(np.max(required))
-    if np.max(overflow_tiles) > 0:
-        return "candidates", int(np.max(busiest))
-    return None
+    values = np.asarray(
+        jax.device_get(metrics["distributed_host_control"])
+    ).reshape(-1, len(names))[0]
+    return {
+        name: value.item()
+        for name, value in zip(names, values, strict=True)
+    }
+
+
+def _mapped_raster_overflow(
+    metrics: dict[str, jax.Array],
+) -> dict[str, Any]:
+    return _mapped_scalars(
+        metrics,
+        (
+            "overflow_tiles",
+            "intersection_overflow",
+            "intersection_required_count",
+            "busiest_tile_candidates",
+        ),
+    )
+
+
+def _mapped_capacity_overflow(
+    metrics: dict[str, jax.Array], status: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "refine_capacity_overflow": status["refine_capacity_overflow"],
+        "refine_commit_overflow": status["refine_commit_overflow"],
+        **_mapped_scalars(
+            metrics,
+            (
+                "refine_required_capacity",
+                "refine_commit_required_capacity",
+            ),
+        ),
+    }
 
 
 def _distributed_metric_summary(
-    metrics: dict[str, jax.Array], model: GaussianModel
+    metrics: dict[str, jax.Array],
 ) -> dict[str, float]:
     """Reduce rank-local quality and owner-local counts for host reporting."""
 
@@ -365,18 +414,19 @@ def _distributed_metric_summary(
         "psnr",
     }
     count_metrics = {"active_count", "visible_count"}
-    result: dict[str, float] = {}
-    for name, value in metrics.items():
-        array = np.asarray(jax.device_get(value))
-        if name in mean_metrics:
-            result[name] = float(np.mean(array))
-        elif name in count_metrics:
-            result[name] = float(np.sum(array))
-        else:
-            result[name] = float(np.ravel(array)[0])
-    result["active_count"] = float(
-        np.count_nonzero(np.asarray(jax.device_get(model.active_mask[...])))
+    names = tuple(
+        name for name in metrics if name != "distributed_host_control"
     )
+    values = jax.device_get(tuple(metrics[name] for name in names))
+    result: dict[str, float] = {}
+    for name, value in zip(names, values, strict=True):
+        array = np.asarray(value)
+        if name in mean_metrics:
+            result[name] = np.mean(array).item()
+        elif name in count_metrics:
+            result[name] = np.sum(array).item()
+        else:
+            result[name] = np.ravel(array)[0].item()
     return result
 
 
@@ -410,7 +460,7 @@ def train_distributed(
     if resume_from is not None:
         _training._validate_camera_module_resume_config(config, resume_from)
         resume_manifest = load_distributed_checkpoint_manifest(resume_from)
-        if int(resume_manifest["world_size"]) != world_size:
+        if np.asarray(resume_manifest["world_size"]).item() != world_size:
             raise ValueError(
                 "distributed train resume requires the checkpoint world size "
                 f"{resume_manifest['world_size']}; got {world_size} local devices"
@@ -431,7 +481,8 @@ def train_distributed(
     if uses_camera_modules:
         camera_indices = scene.indices("train", config.data.test_every)
         camera_image_names = tuple(
-            scene.images[int(index)].name for index in camera_indices
+            scene.images[np.asarray(index).item()].name
+            for index in camera_indices
         )
         camera_count = len(camera_image_names)
         if camera_count == 0:
@@ -484,7 +535,11 @@ def train_distributed(
         )
         start_step = 0
     else:
-        local_capacity = int(resume_manifest["local_capacity"])
+        if resume_from is None:
+            raise RuntimeError("distributed resume path is unavailable")
+        local_capacity = np.asarray(
+            resume_manifest["local_capacity"]
+        ).item()
         model, optimizer, strategy_state, safety_state = (
             _empty_distributed_training_state(
                 config,
@@ -577,7 +632,7 @@ def train_distributed(
     print(
         f"distributed_world={world_size} local_capacity={local_capacity} "
         f"global_capacity={global_capacity} "
-        f"active={int(np.count_nonzero(np.asarray(model.active_mask[...])))} "
+        f"active={np.count_nonzero(np.asarray(model.active_mask[...]))} "
         f"intersection_capacity={intersection_capacity}/{intersection_limit}",
         flush=True,
     )
@@ -649,7 +704,9 @@ def train_distributed(
     start_time = time.monotonic()
 
     evaluation_example = None
-    mapped_render_step = None
+    mapped_render_step: Any = None
+    eval_height = None
+    eval_width = None
     if config.eval_every > 0:
         evaluation_source = _training.create_grain_dataset(
             scene,
@@ -680,7 +737,7 @@ def train_distributed(
             axis_name=_RANK_AXIS,
             devices=devices,
         )
-        def mapped_render_step(
+        def configured_render_step(
             current_model,
             current_appearance,
             viewmat,
@@ -694,6 +751,8 @@ def train_distributed(
                 sh_degree,
                 appearance_module=current_appearance,
             )
+
+        mapped_render_step = configured_render_step
 
     def reset_safety_state() -> None:
         safety_state.max_overflow_tiles[...] = jnp.zeros_like(
@@ -710,31 +769,41 @@ def train_distributed(
         nonlocal runtime_config
 
         while True:
-            if bool(
-                np.any(
-                    np.asarray(
-                        jax.device_get(
-                            metrics["distributed_state_mismatch"]
-                        )
-                    )
-                )
-            ):
+            status = _mapped_step_status(metrics)
+            if bool(status["distributed_state_mismatch"]):
                 raise RuntimeError(
                     "distributed optimizer state or SH degree differs across "
                     "ranks"
                 )
-            overflow_tiles, intersection_seen = _training_overflow_status(
-                safety_state
+            overflow_tiles = status["max_overflow_tiles"]
+            intersection_seen = bool(status["intersection_overflow_seen"])
+            tuned_bound = (
+                _candidate_bound_for_occupancy(
+                    status["busiest_tile_candidates"],
+                    config.rasterizer.max_gaussians_per_tile,
+                )
+                if candidate_bound is None
+                else None
             )
             if overflow_tiles == 0 and not intersection_seen:
-                return metrics
-            overflow = _mapped_overflow(metrics)
-            if overflow is None:
+                return metrics, status, tuned_bound
+
+            overflow = _mapped_raster_overflow(metrics)
+            candidate_overflow = overflow["overflow_tiles"] > 0
+            intersection_overflow = bool(overflow["intersection_overflow"])
+            if (
+                (overflow_tiles > 0 and not candidate_overflow)
+                or (intersection_seen and not intersection_overflow)
+            ):
                 _raise_training_overflow(
                     np.asarray(overflow_tiles), np.asarray(intersection_seen)
                 )
-            kind, required = overflow
-            if kind == "intersection":
+
+            next_intersection_capacity = intersection_capacity
+            next_candidate_bound = candidate_bound
+            growth_kinds = []
+            if intersection_overflow:
+                required = overflow["intersection_required_count"]
                 next_intersection_capacity = _intersection_bucket_capacity(
                     required,
                     minimum=config.intersection_bucket_min_capacity,
@@ -752,8 +821,9 @@ def train_distributed(
                     f"required={required}",
                     flush=True,
                 )
-                intersection_capacity = next_intersection_capacity
-            else:
+                growth_kinds.append("intersection")
+            if candidate_overflow:
+                required = overflow["busiest_tile_candidates"]
                 next_candidate_bound = _candidate_bound_for_occupancy(
                     required, config.rasterizer.max_gaussians_per_tile
                 )
@@ -762,26 +832,41 @@ def train_distributed(
                     and next_candidate_bound <= candidate_bound
                 ):
                     _raise_training_overflow(
-                        np.asarray(overflow_tiles), np.asarray(intersection_seen)
+                        np.asarray(overflow_tiles),
+                        np.asarray(intersection_seen),
                     )
                 print(
                     f"distributed_candidate_bound_growth={candidate_bound}"
                     f"->{next_candidate_bound} required={required}",
                     flush=True,
                 )
-                candidate_bound = next_candidate_bound
-            runtime_config = _runtime_training_config(
-                config, intersection_capacity, candidate_bound
+                growth_kinds.append("candidates")
+            elif next_candidate_bound is None:
+                if tuned_bound is None:
+                    raise RuntimeError("candidate tuning did not produce a bound")
+                next_candidate_bound = tuned_bound
+                print(
+                    f"distributed_candidate_bound_tuned={tuned_bound}",
+                    flush=True,
+                )
+
+            next_runtime_config = _runtime_training_config(
+                config,
+                next_intersection_capacity,
+                next_candidate_bound,
             )
             _training._check_memory_budget(
-                runtime_config,
+                next_runtime_config,
                 physical_capacity=local_capacity,
                 render_capacity=world_size * local_capacity,
                 devices=devices,
-                label=f"distributed_{kind}_growth",
+                label=f"distributed_{'_'.join(growth_kinds)}_growth",
                 image_height=training_height,
                 image_width=training_width,
             )
+            intersection_capacity = next_intersection_capacity
+            candidate_bound = next_candidate_bound
+            runtime_config = next_runtime_config
             mapped_train_step = make_mapped_train_step(runtime_config)
             reset_safety_state()
             metrics = replay()
@@ -849,21 +934,12 @@ def train_distributed(
 
         with jax.profiler.StepTraceAnnotation("train", step_num=step):
             metrics = run_step()
-        metrics = resolve_raster_overflow(metrics, run_step)
+        metrics, status, tuned_candidate_bound = resolve_raster_overflow(
+            metrics, run_step
+        )
 
-        if candidate_bound is None:
-            candidate_bound = _candidate_bound_for_occupancy(
-                int(
-                    np.max(
-                        np.asarray(
-                            jax.device_get(
-                                metrics["busiest_tile_candidates"]
-                            )
-                        )
-                    )
-                ),
-                config.rasterizer.max_gaussians_per_tile,
-            )
+        if tuned_candidate_bound is not None:
+            candidate_bound = tuned_candidate_bound
             runtime_config = _runtime_training_config(
                 config, intersection_capacity, candidate_bound
             )
@@ -873,20 +949,25 @@ def train_distributed(
                 flush=True,
             )
 
-        model, optimizer, strategy_state, capacity_decision = (
-            synchronize_distributed_capacity(
-                runtime_config,
-                model,
-                optimizer,
-                strategy_state,
-                metrics,
-                image_height=training_height,
-                image_width=training_width,
-                devices=devices,
-                resize_step=mapped_resize_step,
+        capacity_decision = None
+        if bool(status["refine_capacity_overflow"]) or bool(
+            status["refine_commit_overflow"]
+        ):
+            capacity_overflow = _mapped_capacity_overflow(metrics, status)
+            model, optimizer, strategy_state, capacity_decision = (
+                synchronize_distributed_capacity(
+                    runtime_config,
+                    model,
+                    optimizer,
+                    strategy_state,
+                    capacity_overflow,
+                    image_height=training_height,
+                    image_width=training_width,
+                    devices=devices,
+                    resize_step=mapped_resize_step,
+                )
             )
-        )
-        if capacity_decision.grew:
+        if capacity_decision is not None and capacity_decision.grew:
             local_capacity = capacity_decision.new_capacity
             global_capacity = world_size * local_capacity
             intersection_limit = _training_intersection_limit(
@@ -902,22 +983,34 @@ def train_distributed(
                 f"replay={capacity_decision.replay_required}",
                 flush=True,
             )
-        if capacity_decision.replay_required:
-            metrics = resolve_raster_overflow(run_step(), run_step)
-            model, optimizer, strategy_state, replay_decision = (
-                synchronize_distributed_capacity(
-                    runtime_config,
-                    model,
-                    optimizer,
-                    strategy_state,
-                    metrics,
-                    image_height=training_height,
-                    image_width=training_width,
-                    devices=devices,
-                    resize_step=mapped_resize_step,
-                )
+        if capacity_decision is not None and capacity_decision.replay_required:
+            metrics, status, replay_tuned_bound = resolve_raster_overflow(
+                run_step(), run_step
             )
-            if replay_decision.grew:
+            if replay_tuned_bound is not None:
+                raise RuntimeError(
+                    "candidate tuning unexpectedly repeated during capacity "
+                    "replay"
+                )
+            replay_decision = None
+            if bool(status["refine_capacity_overflow"]) or bool(
+                status["refine_commit_overflow"]
+            ):
+                capacity_overflow = _mapped_capacity_overflow(metrics, status)
+                model, optimizer, strategy_state, replay_decision = (
+                    synchronize_distributed_capacity(
+                        runtime_config,
+                        model,
+                        optimizer,
+                        strategy_state,
+                        capacity_overflow,
+                        image_height=training_height,
+                        image_width=training_width,
+                        devices=devices,
+                        resize_step=mapped_resize_step,
+                    )
+                )
+            if replay_decision is not None and replay_decision.grew:
                 local_capacity = replay_decision.new_capacity
                 global_capacity = world_size * local_capacity
                 intersection_limit = _training_intersection_limit(
@@ -926,7 +1019,7 @@ def train_distributed(
                     image_height=training_height,
                     image_width=training_width,
                 )
-            if replay_decision.replay_required:
+            if replay_decision is not None and replay_decision.replay_required:
                 raise RuntimeError(
                     "distributed refinement still overflows after bucket growth"
                 )
@@ -943,19 +1036,19 @@ def train_distributed(
             and step % config.eval_every == 0
         )
         if do_log:
-            last_metrics = _distributed_metric_summary(metrics, model)
+            last_metrics = _distributed_metric_summary(metrics)
             elapsed = time.monotonic() - start_time
             print(
                 f"step={step:06d} loss={last_metrics['loss']:.6f} "
                 f"psnr={last_metrics['psnr']:.2f} "
-                f"active={int(last_metrics['active_count'])} "
+                f"active={last_metrics['active_count']:.0f} "
                 f"local_storage={local_capacity}/{model.max_capacity} "
                 f"world={world_size} "
-                f"overflow_tiles={int(last_metrics['overflow_tiles'])} "
-                f"busiest_tile={int(last_metrics['busiest_tile_candidates'])}"
+                f"overflow_tiles={last_metrics['overflow_tiles']:.0f} "
+                f"busiest_tile={last_metrics['busiest_tile_candidates']:.0f}"
                 f"/{candidate_bound} "
                 f"intersections="
-                f"{int(last_metrics['intersection_required_count'])}/"
+                f"{last_metrics['intersection_required_count']:.0f}/"
                 f"{intersection_capacity} elapsed={elapsed:.1f}s",
                 flush=True,
             )
@@ -989,6 +1082,13 @@ def train_distributed(
             last_checkpoint_step = step
 
         if do_evaluate:
+            if (
+                evaluation_example is None
+                or mapped_render_step is None
+                or eval_width is None
+                or eval_height is None
+            ):
+                raise RuntimeError("distributed evaluation was not initialized")
             _check_evaluation_memory_budget(
                 config,
                 physical_capacity=world_size * local_capacity,
@@ -1008,8 +1108,8 @@ def train_distributed(
             _save_render(
                 output_dir / "renders" / f"step_{step:08d}.png", image
             )
-            overflow_count = int(
-                np.count_nonzero(np.asarray(jax.device_get(overflow)))
+            overflow_count = np.count_nonzero(
+                np.asarray(jax.device_get(overflow))
             )
             if overflow_count:
                 print(

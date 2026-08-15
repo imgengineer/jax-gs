@@ -60,7 +60,9 @@ from jax_gs.training import (
     synchronize_distributed_capacity,
 )
 from jax_gs.training._distributed_loop import (
+    _distributed_metric_summary,
     _initialize_distributed_training_state,
+    _mapped_step_status,
 )
 from jax_gs.training.pose import CameraOptModule
 
@@ -799,6 +801,51 @@ def test_distributed_train_step_packs_state_consistency_collective():
         _run_two_rank_update(nnx.vmap)
 
     assert state_gathers == [(2,)]
+
+
+def test_distributed_host_control_batches_device_transfers():
+    status_metrics = {
+        "distributed_host_control": jnp.asarray(
+            [[1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6]], jnp.int32
+        )
+    }
+    log_metrics = {
+        "distributed_host_control": status_metrics[
+            "distributed_host_control"
+        ],
+        "loss": jnp.asarray([1.0, 3.0]),
+        "active_count": jnp.asarray([2, 3]),
+        "visible_count": jnp.asarray([1, 4]),
+        "overflow_tiles": jnp.asarray([0, 0]),
+    }
+    transfers = []
+    device_get = jax.device_get
+
+    def tracked_device_get(value):
+        transfers.append(value)
+        return device_get(value)
+
+    with mock.patch.object(
+        jax, "device_get", side_effect=tracked_device_get
+    ):
+        status = _mapped_step_status(status_metrics)
+        summary = _distributed_metric_summary(log_metrics)
+
+    assert len(transfers) == 2
+    assert status == {
+        "distributed_state_mismatch": 1,
+        "max_overflow_tiles": 2,
+        "intersection_overflow_seen": 3,
+        "busiest_tile_candidates": 4,
+        "refine_capacity_overflow": 5,
+        "refine_commit_overflow": 6,
+    }
+    assert summary == {
+        "loss": 2.0,
+        "active_count": 5.0,
+        "visible_count": 5.0,
+        "overflow_tiles": 0.0,
+    }
 
 
 def _run_two_rank_screen_stats(map_transform):
@@ -1624,6 +1671,18 @@ def _run_local_device_raster_overflow_replay():
         "K": np.tile(K, (2, 1, 1)),
         "w2c": np.tile(np.eye(4, dtype=np.float32), (2, 1, 1)),
     }
+    train_step_configs = []
+    make_train_step = training_module.make_distributed_train_step
+
+    def tracked_make_train_step(current_config, *args, **kwargs):
+        train_step_configs.append(
+            (
+                current_config.rasterizer.max_intersections,
+                current_config.rasterizer.max_candidates_per_tile,
+            )
+        )
+        return make_train_step(current_config, *args, **kwargs)
+
     with tempfile.TemporaryDirectory() as directory:
         config = TrainConfig(
             normalize_world_space=False,
@@ -1665,6 +1724,11 @@ def _run_local_device_raster_overflow_replay():
                 "rasterization",
                 _host_loop_overflow_rasterization,
             ),
+            mock.patch.object(
+                training_module,
+                "make_distributed_train_step",
+                side_effect=tracked_make_train_step,
+            ),
         ):
             result = training_module.train(config, distributed=True)
             assert result.checkpoint is not None
@@ -1673,6 +1737,9 @@ def _run_local_device_raster_overflow_replay():
         assert manifest["intersection_capacity"] == 16
         assert manifest["candidate_bound"] == 8
         assert manifest["active_counts"] == [3, 2]
+        assert (8, 4) in train_step_configs
+        assert (16, 4) not in train_step_configs
+        assert (16, 8) in train_step_configs
 
 
 def _run_local_device_distributed_pose_host_loop():

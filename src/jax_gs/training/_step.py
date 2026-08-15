@@ -1598,6 +1598,7 @@ def _make_train_step(
         intersection_required_count = jnp.max(
             info["intersection_required_count"]
         )
+        host_control_metrics = {}
         if distributed:
             assert distributed_axis_name is not None
             candidate_limit_exceeded_tiles = jax.lax.psum(
@@ -1614,6 +1615,19 @@ def _make_train_step(
             intersection_required_count = jax.lax.pmax(
                 intersection_required_count, distributed_axis_name
             )
+            host_control_metrics = {
+                "distributed_host_control": jnp.stack(
+                    (
+                        distributed_state_mismatch,
+                        max_overflow_tiles,
+                        intersection_overflow_seen,
+                        busiest_tile_candidates,
+                        plan_metrics["refine_capacity_overflow"],
+                        plan_metrics["refine_commit_overflow"],
+                    ),
+                    dtype=jnp.int32,
+                )
+            }
 
         return {
             "loss": loss,
@@ -1637,6 +1651,7 @@ def _make_train_step(
             "intersection_required_count": intersection_required_count,
             "distributed_state_mismatch": distributed_state_mismatch,
             **plan_metrics,
+            **host_control_metrics,
         }
 
     return train_step
