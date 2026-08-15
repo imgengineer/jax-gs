@@ -221,6 +221,74 @@ def _all_gather_feature_shards(
     return _all_gather_axis(value, gaussian_axis, axis_name)
 
 
+def _shared_sh_coefficients(
+    value: jax.Array | tuple[jax.Array, jax.Array] | None,
+) -> jax.Array | None:
+    if isinstance(value, tuple):
+        return jnp.concatenate(value, axis=1)
+    if value is None or value.ndim != 3:
+        return None
+    return value
+
+
+def _evaluate_distributed_sh(
+    means: jax.Array,
+    coefficients: jax.Array,
+    camera_centers: jax.Array,
+    active_mask: jax.Array,
+    sh_degree: Any,
+    *,
+    clamp_min: bool,
+) -> jax.Array:
+    from .spherical_harmonics import spherical_harmonics
+
+    directions = means[None, :, :] - camera_centers[:, None, :]
+    masks = active_mask[None, :] & jnp.all(jnp.isfinite(directions), axis=-1)
+
+    def evaluate(camera_inputs):
+        direction, mask = camera_inputs
+        values = spherical_harmonics(
+            sh_degree, direction, coefficients, masks=mask
+        ) + 0.5
+        return jnp.maximum(values, 0.0) if clamp_min else values
+
+    if camera_centers.shape[0] == 1:
+        return evaluate((directions[0], masks[0]))[None, ...]
+    return jax.lax.map(evaluate, (directions, masks))
+
+
+def _exchange_camera_features(
+    features: jax.Array,
+    *,
+    world_size: int,
+    local_camera_count: int,
+    local_capacity: int,
+    axis_name: Hashable,
+) -> jax.Array:
+    features = jnp.asarray(features)
+    expected_prefix = (world_size * local_camera_count, local_capacity)
+    if features.ndim != 3 or features.shape[:2] != expected_prefix:
+        raise ValueError(
+            "distributed camera features must have shape "
+            f"{expected_prefix + (features.shape[-1],)}"
+        )
+    channels = features.shape[-1]
+    exchanged = jax.lax.all_to_all(
+        features.reshape((-1, channels)),
+        axis_name,
+        split_axis=0,
+        concat_axis=0,
+        tiled=True,
+    )
+    return (
+        exchanged.reshape(
+            world_size, local_camera_count, local_capacity, channels
+        )
+        .transpose(1, 0, 2, 3)
+        .reshape(local_camera_count, world_size * local_capacity, channels)
+    )
+
+
 def rasterization(
     means: jax.Array,
     quats: jax.Array,
@@ -239,15 +307,18 @@ def rasterization(
 ):
     """Static-capacity distributed wrapper around :mod:`jax_gs.rasterization`.
 
-    The single-rank path is a zero-collective delegation. For multiple ranks,
-    equally sized Gaussian shards are gathered on the named mapped axis before
-    rendering the local camera batch. This compatibility path replicates the
-    global Gaussian storage on every rank; for million-slot models prefer a
-    fixed-slot all-to-all projection pipeline to avoid the ``world_size`` memory
-    multiplier.
+    The single-rank path is a zero-collective delegation. Multi-rank rendering
+    keeps shape-sensitive projection geometry global, but shared SH coefficients
+    are evaluated on their owner and exchanged as per-camera features when that
+    sends fewer values. Other layouts retain the full-gather compatibility path.
     """
 
-    from .rasterization import rasterization as local_rasterization
+    from .rasterization import (
+        _camera_centers,
+        _normalize_color_input,
+        rasterization as local_rasterization,
+    )
+    from .rendering_types import render_mode_has_color
 
     world_size = _static_world_size(world_size)
     kwargs.pop("distributed", None)
@@ -269,6 +340,7 @@ def rasterization(
         info = dict(info)
         info["distributed_requested"] = jnp.asarray(True)
         info["distributed_world_size"] = jnp.asarray(1, dtype=jnp.int32)
+        info["distributed_feature_exchange"] = jnp.asarray(False)
         return renders, alphas, info
 
     axis_name = _check_collective_axis(world_size, axis_name)
@@ -286,20 +358,96 @@ def rasterization(
         )
     local_capacity = means.shape[0]
     camera_count = viewmats.shape[0]
-    if active_mask is None:
-        active_mask = jnp.ones((local_capacity,), dtype=jnp.bool_)
-    active_mask = jnp.asarray(active_mask, dtype=jnp.bool_)
-    if active_mask.shape != (local_capacity,):
+    local_active_mask = (
+        jnp.ones((local_capacity,), dtype=jnp.bool_)
+        if active_mask is None
+        else jnp.asarray(active_mask, dtype=jnp.bool_)
+    )
+    if local_active_mask.shape != (local_capacity,):
         raise ValueError("active_mask must have shape [local_capacity]")
 
+    sh_degree = kwargs.get("sh_degree")
+    colors = _normalize_color_input(
+        colors,
+        gaussian_count=local_capacity,
+        camera_count=camera_count,
+        sh_degree=sh_degree,
+    )
+    extra_sh_degree = kwargs.get("extra_signals_sh_degree")
+    extra_signals = _normalize_color_input(
+        kwargs.get("extra_signals"),
+        gaussian_count=local_capacity,
+        camera_count=camera_count,
+        sh_degree=extra_sh_degree,
+    )
+    if isinstance(extra_signals, tuple):
+        raise TypeError("extra_signals must be a single array")
+    color_coefficients = _shared_sh_coefficients(colors)
+    extra_coefficients = _shared_sh_coefficients(extra_signals)
+    exchange_colors = bool(
+        render_mode_has_color(kwargs.get("render_mode", "RGB"))
+        and sh_degree is not None
+        and color_coefficients is not None
+        and color_coefficients.shape[-2] > camera_count
+    )
+    exchange_extra = bool(
+        extra_sh_degree is not None
+        and extra_coefficients is not None
+        and extra_coefficients.shape[-2] > camera_count
+    )
+    exchanged_colors = None
+    exchanged_extra = None
+    if exchange_colors or exchange_extra:
+        global_camera_centers = _all_gather_axis(
+            _camera_centers(viewmats), 0, axis_name
+        )
+        if exchange_colors:
+            assert color_coefficients is not None
+            evaluated_colors = _evaluate_distributed_sh(
+                means,
+                color_coefficients,
+                global_camera_centers,
+                local_active_mask,
+                sh_degree,
+                clamp_min=True,
+            )
+            exchanged_colors = _exchange_camera_features(
+                evaluated_colors,
+                world_size=world_size,
+                local_camera_count=camera_count,
+                local_capacity=local_capacity,
+                axis_name=axis_name,
+            )
+        if exchange_extra:
+            assert extra_coefficients is not None
+            evaluated_extra = _evaluate_distributed_sh(
+                means,
+                extra_coefficients,
+                global_camera_centers,
+                local_active_mask,
+                extra_sh_degree,
+                clamp_min=False,
+            )
+            exchanged_extra = _exchange_camera_features(
+                evaluated_extra,
+                world_size=world_size,
+                local_camera_count=camera_count,
+                local_capacity=local_capacity,
+                axis_name=axis_name,
+            )
+
+    # ponytail: geometry stays gathered until projection becomes shape-invariant;
+    # owner-evaluated SH removes the dominant degree-3 payload without topology drift.
     means = _all_gather_axis(means, 0, axis_name)
     quats = _all_gather_axis(jnp.asarray(quats), 0, axis_name)
     scales = _all_gather_axis(jnp.asarray(scales), 0, axis_name)
     opacities = _all_gather_axis(jnp.asarray(opacities), 0, axis_name)
-    active_mask = _all_gather_axis(active_mask, 0, axis_name)
+    active_mask = _all_gather_axis(local_active_mask, 0, axis_name)
 
-    sh_degree = kwargs.get("sh_degree")
-    if colors is not None:
+    if exchanged_colors is not None:
+        colors = exchanged_colors
+        kwargs["sh_degree"] = None
+    elif colors is not None:
         colors = _all_gather_feature_shards(
             colors,
             name="colors",
@@ -312,13 +460,16 @@ def rasterization(
         kwargs["covars"] = _all_gather_axis(
             jnp.asarray(kwargs["covars"]), 0, axis_name
         )
-    if kwargs.get("extra_signals") is not None:
+    if exchanged_extra is not None:
+        kwargs["extra_signals"] = exchanged_extra
+        kwargs["extra_signals_sh_degree"] = None
+    elif extra_signals is not None:
         kwargs["extra_signals"] = _all_gather_feature_shards(
-            kwargs["extra_signals"],
+            extra_signals,
             name="extra_signals",
             local_capacity=local_capacity,
             camera_count=camera_count,
-            sh_degree=kwargs.get("extra_signals_sh_degree"),
+            sh_degree=extra_sh_degree,
             axis_name=axis_name,
         )
     if kwargs.get("_means2d_offset") is not None:
@@ -356,6 +507,9 @@ def rasterization(
     info["distributed_world_size"] = jnp.asarray(world_size, dtype=jnp.int32)
     info["distributed_requested"] = jnp.asarray(True)
     info["distributed_active_mask"] = active_mask
+    info["distributed_feature_exchange"] = jnp.asarray(
+        exchange_colors or exchange_extra
+    )
     return renders, alphas, info
 
 

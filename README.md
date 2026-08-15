@@ -279,8 +279,8 @@ uv run jax-gs estimate-memory \
          ├─── Rank 0: Camera Batch 0 ───┐
          └─── Rank 1: Camera Batch 1 ───┤
                                         ▼
-             [Rank 0: Shard 0 (N/2)] ───► [All-Gather] ───► [Global Scene (N)]
-             [Rank 1: Shard 1 (N/2)] ───► [All-Gather] ───► [Global Scene (N)]
+             [Geometry Shards] ───────────► [All-Gather] ───► [Global Geometry]
+             [Eligible Shared SH] ─► [Owner SH Evaluation] ─► [All-to-All Features]
                                                                   │
                                             ┌─────────────────────┴─────────────────────┐
                                             ▼                                           ▼
@@ -298,7 +298,8 @@ uv run jax-gs estimate-memory \
                                 [Update Shard 0 Parameters]                 [Update Shard 1 Parameters]
 ```
 
-- **显存线性扩展**：高斯存储分片化，单卡显存占用随 GPU 数量翻倍而减半。
+- **分片存储与优化交换**：高斯模型与优化器状态保持分片；当共享 SH 的基函数数量大于本地相机数时，所属 Rank 按目标相机求值并以固定槽位 `all_to_all` 交换直接特征，否则保留全量聚合兼容路径。Degree-3、每 Rank 单相机时，SH 通信载荷由每高斯 48 个 float 降至 3 个 float；投影几何仍会全量聚合。
+- **严格投影拓扑**：均值、四元数、尺度与不透明度仍以 Rank-major 顺序聚合，避免分片形状改变 JAX conic 舍入与 AccuTile 成员关系。待投影算术具备形状无关性后，再替换为完整的可见投影 primitive 交换。
 - **独立优化与同步控制**：各卡独立执行局部 Densification / Pruning，溢出状态通过全局规约原子化同步，保障多卡模型结构绝对一致。
 
 ---
