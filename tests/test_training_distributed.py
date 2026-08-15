@@ -783,6 +783,24 @@ def test_distributed_train_step_reuses_renderer_active_mask():
     assert bool_gathers == [(1,)]
 
 
+def test_distributed_train_step_packs_state_consistency_collective():
+    state_gathers = []
+    all_gather = jax.lax.all_gather
+
+    def tracked_all_gather(value, *args, **kwargs):
+        array = jnp.asarray(value)
+        if array.dtype == jnp.uint32 and array.shape == (2,):
+            state_gathers.append(array.shape)
+        return all_gather(value, *args, **kwargs)
+
+    with mock.patch.object(
+        jax.lax, "all_gather", side_effect=tracked_all_gather
+    ):
+        _run_two_rank_update(nnx.vmap)
+
+    assert state_gathers == [(2,)]
+
+
 def _run_two_rank_screen_stats(map_transform):
     with mock.patch.object(
         training_module, "rasterization", _screen_stats_rasterization

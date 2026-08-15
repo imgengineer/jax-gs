@@ -811,6 +811,8 @@ def _make_train_step(
         appearance_optimizer: nnx.Optimizer | None = None,
     ) -> dict[str, jax.Array]:
         distributed_state_mismatch = jnp.asarray(False)
+        optimizer_step = optimizer.step[...]
+        state_values: tuple[jax.Array, ...] = ()
         if distributed:
             optimizer_batch_size = getattr(
                 optimizer, "_jax_gs_batch_size", None
@@ -845,25 +847,7 @@ def _make_train_step(
                     "distributed rank-local image batch must match "
                     f"config.data.batch_size={config.data.batch_size}"
                 )
-            assert distributed_axis_name is not None
-            optimizer_step = optimizer.step[...]
-            minimum_step = jax.lax.pmin(
-                optimizer_step, distributed_axis_name
-            )
-            maximum_step = jax.lax.pmax(
-                optimizer_step, distributed_axis_name
-            )
-            minimum_sh_degree = jax.lax.pmin(
-                sh_degree, distributed_axis_name
-            )
-            maximum_sh_degree = jax.lax.pmax(
-                sh_degree, distributed_axis_name
-            )
-            distributed_state_mismatch = (
-                (minimum_step != maximum_step)
-                | (minimum_sh_degree != maximum_sh_degree)
-            )
-        optimizer_step = optimizer.step[...]
+            state_values = (optimizer_step, sh_degree)
         uses_camera_modules = (
             config.pose_opt or config.pose_noise > 0.0 or config.app_opt
         )
@@ -909,15 +893,9 @@ def _make_train_step(
                     "regularization"
                 )
             pose_optimizer_step = pose_optimizer.step[...]
-            minimum_pose_step = jax.lax.pmin(
-                pose_optimizer_step, distributed_axis_name
-            )
-            maximum_pose_step = jax.lax.pmax(
-                pose_optimizer_step, distributed_axis_name
-            )
+            state_values += (pose_optimizer_step,)
             distributed_state_mismatch = (
                 distributed_state_mismatch
-                | (minimum_pose_step != maximum_pose_step)
                 | (pose_optimizer_step != optimizer_step)
             )
         if distributed and config.app_opt:
@@ -943,16 +921,25 @@ def _make_train_step(
                     "regularization"
                 )
             appearance_optimizer_step = appearance_optimizer.step[...]
-            minimum_appearance_step = jax.lax.pmin(
-                appearance_optimizer_step, distributed_axis_name
+            state_values += (appearance_optimizer_step,)
+            distributed_state_mismatch = (
+                distributed_state_mismatch
+                | (appearance_optimizer_step != optimizer_step)
             )
-            maximum_appearance_step = jax.lax.pmax(
-                appearance_optimizer_step, distributed_axis_name
+        if distributed:
+            assert distributed_axis_name is not None
+            packed_state = jnp.stack(
+                tuple(
+                    jnp.asarray(value, dtype=optimizer_step.dtype)
+                    for value in state_values
+                )
+            )
+            gathered_state = jax.lax.all_gather(
+                packed_state, distributed_axis_name, axis=0
             )
             distributed_state_mismatch = (
                 distributed_state_mismatch
-                | (minimum_appearance_step != maximum_appearance_step)
-                | (appearance_optimizer_step != optimizer_step)
+                | jnp.any(gathered_state != gathered_state[:1])
             )
         patch_key, background_key = jax.random.split(key)
         if strategy_key is None:
