@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 import json
 from pathlib import Path
 
@@ -9,7 +11,11 @@ import optax
 import pytest
 
 import jax_gs.checkpoints as checkpoints_module
-from jax_gs.capacity import compact_training_state, resize_training_state
+from jax_gs.capacity import (
+    _shrink_compacted_training_state,
+    compact_training_state,
+    resize_training_state,
+)
 from jax_gs.checkpoints import (
     load_checkpoint_appearance_image_names,
     load_checkpoint_config,
@@ -302,6 +308,64 @@ def test_resize_training_state_preserves_prefix_and_initializes_tail() -> None:
     assert int(new_optimizer.step[...]) == previous_step + 1
 
 
+def test_shrink_compacted_training_state_preserves_prefix() -> None:
+    model_config = ModelConfig(capacity=16, bucket_min_capacity=4, sh_degree=1)
+    optimizer_config = OptimizerConfig(max_steps=10)
+    model = GaussianModel.empty(model_config, physical_capacity=8)
+    optimizer = create_optimizer(model, optimizer_config)
+    _seed_adam_moments(model, optimizer)
+    strategy_state = StrategyState(8)
+
+    slots = jnp.arange(8, dtype=jnp.float32)
+    model.means[...] = jnp.stack([slots, slots + 1, slots + 2], axis=-1)
+    model.active_mask[...] = jnp.asarray(
+        [False, True, False, True, False, True, False, False]
+    )
+    strategy_state.grad_accum[...] = slots + 10
+    strategy_state.visible_count[...] = slots + 20
+    strategy_state.max_radii[...] = slots + 30
+
+    active_count = compact_training_state(model, optimizer, strategy_state)
+    active_count.block_until_ready()
+    model_before = {
+        name: np.asarray(value).copy()
+        for name, value in model.state_dict().items()
+    }
+    optimizer_before = _snapshot_state(optimizer)
+    strategy_before = _snapshot_state(strategy_state)
+
+    with pytest.raises(ValueError, match="active rows"):
+        _shrink_compacted_training_state(
+            model, optimizer, strategy_state, 4, 5
+        )
+
+    model, optimizer, strategy_state = _shrink_compacted_training_state(
+        model, optimizer, strategy_state, 4, int(active_count)
+    )
+
+    assert model.capacity == 4
+    assert model.max_capacity == 16
+    for name, before in model_before.items():
+        np.testing.assert_array_equal(model.state_dict()[name], before[:4])
+    for before, after in (
+        (optimizer_before, _snapshot_state(optimizer)),
+        (strategy_before, _snapshot_state(strategy_state)),
+    ):
+        for path, before_value in before.items():
+            after_value = after[path]
+            expected = (
+                before_value[:4]
+                if before_value.ndim and before_value.shape[0] == 8
+                else before_value
+            )
+            np.testing.assert_array_equal(after_value, expected)
+
+    previous_step = int(optimizer.step[...])
+    gradients = jax.tree.map(jnp.zeros_like, nnx.state(model, nnx.Param))
+    optimizer.update(model, gradients)
+    assert int(optimizer.step[...]) == previous_step + 1
+
+
 def test_appearance_capacity_resize_and_compaction_keep_rows_and_moments_aligned():
     model_config = ModelConfig(capacity=8, bucket_min_capacity=4)
     optimizer_config = OptimizerConfig(max_steps=10)
@@ -357,6 +421,13 @@ def test_appearance_capacity_resize_and_compaction_keep_rows_and_moments_aligned
             np.testing.assert_array_equal(after[4:], 0.0)
         else:
             np.testing.assert_array_equal(after, before)
+
+    shrunk, _, _ = _shrink_compacted_training_state(
+        grown, grown_optimizer, strategy_state, 4, 2
+    )
+    assert shrunk.has_appearance
+    np.testing.assert_array_equal(shrunk.features, grown.features[:4])
+    np.testing.assert_array_equal(shrunk.colors, grown.colors[:4])
 
 
 def test_checkpoint_records_physical_capacity_separately_from_logical_maximum(

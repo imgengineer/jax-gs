@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """The host training loop, and the render step it evaluates with."""
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 from PIL import Image
 
+from ..capacity import _shrink_compacted_training_state
 from ..config import TrainConfig
 from ..model import GaussianModel
 from ..strategy import (
@@ -63,6 +66,8 @@ from .pose import CameraOptModule
 # monkeypatch.setattr(jax_gs.training, "rasterization", fake). Calls resolve
 # through the package namespace at run time so those seams keep working now
 # that the implementation lives in submodules.
+if __package__ is None:
+    raise RuntimeError("training package context is unavailable")
 _training = sys.modules[__package__]
 
 
@@ -351,7 +356,7 @@ def reduce_distributed_render(
         if other == rank:
             continue
         if not np.allclose(stacked[other], reference, rtol=0.0, atol=atol):
-            worst = float(np.max(np.abs(stacked[other] - reference)))
+            worst = np.max(np.abs(stacked[other] - reference)).item()
             raise ValueError(
                 f"distributed render disagrees between rank {rank} and rank "
                 f"{other} by {worst:.3e}; every rank renders the same camera "
@@ -425,7 +430,8 @@ def train(
     if uses_camera_modules:
         camera_indices = scene.indices("train", config.data.test_every)
         camera_image_names = tuple(
-            scene.images[int(index)].name for index in camera_indices
+            scene.images[np.asarray(index).item()].name
+            for index in camera_indices
         )
         camera_count = len(camera_image_names)
         if camera_count == 0:
@@ -595,13 +601,14 @@ def train(
             )
             compact_count.block_until_ready()
             print(
-                f"compacted_legacy_checkpoint active={int(compact_count)}",
+                "compacted_legacy_checkpoint "
+                f"active={np.asarray(compact_count).item()}",
                 flush=True,
             )
 
     print(
         f"storage_capacity={model.capacity} max_capacity={model.max_capacity} "
-        f"active={int(jax.device_get(model.active_count))} "
+        f"active={np.asarray(jax.device_get(model.active_count)).item()} "
         f"intersection_capacity={intersection_capacity}/{intersection_limit}",
         flush=True,
     )
@@ -703,7 +710,7 @@ def train(
             # recompile on every fluctuation.
             tuned_bound = _candidate_bound_for_occupancy(
                 max(
-                    int(value)
+                    np.asarray(value).item()
                     for value in jax.device_get(
                         tuple(
                             record.metrics["busiest_tile_candidates"]
@@ -876,7 +883,9 @@ def train(
             # Refinement is part of the atomic device commit below. Resolve any
             # older overflow before changing the physical storage bucket.
             synchronize_pending_steps()
-            active_count = int(jax.device_get(model.active_count))
+            active_count = np.asarray(
+                jax.device_get(model.active_count)
+            ).item()
             required_capacity = _mcmc_required_capacity(active_count, config)
             bounded_required = min(required_capacity, model.max_capacity)
             target_capacity = max(
@@ -949,13 +958,13 @@ def train(
                 metrics = synchronized_metrics
 
         if do_refine and config.strategy.kind == "default":
-            required_capacity = int(
+            required_capacity = np.asarray(
                 jax.device_get(
                     strategy.required_capacity(
                         model, strategy_state, scene_scale, step=step
                     )
                 )
-            )
+            ).item()
             bounded_required = min(required_capacity, model.max_capacity)
             target_capacity = max(
                 model.capacity,
@@ -1002,9 +1011,83 @@ def train(
                 maximum_opacity=config.strategy.reset_opacity,
             )
 
+        if do_refine:
+            active_count = np.asarray(
+                jax.device_get(model.active_count)
+            ).item()
+            compaction_required = min(
+                model.max_capacity,
+                max(
+                    active_count * 2,
+                    active_count + config.strategy.max_new_per_refine,
+                ),
+            )
+            compact_capacity = config.model.bucket_capacity(
+                compaction_required
+            )
+            # ponytail: require a 4x drop to amortize migration and one
+            # recompilation; revisit after multi-scene end-to-end profiles.
+            if compact_capacity * 4 <= model.capacity:
+                old_capacity = model.capacity
+                # The existing transition check requires an increasing pair;
+                # reversing the capacities is conservative for a shrink and
+                # preserves the old/new coexistence guard.
+                _training._check_bucket_transition_memory_budget(
+                    runtime_config,
+                    compact_capacity,
+                    old_capacity,
+                    image_height=training_height,
+                    image_width=training_width,
+                )
+                compact_count = _training.compact_training_state(
+                    model, optimizer, strategy_state
+                )
+                compact_count.block_until_ready()
+                compacted_count = np.asarray(compact_count).item()
+                if compacted_count != active_count:
+                    raise RuntimeError(
+                        "active count changed while compacting the training "
+                        "bucket"
+                    )
+                model, optimizer, strategy_state = (
+                    _shrink_compacted_training_state(
+                        model,
+                        optimizer,
+                        strategy_state,
+                        compact_capacity,
+                        compacted_count,
+                    )
+                )
+                _training._block_nnx_state(model, optimizer, strategy_state)
+                intersection_limit = _training_intersection_limit(
+                    config,
+                    model.capacity,
+                    image_height=training_height,
+                    image_width=training_width,
+                )
+                if intersection_capacity > intersection_limit:
+                    intersection_capacity = _intersection_bucket_capacity(
+                        intersection_limit,
+                        minimum=config.intersection_bucket_min_capacity,
+                        maximum=intersection_limit,
+                    )
+                runtime_config = _runtime_training_config(
+                    intersection_capacity, candidate_bound
+                )
+                del train_step
+                jax.clear_caches()
+                gc.collect()
+                train_step = _training.make_train_step(runtime_config)
+                print(
+                    f"capacity_compaction={old_capacity}->{model.capacity} "
+                    f"active={compacted_count}",
+                    flush=True,
+                )
+
         if do_log:
             last_metrics = {
-                name: float(jax.device_get(value)) for name, value in metrics.items()
+                name: np.asarray(jax.device_get(value)).item()
+                for name, value in metrics.items()
             }
             elapsed = time.monotonic() - start_time
             bytes_in_use, bytes_limit = _training._device_memory_usage()
@@ -1029,7 +1112,7 @@ def train(
             # grown one, not the configured one, since that is the promise
             # the number has to be read against.
             busiest_tile_text = (
-                f"busiest_tile={int(last_metrics['busiest_tile_candidates'])}"
+                f"busiest_tile={last_metrics['busiest_tile_candidates']:.0f}"
                 f"/{candidate_bound} "
             )
             print(
@@ -1037,18 +1120,19 @@ def train(
                 f"psnr={last_metrics['psnr']:.2f} "
                 f"{regularization_text}"
                 f"{pose_text}"
-                f"active={int(last_metrics['active_count'])} "
+                f"active={last_metrics['active_count']:.0f} "
                 f"storage={model.capacity}/{model.max_capacity} "
-                f"overflow_tiles={int(last_metrics['overflow_tiles'])} "
+                f"overflow_tiles={last_metrics['overflow_tiles']:.0f} "
                 f"{busiest_tile_text}"
-                f"candidate_limit_exceeded={int(last_metrics['candidate_limit_exceeded_tiles'])} "
+                f"candidate_limit_exceeded="
+                f"{last_metrics['candidate_limit_exceeded_tiles']:.0f} "
                 f"intersection_overflow={bool(last_metrics['intersection_overflow'])} "
-                f"intersections={int(last_metrics['intersection_required_count'])}/"
+                f"intersections={last_metrics['intersection_required_count']:.0f}/"
                 f"{intersection_capacity} "
                 f"elapsed={elapsed:.1f}s{memory_text}",
                 flush=True,
             )
-            if bytes_limit and bytes_in_use > int(bytes_limit * 0.85):
+            if bytes_limit and bytes_in_use > bytes_limit * 0.85:
                 raise MemoryError(
                     "JAX device memory usage exceeded the 85% safety threshold. "
                     "Training stopped before the next step; reduce capacity or "
@@ -1099,7 +1183,9 @@ def train(
                 appearance_module=appearance_module,
             )
             _save_render(output_dir / "renders" / f"step_{step:08d}.png", rendered)
-            overflow_count = int(jax.device_get(jnp.count_nonzero(overflow)))
+            overflow_count = np.asarray(
+                jax.device_get(jnp.count_nonzero(overflow))
+            ).item()
             if overflow_count:
                 print(f"evaluation tile overflow: {overflow_count}", flush=True)
             if bool(jax.device_get(intersection_overflow)):

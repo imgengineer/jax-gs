@@ -1,7 +1,10 @@
+# pyright: reportArgumentType=false, reportMissingImports=false
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 import math
+import operator
 from typing import Any
 
 from flax import nnx
@@ -93,6 +96,8 @@ def _resize_state_tree(
             old_value.ndim > 0
             and old_value.shape[0] == old_capacity
         ):
+            if new_capacity < old_capacity:
+                return old_value[:new_capacity]
             padding = ((0, new_capacity - old_capacity),) + (
                 (0, 0),
             ) * (old_value.ndim - 1)
@@ -190,6 +195,64 @@ def resize_training_state(
     nnx.update(strategy_state, resized_strategy_state)
     if scene is not None:
         scene.resize_slot_capacity(new_capacity)
+    return new_model, optimizer, strategy_state
+
+
+def _shrink_compacted_training_state(
+    model: GaussianModel,
+    optimizer: nnx.Optimizer,
+    strategy_state: StrategyState,
+    new_capacity: int,
+    active_count: int,
+) -> tuple[GaussianModel, nnx.Optimizer, StrategyState]:
+    """Slice a compact active prefix into a smaller physical bucket."""
+
+    old_capacity = model.capacity
+    try:
+        new_capacity = operator.index(new_capacity)
+        active_count = operator.index(active_count)
+    except TypeError as exc:
+        raise TypeError("capacities and active count must be integers") from exc
+    if not 0 < new_capacity < old_capacity:
+        raise ValueError("new capacity must be smaller and positive")
+    if not 0 <= active_count <= new_capacity:
+        raise ValueError("active rows do not fit the new capacity")
+
+    if model.has_appearance:
+        sh0 = None
+        sh_rest = None
+        features = model.features[...][:new_capacity]
+        colors = model.colors[...][:new_capacity]
+    else:
+        sh0 = model.sh0[...][:new_capacity]
+        sh_rest = model.sh_rest[...][:new_capacity]
+        features = None
+        colors = None
+    new_model = GaussianModel(
+        model.means[...][:new_capacity],
+        model.log_scales[...][:new_capacity],
+        model.quats[...][:new_capacity],
+        model.opacity_logits[...][:new_capacity],
+        sh0,
+        sh_rest,
+        model.active_mask[...][:new_capacity],
+        features=features,
+        colors=colors,
+        max_capacity=model.max_capacity,
+    )
+
+    optimizer_state = _resize_state_tree(
+        nnx.as_pure(nnx.state(optimizer)),
+        old_capacity=old_capacity,
+        new_capacity=new_capacity,
+    )
+    nnx.update(optimizer, optimizer_state)
+    strategy_state_values = _resize_state_tree(
+        nnx.as_pure(nnx.state(strategy_state)),
+        old_capacity=old_capacity,
+        new_capacity=new_capacity,
+    )
+    nnx.update(strategy_state, strategy_state_values)
     return new_model, optimizer, strategy_state
 
 

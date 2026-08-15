@@ -1,3 +1,6 @@
+# pyright: reportArgumentType=false, reportMissingImports=false
+# pyright: reportOptionalMemberAccess=false
+
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -2890,6 +2893,83 @@ def test_growth_preflight_fails_before_allocating_new_state(monkeypatch):
             image_width=64,
         )
     assert model.capacity == 4
+
+
+def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
+    scene = SimpleNamespace(
+        points=np.stack(
+            (
+                np.linspace(-0.2, 0.2, 9, dtype=np.float32),
+                np.zeros((9,), np.float32),
+                np.full((9,), 3.0, np.float32),
+            ),
+            axis=-1,
+        ),
+        points_rgb=np.full((9, 3), 128, np.uint8),
+        camtoworlds=np.eye(4, dtype=np.float32)[None, ...],
+    )
+    batch = {
+        "image": np.zeros((1, 4, 4, 3), np.float32),
+        "K": np.asarray(
+            [[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]],
+            np.float32,
+        ),
+        "w2c": np.eye(4, dtype=np.float32)[None, ...],
+    }
+    config = TrainConfig(
+        normalize_world_space=False,
+        model=ModelConfig(capacity=32, bucket_min_capacity=4, sh_degree=0),
+        optimizer=OptimizerConfig(max_steps=1),
+        strategy=StrategyConfig(
+            refine_start=0,
+            refine_stop=2,
+            refine_every=1,
+            reset_every=10,
+            max_new_per_refine=1,
+            grow_grad2d=100.0,
+            prune_opacity=0.5,
+            prune_scale3d=100.0,
+            prune_scale2d=100.0,
+        ),
+        data=DataConfig(
+            root="unused", patch_size=4, batch_size=1, num_workers=1
+        ),
+        rasterizer=RasterizationConfig(backend="reference", tile_size=4),
+        steps=1,
+        checkpoint_every=0,
+        eval_every=0,
+        output_dir=str(tmp_path),
+        ssim_lambda=0.0,
+    )
+    transitions = []
+
+    monkeypatch.setattr(
+        training_module, "load_colmap_scene", lambda *_a, **_k: scene
+    )
+    monkeypatch.setattr(
+        training_module, "create_grain_dataset", lambda *_a, **_k: [batch]
+    )
+    monkeypatch.setattr(
+        training_module, "rasterization", _constant_training_rasterization
+    )
+    monkeypatch.setattr(
+        training_module, "_check_memory_budget", lambda *_a, **_k: 0
+    )
+    monkeypatch.setattr(
+        training_module,
+        "_check_bucket_transition_memory_budget",
+        lambda _config, old, new, **_kwargs: transitions.append((old, new)),
+    )
+
+    result = training_module.train(config)
+
+    assert transitions == [(4, 16)]
+    assert result.model.capacity == 4
+    assert int(result.model.active_count) == 0
+    assert (
+        training_module.load_checkpoint_storage_capacity(result.checkpoint)
+        == 4
+    )
 
 
 def test_refine_can_grow_then_compact_a_bucket():
