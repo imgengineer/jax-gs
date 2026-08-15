@@ -376,7 +376,7 @@ __global__ void compositor_backward_kernel(
 }
 
 template <int Channels>
-ffi::Error launch_forward(
+cudaError_t launch_forward_cuda(
     cudaStream_t stream, int gaussian_count, int input_capacity,
     int image_width, int image_height, int tile_width, int tile_count,
     int per_tile_bound, float alpha_threshold,
@@ -394,7 +394,25 @@ ffi::Error launch_forward(
       tile_count, per_tile_bound, alpha_threshold, transmittance_threshold,
       means, conics, colors, opacities, offsets, ids, valid_count, foreground,
       alpha, accepted_final_transmittance, last_ids, tile_overflow);
-  const cudaError_t error = cudaGetLastError();
+  return cudaGetLastError();
+}
+
+template <int Channels>
+ffi::Error launch_forward(
+    cudaStream_t stream, int gaussian_count, int input_capacity,
+    int image_width, int image_height, int tile_width, int tile_count,
+    int per_tile_bound, float alpha_threshold,
+    float transmittance_threshold, const float* means, const float* conics,
+    const float* colors, const float* opacities, const int32_t* offsets,
+    const int32_t* ids, const int32_t* valid_count, float* foreground,
+    float* alpha, float* accepted_final_transmittance, int32_t* last_ids,
+    bool* tile_overflow) {
+  const cudaError_t error = launch_forward_cuda<Channels>(
+      stream, gaussian_count, input_capacity, image_width, image_height,
+      tile_width, tile_count, per_tile_bound, alpha_threshold,
+      transmittance_threshold, means, conics, colors, opacities, offsets, ids,
+      valid_count, foreground, alpha, accepted_final_transmittance, last_ids,
+      tile_overflow);
   if (error != cudaSuccess) {
     return ffi::Error::Internal(std::string("CUDA forward launch failed: ") +
                                 cudaGetErrorString(error));
@@ -495,14 +513,34 @@ ffi::Error compositor_backward_host(
   const int channels = static_cast<int>(colors.dimensions()[1]);
   const int input_capacity = static_cast<int>(ids.dimensions()[0]);
   const int tile_count = static_cast<int>(offsets.dimensions()[0]);
-  cudaMemsetAsync(means_gradient->typed_data(), 0,
-                  means_gradient->size_bytes(), stream);
-  cudaMemsetAsync(conics_gradient->typed_data(), 0,
-                  conics_gradient->size_bytes(), stream);
-  cudaMemsetAsync(colors_gradient->typed_data(), 0,
-                  colors_gradient->size_bytes(), stream);
-  cudaMemsetAsync(opacities_gradient->typed_data(), 0,
-                  opacities_gradient->size_bytes(), stream);
+  cudaError_t error = cudaMemsetAsync(
+      means_gradient->typed_data(), 0, means_gradient->size_bytes(), stream);
+  if (error != cudaSuccess) {
+    return ffi::Error::Internal(
+        std::string("CUDA mean-gradient clear failed: ") +
+        cudaGetErrorString(error));
+  }
+  error = cudaMemsetAsync(conics_gradient->typed_data(), 0,
+                          conics_gradient->size_bytes(), stream);
+  if (error != cudaSuccess) {
+    return ffi::Error::Internal(
+        std::string("CUDA conic-gradient clear failed: ") +
+        cudaGetErrorString(error));
+  }
+  error = cudaMemsetAsync(colors_gradient->typed_data(), 0,
+                          colors_gradient->size_bytes(), stream);
+  if (error != cudaSuccess) {
+    return ffi::Error::Internal(
+        std::string("CUDA color-gradient clear failed: ") +
+        cudaGetErrorString(error));
+  }
+  error = cudaMemsetAsync(opacities_gradient->typed_data(), 0,
+                          opacities_gradient->size_bytes(), stream);
+  if (error != cudaSuccess) {
+    return ffi::Error::Internal(
+        std::string("CUDA opacity-gradient clear failed: ") +
+        cudaGetErrorString(error));
+  }
 #define JAX_GS_BACKWARD_CASE(ChannelCount)                                     \
   case ChannelCount:                                                          \
     return launch_backward<ChannelCount>(                                     \
@@ -530,6 +568,37 @@ ffi::Error compositor_backward_host(
 }
 
 }  // namespace
+
+extern "C" cudaError_t JaxGsLaunchCompositorForward(
+    cudaStream_t stream, int channels, int gaussian_count, int input_capacity,
+    int image_width, int image_height, int tile_width, int tile_count,
+    int per_tile_bound, float alpha_threshold,
+    float transmittance_threshold, const float* means, const float* conics,
+    const float* colors, const float* opacities, const int32_t* offsets,
+    const int32_t* ids, const int32_t* valid_count, float* foreground,
+    float* alpha, float* accepted_final_transmittance, int32_t* last_ids,
+    bool* tile_overflow) {
+#define JAX_GS_RAW_FORWARD_CASE(ChannelCount)                                  \
+  case ChannelCount:                                                          \
+    return launch_forward_cuda<ChannelCount>(                                 \
+        stream, gaussian_count, input_capacity, image_width, image_height,     \
+        tile_width, tile_count, per_tile_bound, alpha_threshold,              \
+        transmittance_threshold, means, conics, colors, opacities, offsets,   \
+        ids, valid_count, foreground, alpha, accepted_final_transmittance,    \
+        last_ids, tile_overflow)
+  switch (channels) {
+    JAX_GS_RAW_FORWARD_CASE(1);
+    JAX_GS_RAW_FORWARD_CASE(2);
+    JAX_GS_RAW_FORWARD_CASE(3);
+    JAX_GS_RAW_FORWARD_CASE(4);
+    JAX_GS_RAW_FORWARD_CASE(8);
+    JAX_GS_RAW_FORWARD_CASE(16);
+    JAX_GS_RAW_FORWARD_CASE(32);
+    default:
+      return cudaErrorInvalidValue;
+  }
+#undef JAX_GS_RAW_FORWARD_CASE
+}
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     JaxGsCompositorForward, compositor_forward_host,

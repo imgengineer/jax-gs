@@ -6,8 +6,8 @@ from functools import partial
 import math
 from typing import Any, NamedTuple
 
-import jax
-import jax.numpy as jnp
+import jax  # pyright: ignore[reportMissingImports]
+import jax.numpy as jnp  # pyright: ignore[reportMissingImports]
 
 from ._pallas import rasterize_to_pixels_pallas
 from .cameras import fully_fused_projection
@@ -16,7 +16,7 @@ from .external_distortion import (
     BivariateWindshieldModelParameters,
     validate_external_distortion,
 )
-from .intersections import intersect_tiles
+from .intersections import _prepare_accutile_state_jax, intersect_tiles
 from .lidar import RowOffsetStructuredSpinningLidarModelParametersExt
 from .lidar_intersections import isect_tiles_lidar
 from .low_level import (
@@ -778,6 +778,86 @@ def _render_camera_intersections(
     intersection_capacity = _automatic_intersection_capacity(
         means2d.shape[0], tile_count, config
     )
+    use_fused = (
+        means2d.shape[0] > 0
+        and intersection_capacity > 0
+        and config.projection_backend == "cuda_ffi_strict"
+        and config.intersection_backend == "cuda_tile_cub"
+        and config.compositor_backend == "cuda_ffi"
+        and config.rasterize_mode == "classic"
+        and config.intersection_mode != "aabb"
+        and tile_size == 16
+        and allow_accutile
+        and render_mode == "RGB"
+        and colors is not None
+        and absgrad_probe is None
+    )
+    if use_fused:
+        assert colors is not None
+        topology_state = _prepare_accutile_state_jax(
+            jax.lax.stop_gradient(means2d),
+            jax.lax.stop_gradient(radii),
+            jax.lax.stop_gradient(conics),
+            jax.lax.stop_gradient(opacities),
+            jax.lax.stop_gradient(valid)
+            & jnp.isfinite(jax.lax.stop_gradient(depths)),
+            tile_size=tile_size,
+            tile_width=tile_width,
+            tile_height=tile_height,
+            alpha_threshold=config.alpha_clip,
+        )
+        feature_background = (
+            jnp.zeros((colors.shape[-1],), dtype=colors.dtype)
+            if background is None
+            else background
+        )
+        from ._cuda_intersections_ffi import (
+            rasterize_accutile_cuda_ffi_fused,
+        )
+
+        with jax.named_scope("intersection_compositor_cuda_ffi_fused"):
+            rendered, alphas, fused_info = rasterize_accutile_cuda_ffi_fused(
+                topology_state,
+                depths,
+                means2d,
+                conics,
+                colors,
+                opacities,
+                capacity=intersection_capacity,
+                tile_size=tile_size,
+                tile_width=tile_width,
+                tile_height=tile_height,
+                image_width=width,
+                image_height=height,
+                background=feature_background,
+                max_gaussians_per_tile=config.max_gaussians_per_tile,
+                max_candidates_per_tile=config.max_candidates_per_tile,
+                alpha_threshold=config.alpha_clip,
+                transmittance_threshold=config.transmittance_eps,
+            )
+        flat_offsets = fused_info["offsets"].reshape(-1)
+        ends = jnp.concatenate(
+            (flat_offsets[1:], fused_info["valid_count"][None]), axis=0
+        )
+        candidate_counts = jnp.maximum(ends - flat_offsets, 0).reshape(
+            tile_height, tile_width
+        )
+        return rendered, alphas, {
+            "candidate_counts": candidate_counts,
+            "tile_overflow": fused_info["tile_overflow"],
+            "candidate_limit_exceeded": (
+                candidate_counts > config.max_gaussians_per_tile
+            ),
+            "intersection_count": fused_info["valid_count"],
+            "intersection_required_count": fused_info["required_count"],
+            "intersection_overflow": fused_info["overflow"],
+            "intersection_capacity": jnp.asarray(
+                intersection_capacity, dtype=jnp.int32
+            ),
+            "intersection_gaussian_ids": fused_info["gaussian_ids"],
+            "intersection_tile_ids": fused_info["tile_ids"],
+            "intersection_offsets": fused_info["offsets"],
+        }
     with jax.named_scope("intersection_total"):
         intersections = intersect_tiles(
             means2d,

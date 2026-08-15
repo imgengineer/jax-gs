@@ -15,10 +15,10 @@ import subprocess
 import tempfile
 import threading
 
-import numpy as np
+import numpy as np  # pyright: ignore[reportMissingImports]
 
-import jax
-import jax.numpy as jnp
+import jax  # pyright: ignore[reportMissingImports]
+import jax.numpy as jnp  # pyright: ignore[reportMissingImports]
 
 from .low_level import (
     DEFAULT_ALPHA_THRESHOLD,
@@ -321,6 +321,7 @@ def _run_backward(
     per_tile_bound: int,
     alpha_threshold: float,
     transmittance_threshold: float,
+    _target: str = _BACKWARD_TARGET,
 ):
     tile_width = offsets.shape[1]
     outputs = (
@@ -338,7 +339,7 @@ def _run_backward(
         transmittance_threshold=transmittance_threshold,
     )
     return jax.ffi.ffi_call(
-        _BACKWARD_TARGET,
+        _target,
         outputs,
         vmap_method="sequential",
     )(
