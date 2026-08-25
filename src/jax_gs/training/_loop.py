@@ -92,6 +92,33 @@ def _clear_obsolete_train_step_cache(train_step: Any) -> None:
         clear_cache()
 
 
+def _prewarm_train_step(
+    train_step: Any,
+    *args: Any,
+    reason: str,
+    signature: str = "",
+    **kwargs: Any,
+) -> None:
+    """Compile one concrete train-step shape before executing it."""
+
+    lower = getattr(train_step, "lower", None)
+    if not callable(lower):
+        return
+    started = time.perf_counter()
+    lowered = lower(*args, **kwargs)
+    lowered_at = time.perf_counter()
+    lowered.compile()
+    finished = time.perf_counter()
+    signature_text = f" {signature}" if signature else ""
+    print(
+        f"jit_prewarm reason={reason}{signature_text} "
+        f"lower_ms={(lowered_at - started) * 1e3:.1f} "
+        f"compile_ms={(finished - lowered_at) * 1e3:.1f} "
+        f"total_ms={(finished - started) * 1e3:.1f}",
+        flush=True,
+    )
+
+
 def make_render_step(config: TrainConfig, width: int, height: int):
     _validate_2dgs_mode(config)
 
@@ -645,6 +672,7 @@ def train(
         for _ in range(start_step):
             next(batches)
     train_step = _training.make_train_step(runtime_config)
+    train_step_prewarm_reason: str | None = "initial"
     safety_state = TrainingSafetyState()
     pending_steps: list[_PendingTrainStep] = []
     training_key = jax.random.key(config.seed)
@@ -680,6 +708,7 @@ def train(
         camtoworlds: jax.Array | None,
         image_ids: jax.Array | None,
     ) -> dict[str, jax.Array]:
+        nonlocal train_step_prewarm_reason
         camera_kwargs: dict[str, Any] = {}
         if uses_camera_modules:
             camera_kwargs = {
@@ -691,7 +720,7 @@ def train(
                 "appearance_module": appearance_module,
                 "appearance_optimizer": appearance_optimizer,
             }
-        return train_step(
+        train_args = (
             model,
             optimizer,
             strategy_state,
@@ -702,8 +731,23 @@ def train(
             step_key,
             sh_degree,
             strategy_key,
-            **camera_kwargs,
         )
+        if train_step_prewarm_reason is not None:
+            image_shape = "x".join(str(size) for size in images.shape)
+            _training._prewarm_train_step(
+                train_step,
+                *train_args,
+                reason=train_step_prewarm_reason,
+                signature=(
+                    f"model_capacity={model.capacity} "
+                    f"intersection_capacity={intersection_capacity} "
+                    f"candidate_bound={candidate_bound} "
+                    f"images={image_shape}"
+                ),
+                **camera_kwargs,
+            )
+            train_step_prewarm_reason = None
+        return train_step(*train_args, **camera_kwargs)
 
     def synchronize_pending_steps() -> dict[str, jax.Array] | None:
         """Resolve sticky overflow and replay the uncommitted suffix."""
@@ -714,6 +758,7 @@ def train(
         nonlocal runtime_config
         nonlocal safety_state
         nonlocal train_step
+        nonlocal train_step_prewarm_reason
 
         if not pending_steps:
             return None
@@ -823,6 +868,11 @@ def train(
             runtime_config = next_runtime_config
             candidate_bound = next_candidate_bound
             train_step = _training.make_train_step(runtime_config)
+            train_step_prewarm_reason = (
+                "intersection_capacity_growth"
+                if overflow.kind == "intersection"
+                else "candidate_bound_growth"
+            )
             safety_state = TrainingSafetyState()
             print(
                 growth_text + f"replay_steps={len(pending_steps) - replay_start}",
@@ -861,6 +911,7 @@ def train(
             del train_step
             gc.collect()
             train_step = _training.make_train_step(runtime_config)
+            train_step_prewarm_reason = "candidate_bound_tuned"
             print(f"candidate_bound_tuned={tuned_bound}", flush=True)
         latest_metrics = pending_steps[-1].metrics
         pending_steps.clear()
@@ -920,6 +971,7 @@ def train(
                     image_height=training_height,
                     image_width=training_width,
                 )
+                train_step_prewarm_reason = "capacity_growth"
                 print(
                     f"capacity_growth={old_capacity}->{target_capacity} "
                     f"required={required_capacity}",
@@ -998,6 +1050,7 @@ def train(
                 )
                 # Keep prior bucket executables cached: compaction can revisit
                 # them, and a global clear would invalidate unrelated JITs.
+                train_step_prewarm_reason = "capacity_growth"
                 print(
                     f"capacity_growth={old_capacity}->{target_capacity} "
                     f"required={required_capacity}",
@@ -1092,6 +1145,7 @@ def train(
                     del train_step
                     gc.collect()
                     train_step = _training.make_train_step(runtime_config)
+                train_step_prewarm_reason = "capacity_compaction"
                 print(
                     f"capacity_compaction={old_capacity}->{model.capacity} "
                     f"active={compacted_count}",

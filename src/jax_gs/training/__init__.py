@@ -64,6 +64,7 @@ from ._data import (
 )
 from ._loop import (
     TrainingResult,
+    _prewarm_train_step,
     _save_render,
     make_distributed_render_step,
     make_render_step,
@@ -181,6 +182,7 @@ __all__ = [
     "_parameter_bytes",
     "_pending_overflow_suffix",
     "_pose_learning_rate",
+    "_prewarm_train_step",
     "_raise_training_overflow",
     "_sample_patches",
     "_save_compacted_training_checkpoint",

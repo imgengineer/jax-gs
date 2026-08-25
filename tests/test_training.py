@@ -45,6 +45,40 @@ from jax_gs.training.pose import CameraOptModule
 from jax_gs.training.appearance import AppearanceOptModule
 
 
+def test_prewarm_train_step_lowers_compiles_and_reports(capsys):
+    events = []
+
+    class Lowered:
+        def compile(self):
+            events.append("compile")
+
+    class Step:
+        def lower(self, *args, **kwargs):
+            events.append((args, kwargs))
+            return Lowered()
+
+    training_module._prewarm_train_step(
+        Step(),
+        jnp.asarray(1),
+        reason="initial",
+        signature="model_capacity=32",
+        named=jnp.asarray(2),
+    )
+
+    assert events[0][0] == (jnp.asarray(1),)
+    assert events[0][1] == {"named": jnp.asarray(2)}
+    assert events[1] == "compile"
+    output = capsys.readouterr().out
+    assert "jit_prewarm reason=initial model_capacity=32" in output
+    assert "lower_ms=" in output
+    assert "compile_ms=" in output
+
+
+def test_prewarm_train_step_ignores_plain_callables(capsys):
+    training_module._prewarm_train_step(lambda: None, reason="initial")
+    assert capsys.readouterr().out == ""
+
+
 def test_sample_patches_none_preserves_rectangular_images_and_intrinsics():
     images = jnp.arange(2 * 5 * 9 * 3, dtype=jnp.float32).reshape(2, 5, 9, 3)
     intrinsics = jnp.asarray(
@@ -3944,6 +3978,7 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
     saved_pose_steps = []
     saved_appearance_steps = []
     image_ids_by_capacity = {512: [], 1_024: []}
+    prewarm_reasons = []
 
     def fake_make_train_step(runtime_config):
         capacity = runtime_config.rasterizer.max_intersections
@@ -4003,6 +4038,13 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
         training_module, "create_grain_dataset", lambda *_a, **_k: [batch]
     )
     monkeypatch.setattr(training_module, "make_train_step", fake_make_train_step)
+    monkeypatch.setattr(
+        training_module,
+        "_prewarm_train_step",
+        lambda _step, *_args, reason, **_kwargs: prewarm_reasons.append(
+            reason
+        ),
+    )
     monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
 
     def fake_save(directory, *_args, step, intersection_capacity, **kwargs):
@@ -4023,6 +4065,11 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
     # first rendered frame, at an intersection capacity that has not moved.
     # It replays nothing, so the key sequence below is unaffected by it.
     assert factory_capacities == [512, 512, 1_024]
+    assert prewarm_reasons == [
+        "initial",
+        "candidate_bound_tuned",
+        "intersection_capacity_growth",
+    ]
     assert len(keys_by_capacity[512]) == 4
     assert len(keys_by_capacity[1_024]) == 2
     np.testing.assert_array_equal(
@@ -4527,7 +4574,14 @@ def test_train_grows_an_outgrown_candidate_bound_instead_of_failing(
     # densifies outgrows it. Before this it killed the run; it now costs a
     # recompile and a replay, exactly like an outgrown intersection buffer.
     scene, batch = _bound_growth_scene_and_batch()
-    bounds, replays = [], []
+    bounds, replays, prewarm_reasons = [], [], []
+    monkeypatch.setattr(
+        training_module,
+        "_prewarm_train_step",
+        lambda _step, *_args, reason, **_kwargs: prewarm_reasons.append(
+            reason
+        ),
+    )
     _patch_bound_growth_trainer(
         monkeypatch, scene, batch,
         _bound_growth_factory(bounds, 900, replays=replays),
@@ -4539,6 +4593,7 @@ def test_train_grows_an_outgrown_candidate_bound_instead_of_failing(
     assert bounds == [512, 1_024]
     # The offending step is re-run under the grown bound rather than lost.
     assert replays.count(1_024) >= 1
+    assert prewarm_reasons == ["initial", "candidate_bound_growth"]
 
 
 def test_train_still_refuses_an_overflow_no_larger_bound_can_fix(
