@@ -37,7 +37,7 @@
 - **端到端 CuTe DSL 加速流水线**：
   - **CuTe Compositor**：Shared Memory 颜色预加载、Warp 归约、原生 forward/backward 与 packed Gaussian gradient buffer。
   - **CuTe Projection**：float32 Pinhole 3DGS 离散投影；权威 JAX covariance/determinant 保证 conic 与 topology 精确一致，反向使用权威 JAX 重计算 VJP。
-  - **CuTe Topology**：AccuTile preparation/count/emission、饱和前缀和、稳定 radix sorting、tile offsets 与 overflow metadata 全部通过 CUTLASS CuTe DSL 实现。
+  - **CuTe Topology**：AccuTile preparation/count/emission、饱和前缀和与稳定 radix sorting 全部通过 CUTLASS CuTe DSL 实现；生产路径使用 CTA-per-tile tail mega kernel 融合 tile range、分段 depth sort、offset/metadata 输出与 compositor，动态超界时回退完整 global radix。
 - **全功能分布式多卡训练（Distributed Multi-GPU）**：
   - 基于 JAX 原生 SPMD 的 Gaussian-Sharding 模型并行与数据并行混合架构。
   - 支持分布式 3DGS 与 2DGS 训练；纯 JAX 路径保持完整通用性，支持的单卡 Pinhole 3DGS 配置自动选择 CuTe 流水线。
@@ -87,6 +87,8 @@ uv pip install --python .venv/bin/python 'cuda-tile[tileiras]>=1.5.0'
 ```
 
 > **注意**：普通导入和纯 JAX 运行不依赖可选的 `cuda.tile`。CuTe kernel 通过 JAX/CUTLASS DSL 编译并使用项目的持久化 JAX compilation cache；项目不再包含运行时 NVCC 或 CUDA FFI shared-library fallback。
+>
+> **运行环境约定**：项目不覆盖 `--xla_gpu_force_compilation_parallelism`，也不强制设置 OpenMP、BLAS 或构建线程数。编译与主机并行度遵循工具默认值和用户环境。
 
 ---
 
@@ -263,7 +265,7 @@ uv run jax-gs estimate-memory \
 | | `cute` | **CUTLASS CuTe DSL forward/backward**：Shared Memory batches、Warp reduction、packed gradients | **推荐单卡生产训练与推理** |
 | | `pallas` | JAX 原生 Mosaic GPU Pallas 算子 | Pallas GPU 原生实验 |
 | **Intersections** | `auto` / `jax` | 纯 JAX 拓扑与排序流水线 | 跨平台通用 |
-| | `cute` | **CuTe AccuTile + saturated scan + stable radix + offsets** | **推荐单卡完整拓扑流水线** |
+| | `cute` | **CuTe AccuTile + saturated scan + stable radix + tail mega kernel**；超界 segment 自动回退 global radix | **推荐单卡完整拓扑流水线** |
 | | `cuda_tile` | 可选 NVIDIA cuTile AccuTile 几何计数与发射；排序保持 JAX | cuTile 显式实验 |
 | | `pallas` | Pallas AccuTile 计数与发射 | Pallas 拓扑实验 |
 
@@ -317,16 +319,22 @@ uv run jax-gs estimate-memory \
 
 ## 📊 性能评测
 
-在 NVIDIA GeForce RTX 5090 上，标准 Garden 场景（138,766 active、640×360、355,211 intersections、524,288 固定容量）的最终交替测量为：
+最新保留结果使用 NVIDIA GeForce RTX 5090 与标准 Garden 场景：138,766 active Gaussians、640×360、355,211 intersections、524,288 固定 intersection capacity、2,048 tile-candidate bound。
 
-| 路径 | Forward median | Value-and-grad median |
-| --- | ---: | ---: |
-| **CuTe production** | **约 0.47–0.48 ms** | **约 1.15–1.19 ms** |
-| 迁移前保留基线 | 约 0.43–0.45 ms | 约 1.14–1.17 ms |
+### Tail mega kernel
 
-RGB/RGBD compositor 现在每个 CTA batch 处理 512 个候选、每线程协作加载两个候选；更宽通道仍保留 256 候选 batch，避免提高 shared-memory footprint。交错 Nsight 测量中 compositor forward 为 `206.27→203.23 µs`，backward 为 `528.77→500.67 µs`，完整 value-and-grad 的 GPU kernels 合计为 `1042.68→1012.10 µs`。因此反向 wall time 已基本达到迁移前 CUDA 基线；forward 剩余差距仍主要来自自定义 saturated scan/radix 的额外 device launches。相比迁移初期约 13–18% 的差距，5-bit tile radix、segmented depth radix、launch fusion、packed backward gradient buffer 和 wider compositor batches 已显著收敛性能，同时保持所有动态 topology 字段零 mismatch。
+| 指标 | 分离的 sort/finalize/compositor | Tail mega kernel | 变化 |
+| --- | ---: | ---: | ---: |
+| GPU kernels / frame | 39 | **36** | **-3** |
+| Nsight GPU kernel total | 0.367 ms | **0.359 ms** | **-2.2%** |
+| 持续排队 wall median（baseline → mega） | 0.7124 ms | **0.6992 ms** | **-1.88%** |
+| 反向进程顺序复测 | 0.7107 ms | **0.6978 ms** | **-1.84%** |
 
-> *注：测试环境为 Ubuntu 24.04、Python 3.12、CUDA 13、JAX 0.11.0、RTX 5090。桌面 GPU 负载会造成 wall-time 抖动，因此范围来自稳定交替测量，kernel 结论以 Nsight 为准。*
+Tail mega kernel 使用 920 个 CTA（每 tile 一个 CTA）、256 threads/CTA 与约 48 KiB shared memory；单 kernel 约 231.1 µs。tile 内仅保存 32-bit depth key，并用 128-candidate compositor batch 将生产 RGB 路径控制在每 SM 可同时驻留两个 CTA。CTA 0 同时发布最大 segment 值，避免额外的 JAX reduction launch；超过配置 segment capacity（当前上限 2,048）的 tile 保留完整 global-radix fallback。
+
+Garden forward 的 render、alpha、sorted IDs、offsets、count/required count 与 overflow metadata 均逐位一致。Backward loss 逐位一致；五组梯度的最大绝对误差不超过 `1.31e-6`。逐调用同步的 wall-time 会受桌面 GPU 动态时钟影响，顺序平衡 median-of-medians 改善约 `0.47%`，因此性能判断优先采用 Nsight GPU time 与持续排队 A/B。
+
+> *测试环境：Ubuntu 24.04、Python 3.12、CUDA 13、JAX 0.11.0、RTX 5090。基准必须显式记录场景、容量、candidate bound、warmup/hot iterations 与同步方式；不同协议的绝对时间不可直接横向比较。*
 
 ### 运行性能基准与自动调优工具
 
@@ -363,12 +371,23 @@ uv run python benchmarks/autotune_cutile.py \
 # 运行默认测试集（排除超长集成测试）
 uv run pytest
 
+# 运行 CuTe topology/compositor 与环境契约回归
+uv run pytest tests/test_cute_intersections.py tests/test_cute_compositor.py tests/test_environment.py
+
 # 运行分布式与多卡专属测试
 XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest tests/test_distributed.py tests/test_training_distributed.py
 
 # 运行高耗能/重显存独立测试
 uv run pytest -m resource_heavy
 ```
+
+---
+
+## 🗂️ 文档索引
+
+- [`README.md`](README.md)：安装、API、后端、性能与测试入口。
+- [`sandbox/perf_results.md`](sandbox/perf_results.md)：按统一字段记录的性能实验台账。
+- [`NOTICE.md`](NOTICE.md)：第三方组件、许可与归属。
 
 ---
 
