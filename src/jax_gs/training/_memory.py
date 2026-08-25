@@ -211,7 +211,7 @@ def estimate_rasterization_memory_bytes(
         # accepted transmittance. Count reverse-mode residuals conservatively
         # even when no gradient is requested.
         compositing = tile_count * pixel_count * (channels + 4) * 4
-    elif rasterizer.compositor_backend == "cuda_ffi":
+    elif rasterizer.compositor_backend == "cute":
         # Render/alpha plus accepted-transmittance and last-id residuals.
         compositing = width * height * (channels + 3) * 4 + tile_count
     else:
@@ -333,9 +333,9 @@ def estimate_training_memory_bytes(
         # RGB plus alpha, pre-update transmittance, last accepted slot, and
         # accepted transmittance.
         raster_workspace = render_tiles * pixel_count * 7 * 4
-    elif config.rasterizer.compositor_backend == "cuda_ffi":
+    elif config.rasterizer.compositor_backend == "cute":
         # Forward image/residual buffers plus direct per-Gaussian gradient
-        # outputs. The CUDA kernel uses only one tile's dynamic shared-memory
+        # outputs. The CuTe kernel uses only one tile's dynamic shared-memory
         # batch at a time.
         render_pixels = render_height * render_width
         raster_workspace = (

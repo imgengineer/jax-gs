@@ -26,7 +26,8 @@ class ModelConfig:
     ``capacity`` is the logical maximum. Parameter, Adam, and strategy arrays
     start at ``bucket_min_capacity`` (or the first bucket covering the input
     point cloud) and double only when refinement needs more physical slots.
-    Within each bucket, ``active_mask`` changes without retriggering JIT.
+    Within each bucket, ``active_mask`` changes without retriggering JIT. Set
+    ``bucket_min_capacity == capacity`` to pin the physical shape for a run.
     """
 
     capacity: int = 1_000_000
@@ -113,36 +114,33 @@ class RasterizationConfig:
             raise ValueError(
                 "backend must be 'auto', 'jax', 'intersections', or 'reference'"
             )
-        if self.projection_backend not in {"jax", "cuda_ffi_strict"}:
+        if self.projection_backend not in {"jax", "cute"}:
+            raise ValueError("projection_backend must be 'jax' or 'cute'")
+        if self.projection_backend == "cute" and self.backend == "reference":
             raise ValueError(
-                "projection_backend must be 'jax' or 'cuda_ffi_strict'"
-            )
-        if self.projection_backend == "cuda_ffi_strict" and self.backend == "reference":
-            raise ValueError(
-                "the strict CUDA FFI projection requires the intersections backend"
+                "the optimized projection requires the intersections backend"
             )
         if self.intersection_backend not in {
             "auto",
             "jax",
             "pallas",
             "cuda_tile",
-            "cuda_tile_cub",
+            "cute",
         }:
             raise ValueError(
                 "intersection_backend must be 'auto', 'jax', 'pallas', "
-                "'cuda_tile', or 'cuda_tile_cub'"
+                "'cuda_tile', or 'cute'"
             )
-        if self.compositor_backend not in {"jax", "pallas", "cuda_ffi"}:
+        if self.compositor_backend not in {"jax", "pallas", "cute"}:
             raise ValueError(
-                "compositor_backend must be 'jax', 'pallas', or 'cuda_ffi'"
+                "compositor_backend must be 'jax', 'pallas', or 'cute'"
             )
         if (
-            self.compositor_backend in {"pallas", "cuda_ffi"}
+            self.compositor_backend in {"pallas", "cute"}
             and self.backend == "reference"
         ):
             raise ValueError(
-                "the Pallas and CUDA FFI compositors require the "
-                "intersections backend"
+                "the optimized compositors require the intersections backend"
             )
         if self.intersection_mode not in {"auto", "aabb", "accutile"}:
             raise ValueError(
@@ -308,6 +306,7 @@ class TrainConfig:
     seed: int = 42
     checkpoint_every: int = 5_000
     eval_every: int = 1_000
+    # Set this at or above max_intersections to pin the intersection shape.
     intersection_bucket_min_capacity: int = 65_536
     output_dir: str = "outputs/default"
 
@@ -436,6 +435,9 @@ class TrainConfig:
         rasterizer_values = dict(values.get("rasterizer", {}))
         legacy_backends = {
             "backend": {"cuda_ffi": "jax"},
+            "projection_backend": {"cuda_ffi_strict": "cute"},
+            "compositor_backend": {"cuda_ffi": "cute"},
+            "intersection_backend": {"cuda_tile_cub": "cute"},
             "sort_backend": {"cuda_ffi": "jax"},
         }
         migrated = []
@@ -446,7 +448,7 @@ class TrainConfig:
                 migrated.append(f"{key}={old_value!r}")
         if migrated:
             warnings.warn(
-                "migrated legacy rasterizer settings to pure JAX: "
+                "migrated legacy rasterizer settings to supported backends: "
                 + ", ".join(migrated),
                 UserWarning,
                 stacklevel=2,

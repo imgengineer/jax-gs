@@ -21,6 +21,7 @@ import jax  # noqa: F401
 from ..capacity import compact_training_state, resize_training_state
 from ..checkpoints import (
     load_checkpoint_active_prefix,
+    load_checkpoint_candidate_bound,
     load_checkpoint_config,
     load_checkpoint_intersection_capacity,
     load_checkpoint_scene_transform,
@@ -209,6 +210,7 @@ __all__ = [
     "estimate_training_memory_bytes",
     "l1_loss",
     "load_checkpoint_active_prefix",
+    "load_checkpoint_candidate_bound",
     "load_checkpoint_config",
     "load_checkpoint_intersection_capacity",
     "load_checkpoint_scene_transform",

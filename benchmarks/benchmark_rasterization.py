@@ -131,23 +131,29 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--projection-backend",
-        choices=("jax", "cuda_ffi_strict"),
+        choices=("jax", "cute"),
         default="jax",
         help="dense pinhole projection implementation",
     )
     parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas", "cuda_ffi"),
+        choices=("jax", "pallas", "cute"),
         default="jax",
         help="forward/reverse compositor implementation",
     )
     parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile", "cuda_tile_cub"),
+        choices=(
+            "auto",
+            "jax",
+            "pallas",
+            "cuda_tile",
+            "cute",
+        ),
         default="auto",
         help=(
-            "intersection backend; cuda_tile_cub additionally uses CUDA "
-            "FFI+CUB for prefix, sorting, and offsets"
+            "intersection backend; cute uses CuTe DSL for preparation, "
+            "prefix, stable radix sorting, and offsets"
         ),
     )
     parser.add_argument(
@@ -535,9 +541,9 @@ def _estimated_peak_bytes(
         # RGB plus alpha, pre-update transmittance, last accepted slot, and
         # accepted transmittance.
         compositing = tile_count * pixel_count * 7 * 4
-    elif compositor_backend == "cuda_ffi":
+    elif compositor_backend == "cute":
         # Image outputs plus final-transmittance/last-id residuals; Gaussian
-        # gradients are allocated directly by the backward FFI call.
+        # gradients are allocated directly by the CuTe backward call.
         compositing = width * height * 8
     else:
         compositing = tile_batch * k * tile_size * tile_size * 32

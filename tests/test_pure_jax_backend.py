@@ -22,9 +22,6 @@ sys.meta_path.insert(0, BlockCudaTile())
 import jax_gs
 for module in pkgutil.walk_packages(jax_gs.__path__, prefix="jax_gs."):
     importlib.import_module(module.name)
-from jax_gs import _cuda_intersections_ffi
-assert _cuda_intersections_ffi._LIBRARY is None
-assert not _cuda_intersections_ffi._REGISTERED
 """
     subprocess.run(
         [sys.executable, "-c", script],

@@ -104,18 +104,36 @@ def test_synthetic_train_step_updates_optimizer_and_metrics():
     strategy_state = DefaultStrategy(strategy_config).initialize_state(32)
     safety_state = TrainingSafetyState()
     step = make_train_step(config)
+    images = jnp.zeros((1, 32, 32, 3), jnp.float32)
+    intrinsics = jnp.array(
+        [[[30.0, 0, 16], [0, 30.0, 16], [0, 0, 1]]], jnp.float32
+    )
+    viewmats = jnp.eye(4, dtype=jnp.float32)[None]
     metrics = step(
         model,
         optimizer,
         strategy_state,
         safety_state,
-        jnp.zeros((1, 32, 32, 3), jnp.float32),
-        jnp.array([[[30.0, 0, 16], [0, 30.0, 16], [0, 0, 1]]], jnp.float32),
-        jnp.eye(4, dtype=jnp.float32)[None],
+        images,
+        intrinsics,
+        viewmats,
         jax.random.key(0),
         jnp.asarray(1),
     )
-    assert int(optimizer.step[...]) == 1
+    assert step.jitted_fn._cache_size() == 1
+    step(
+        model,
+        optimizer,
+        strategy_state,
+        safety_state,
+        images + 0.1,
+        intrinsics,
+        viewmats,
+        jax.random.key(1),
+        jnp.asarray(0),
+    )
+    assert step.jitted_fn._cache_size() == 1
+    assert int(optimizer.step[...]) == 2
     assert int(metrics["active_count"]) == 3
     assert int(metrics["candidate_limit_exceeded_tiles"]) > 0
     assert int(safety_state.max_overflow_tiles[...]) == 0
@@ -2003,13 +2021,13 @@ def test_train_step_accepts_the_pallas_compositor():
     )
 
 
-def test_train_step_accepts_the_cuda_ffi_compositor():
+def test_train_step_accepts_the_cute_compositor():
     assert callable(
         make_train_step(
             TrainConfig(
                 strategy=StrategyConfig(kind="mcmc"),
                 rasterizer=RasterizationConfig(
-                    compositor_backend="cuda_ffi"
+                    compositor_backend="cute"
                 ),
             )
         )
@@ -2017,7 +2035,7 @@ def test_train_step_accepts_the_cuda_ffi_compositor():
 
 
 @pytest.mark.parametrize(
-    "intersection_backend", ["cuda_tile", "cuda_tile_cub"]
+    "intersection_backend", ["cuda_tile", "cute"]
 )
 def test_train_step_accepts_the_cuda_tile_accutile_counter(
     intersection_backend,
@@ -2086,21 +2104,21 @@ def test_distributed_train_step_rejects_the_pallas_compositor():
         )
 
 
-def test_distributed_train_step_supports_the_cuda_ffi_compositor():
-    step = make_distributed_train_step(
-        TrainConfig(
-            strategy=StrategyConfig(kind="mcmc"),
-            rasterizer=RasterizationConfig(
-                compositor_backend="cuda_ffi"
+def test_distributed_train_step_rejects_the_cute_compositor():
+    with pytest.raises(NotImplementedError, match="distributed"):
+        make_distributed_train_step(
+            TrainConfig(
+                strategy=StrategyConfig(kind="mcmc"),
+                rasterizer=RasterizationConfig(
+                    compositor_backend="cute"
+                ),
             ),
-        ),
-        world_size=2,
-    )
-    assert callable(step)
+            world_size=2,
+        )
 
 
 @pytest.mark.parametrize(
-    "intersection_backend", ["pallas", "cuda_tile_cub"]
+    "intersection_backend", ["pallas", "cute"]
 )
 def test_distributed_train_step_rejects_unsupported_accutile_counter(
     intersection_backend,
@@ -2493,12 +2511,12 @@ def test_pallas_memory_estimate_accounts_for_intersection_gradients():
     assert pallas_growth - jax_growth == (128 - 64) * 9 * 4
 
 
-def test_cuda_ffi_train_step_matches_jax():
+def test_cute_train_step_matches_jax():
     devices = jax.devices()
     if not devices or devices[0].platform != "gpu" or "cuda" not in str(
         devices[0]
     ).lower():
-        pytest.skip("CUDA FFI training requires an NVIDIA CUDA GPU")
+        pytest.skip("CuTe training requires an NVIDIA CUDA GPU")
     points = np.asarray(
         [[0.0, 0.0, 3.0], [0.2, 0.0, 3.0], [-0.2, 0.1, 3.0]],
         np.float32,
@@ -2562,7 +2580,7 @@ def test_cuda_ffi_train_step_matches_jax():
         )
 
     expected_metrics, expected_state, expected_step = run("jax")
-    actual_metrics, actual_state, actual_step = run("cuda_ffi")
+    actual_metrics, actual_state, actual_step = run("cute")
 
     assert expected_step == actual_step == 1
     np.testing.assert_allclose(
@@ -2579,13 +2597,13 @@ def test_cuda_ffi_train_step_matches_jax():
             )
 
 
-def test_cuda_ffi_memory_estimate_uses_direct_gaussian_gradients():
+def test_cute_memory_estimate_uses_direct_gaussian_gradients():
     config = TrainConfig(
         model=ModelConfig(capacity=32, bucket_min_capacity=32, sh_degree=0),
         data=DataConfig(root="unused", patch_size=16),
         rasterizer=RasterizationConfig(
             backend="intersections",
-            compositor_backend="cuda_ffi",
+            compositor_backend="cute",
             max_intersections=64,
         ),
     )
@@ -2919,7 +2937,7 @@ def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
     config = TrainConfig(
         normalize_world_space=False,
         model=ModelConfig(capacity=32, bucket_min_capacity=4, sh_degree=0),
-        optimizer=OptimizerConfig(max_steps=1),
+        optimizer=OptimizerConfig(max_steps=2),
         strategy=StrategyConfig(
             refine_start=0,
             refine_stop=2,
@@ -2934,14 +2952,25 @@ def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
         data=DataConfig(
             root="unused", patch_size=4, batch_size=1, num_workers=1
         ),
-        rasterizer=RasterizationConfig(backend="reference", tile_size=4),
-        steps=1,
+        rasterizer=RasterizationConfig(
+            backend="reference",
+            tile_size=4,
+            max_intersections=32,
+            max_candidates_per_tile=512,
+        ),
+        steps=2,
         checkpoint_every=0,
         eval_every=0,
         output_dir=str(tmp_path),
         ssim_lambda=0.0,
     )
     transitions = []
+    train_step_configs = []
+    original_make_train_step = training_module.make_train_step
+
+    def tracked_make_train_step(runtime_config):
+        train_step_configs.append(runtime_config)
+        return original_make_train_step(runtime_config)
 
     monkeypatch.setattr(
         training_module, "load_colmap_scene", lambda *_a, **_k: scene
@@ -2951,6 +2980,9 @@ def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         training_module, "rasterization", _constant_training_rasterization
+    )
+    monkeypatch.setattr(
+        training_module, "make_train_step", tracked_make_train_step
     )
     monkeypatch.setattr(
         training_module, "_check_memory_budget", lambda *_a, **_k: 0
@@ -2964,8 +2996,10 @@ def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
     result = training_module.train(config)
 
     assert transitions == [(4, 16)]
+    assert len(train_step_configs) == 1
     assert result.model.capacity == 4
     assert int(result.model.active_count) == 0
+    assert np.isfinite(result.metrics["loss"])
     assert (
         training_module.load_checkpoint_storage_capacity(result.checkpoint)
         == 4
@@ -4134,6 +4168,11 @@ def test_scheduled_mcmc_grows_before_forward_and_skips_host_refine(
         lambda *_a, **_k: 0,
     )
     monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
+
+    def unexpected_clear_caches():
+        raise AssertionError("capacity growth must not clear global JIT caches")
+
+    monkeypatch.setattr(jax, "clear_caches", unexpected_clear_caches)
     monkeypatch.setattr(MCMCStrategy, "refine", unexpected_host_refine)
     monkeypatch.setattr(
         training_module,
@@ -4163,7 +4202,7 @@ def test_train_resume_reuses_checkpoint_intersection_high_water(
         intersection_bucket_min_capacity=512,
         output_dir=str(tmp_path / "output"),
     )
-    factory_capacities = []
+    factory_shapes = []
     saved_values = []
 
     monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
@@ -4178,6 +4217,9 @@ def test_train_resume_reuses_checkpoint_intersection_high_water(
         "load_checkpoint_intersection_capacity",
         lambda _path: 1_024,
     )
+    monkeypatch.setattr(
+        training_module, "load_checkpoint_candidate_bound", lambda _path: 768
+    )
     monkeypatch.setattr(training_module, "restore_checkpoint", lambda *_a, **_k: 0)
     monkeypatch.setattr(
         training_module, "load_checkpoint_active_prefix", lambda _path: True
@@ -4188,8 +4230,11 @@ def test_train_resume_reuses_checkpoint_intersection_high_water(
     monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
 
     def fake_make_train_step(runtime_config):
-        factory_capacities.append(
-            runtime_config.rasterizer.max_intersections
+        factory_shapes.append(
+            (
+                runtime_config.rasterizer.max_intersections,
+                runtime_config.rasterizer.max_candidates_per_tile,
+            )
         )
         return lambda *_args: {}
 
@@ -4199,10 +4244,15 @@ def test_train_resume_reuses_checkpoint_intersection_high_water(
         step,
         config,
         intersection_capacity,
+        candidate_bound,
         **_kwargs,
     ):
         saved_values.append(
-            (config.rasterizer.max_intersections, intersection_capacity)
+            (
+                config.rasterizer.max_intersections,
+                intersection_capacity,
+                candidate_bound,
+            )
         )
         return directory / f"step_{step:08d}"
 
@@ -4211,8 +4261,8 @@ def test_train_resume_reuses_checkpoint_intersection_high_water(
 
     training_module.train(config, resume_from=tmp_path / "checkpoint")
 
-    assert factory_capacities == [1_024]
-    assert saved_values == [(2_048, 1_024)]
+    assert factory_shapes == [(1_024, 768)]
+    assert saved_values == [(2_048, 1_024, 768)]
 
 
 def test_train_rejects_checkpoint_newer_than_target(monkeypatch, tmp_path):

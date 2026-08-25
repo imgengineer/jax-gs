@@ -46,7 +46,7 @@ def test_projection_backend_does_not_change_the_training_fingerprint():
         config,
         rasterizer=replace(
             config.rasterizer,
-            projection_backend="cuda_ffi_strict",
+            projection_backend="cute",
         ),
     )
 

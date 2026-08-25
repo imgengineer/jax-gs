@@ -25,7 +25,7 @@
 
 ## 📖 简介
 
-`jax-gs` 是一个基于 JAX 与 Flax NNX 构建的高性能、工业级可微 3D / 2D Gaussian Splatting 研发框架。它将 JAX 优秀的函数式编程、自动微分、JIT 编译和多设备 SPMD 分布式能力，与原生 CUDA / CUB / NVIDIA cuTile 硬件加速深度结合。
+`jax-gs` 是一个基于 JAX 与 Flax NNX 构建的高性能、工业级可微 3D / 2D Gaussian Splatting 研发框架。它将 JAX 的函数式编程、自动微分、JIT 编译和多设备 SPMD 分布式能力，与 NVIDIA CUTLASS CuTe DSL 和可选 cuTile 硬件加速深度结合。
 
 项目严格对齐 `gsplat 1.5.3@2b902ff` 的数值精度与拓扑几何定义。在单设备和多 GPU 分布式场景下均提供完整的训练、评估、渲染、位姿/外观联合优化与模型导出能力。
 
@@ -34,18 +34,18 @@
 ## ✨ 核心特性
 
 - **严格数学与拓扑对齐**：完整支持 3DGS、2DGS（法线一致性与深度畸变损失）、3DGUT、Eval3D、相机畸变、Rolling Shutter 与 LiDAR 扩展。严格保证 `MAX_ALPHA = 0.999`、饱和透射率截断与精确梯度传播。
-- **极致的原生 CUDA 加速流水线**：
-  - **CUDA FFI Compositor**：Shared Memory 颜色预加载、Warp / Block 级遮挡饱和快速跳过，前向耗时压至 **315 µs**，反向压至 **966 µs**（RTX 5090 实测）。
-  - **Strict CUDA FFI Projection**：可选的 float32 Pinhole 3DGS 原生稠密投影；严格保持 radii、valid、conics、AccuTile 交点与排序结果，反向使用权威 JAX 重计算 VJP。
-  - **cuTile + CUB Topology**：NVIDIA cuTile AccuTile 几何计数与发射，结合 CUDA FFI / CUB 饱和前缀和、Radix Sort 与并行边界偏移量扫描。
+- **端到端 CuTe DSL 加速流水线**：
+  - **CuTe Compositor**：Shared Memory 颜色预加载、Warp 归约、原生 forward/backward 与 packed Gaussian gradient buffer。
+  - **CuTe Projection**：float32 Pinhole 3DGS 离散投影；权威 JAX covariance/determinant 保证 conic 与 topology 精确一致，反向使用权威 JAX 重计算 VJP。
+  - **CuTe Topology**：AccuTile preparation/count/emission、饱和前缀和、稳定 radix sorting、tile offsets 与 overflow metadata 全部通过 CUTLASS CuTe DSL 实现。
 - **全功能分布式多卡训练（Distributed Multi-GPU）**：
   - 基于 JAX 原生 SPMD 的 Gaussian-Sharding 模型并行与数据并行混合架构。
-  - 支持分布式 3DGS 与 2DGS 训练，各卡渲染局部相机时均可直接调用原生 `cuda_ffi` 算子加速。
+  - 支持分布式 3DGS 与 2DGS 训练；纯 JAX 路径保持完整通用性，支持的单卡 Pinhole 3DGS 配置自动选择 CuTe 流水线。
   - 相机位姿优化（`CameraOptModule`）与神经外观优化（`AppearanceOptModule`）支持跨卡 DDP 梯度同步。
   - 支持分布式 Checkpoint 存储、恢复与跨卡数量弹性 Resharding。
 - **动态分桶与显存安全机制**：
-  - 逻辑容量与物理存储分离，高水位自动分桶扩展，杜绝高斯点数增减引发的频繁 JIT 重编译。
-  - 具备端到端交点溢出检测（Intersection Overflow Detection）与安全步重放（Overflow Replay）。
+  - 逻辑容量与物理存储分离；`active_mask` 更新不改变 shape，每个新的存储/交点 bucket 最多编译一次，bucket 切换不会再清空全局 JAX 编译缓存。
+  - 具备端到端交点溢出检测（Intersection Overflow Detection）与安全步重放（Overflow Replay），checkpoint 会恢复已调优的交点与 tile-candidate 高水位。
 - **现代化训练与稠密化调度**：
   - 基于 Flax NNX 现代模块化设计，内置 Adam 与 Visible Adam 优化器。
   - 支持 DefaultStrategy 与 MCMCStrategy 稠密化策略。
@@ -62,7 +62,7 @@
 
 - Python `>= 3.12`
 - JAX `>= 0.11.0`（CUDA 13 支持）
-- 如需启用可选原生 CUDA 加速，宿主机需要配置 `nvcc`
+- NVIDIA CuTe 路径需要 CUDA 13 GPU；`nvidia-cutlass-dsl[cu13]` 已作为项目依赖安装，无需运行时 `nvcc`
 
 推荐使用现代包管理器 [`uv`](https://docs.astral.sh/uv/)：
 
@@ -86,7 +86,7 @@ uv run python -c "import jax; print('Available JAX Devices:', jax.devices())"
 uv pip install --python .venv/bin/python 'cuda-tile[tileiras]>=1.5.0'
 ```
 
-> **注意**：普通导入和纯 JAX 运行不强制依赖 `cuda.tile` 或外部动态链接库。原生 CUDA FFI 组件会在首次使用时由 `nvcc` 自动即时编译并持久化缓存至 `~/.cache/jax-gs/cuda-ffi/`。
+> **注意**：普通导入和纯 JAX 运行不依赖可选的 `cuda.tile`。CuTe kernel 通过 JAX/CUTLASS DSL 编译并使用项目的持久化 JAX compilation cache；项目不再包含运行时 NVCC 或 CUDA FFI shared-library fallback。
 
 ---
 
@@ -125,12 +125,12 @@ renders, alphas, info = rasterization(
 print("Render Output Shape:", renders.shape)  # [C, H, W, 3]
 print("Alpha Output Shape:", alphas.shape)    # [C, H, W, 1]
 
-# 2. 显式启用最高性能 NVIDIA 原生流水线
+# 2. 显式启用端到端 NVIDIA CuTe 流水线
 config_native = RasterizationConfig(
     backend="intersections",
-    projection_backend="cuda_ffi_strict",
-    compositor_backend="cuda_ffi",
-    intersection_backend="cuda_tile_cub",
+    projection_backend="cute",
+    compositor_backend="cute",
+    intersection_backend="cute",
     intersection_mode="accutile",
     tile_size=16,
     max_intersections=524_288,
@@ -166,7 +166,7 @@ uv run jax-gs init-config \
 ### 2. 模型训练
 
 ```bash
-# 单卡标准训练（支持的环境下会自动启用 CUDA FFI + cuTile CUB 加速）
+# 单卡标准训练（支持的环境下会自动启用端到端 CuTe 加速）
 uv run jax-gs train \
   --config scene_config.json \
   --output outputs/scene_run
@@ -195,10 +195,21 @@ uv run jax-gs train \
   --steps 30000 \
   --target-primitives 1000000
 
-# 显式启用严格原生投影（默认不会自动选择）
+# 显式启用 CuTe 投影
 uv run jax-gs train \
   --config scene_config.json \
-  --projection-backend cuda_ffi_strict
+  --projection-backend cute
+
+# 显存足够时固定全部训练 buffer shape，避免稠密化期间产生新 JIT
+# capacity、intersection 和 candidates 三项都必须覆盖预跑高水位；
+# candidate 超界同样会扩大静态 plan 并触发一次新 JIT。
+uv run jax-gs train \
+  --config scene_config.json \
+  --capacity 1000000 \
+  --bucket-min-capacity 1000000 \
+  --max-intersections 4194304 \
+  --intersection-bucket-min-capacity 4194304 \
+  --max-candidates-per-tile 2048
 
 # 强制使用纯 JAX 后端运行（开发与跨平台对照）
 uv run jax-gs train \
@@ -247,25 +258,25 @@ uv run jax-gs estimate-memory \
 | 模块 | 选项名称 | 说明 | 适用场景 |
 | --- | --- | --- | --- |
 | **Projection** | `jax` | 权威纯 JAX 稠密投影 | 所有相机模型、Antialiased、分布式与大形状 Factor 路径 |
-| | `cuda_ffi_strict` | JAX 相机空间准备 + 原生 CUDA Pinhole 投影；JAX 重计算 VJP | 单卡 float32 Classic Pinhole 3DGS；Antialiased 与 `N >= 262144` 自动回退 JAX |
-| **Compositor** | `jax` | 纯 JAX 实现，具备极致通用性与跨平台性 | CPU / TPU / 通用 GPU / 算法原型验证 |
-| | `cuda_ffi` | **原生 CUDA FFI 算子**：Shared Memory 颜色加载 + Warp/Block 级遮挡跳过 | **推荐生产训练与推理**（单卡/多卡最高速） |
+| | `cute` | JAX 权威 covariance/determinant + CuTe 离散 Pinhole projection；JAX 重计算 VJP | 单卡 float32 Classic Pinhole 3DGS |
+| **Compositor** | `jax` | 纯 JAX 实现，具备完整通用性与跨平台性 | CPU / TPU / 通用 GPU / 算法原型验证 |
+| | `cute` | **CUTLASS CuTe DSL forward/backward**：Shared Memory batches、Warp reduction、packed gradients | **推荐单卡生产训练与推理** |
 | | `pallas` | JAX 原生 Mosaic GPU Pallas 算子 | Pallas GPU 原生实验 |
 | **Intersections** | `auto` / `jax` | 纯 JAX 拓扑与排序流水线 | 跨平台通用 |
-| | `cuda_tile` | NVIDIA cuTile AccuTile 几何计数与发射 | cuTile 原生加速 |
-| | `cuda_tile_cub` | **cuTile + CUDA FFI / CUB** 饱和前缀和、Radix Sort 与并行边界偏移量扫描 | **单卡最速拓扑构建** |
+| | `cute` | **CuTe AccuTile + saturated scan + stable radix + offsets** | **推荐单卡完整拓扑流水线** |
+| | `cuda_tile` | 可选 NVIDIA cuTile AccuTile 几何计数与发射；排序保持 JAX | cuTile 显式实验 |
 | | `pallas` | Pallas AccuTile 计数与发射 | Pallas 拓扑实验 |
 
 ### CLI 原生加速自动路由规则
 
-为降低用户配置成本，CLI 入口在检测到以下环境条件时会自动路由至最快原生组合（`compositor_backend="cuda_ffi"`, `intersection_backend="cuda_tile_cub"`, `intersection_mode="accutile"`）：
+为降低用户配置成本，CLI 入口在检测到支持环境时会自动路由至完整 CuTe 组合（`projection_backend="cute"`, `compositor_backend="cute"`, `intersection_backend="cute"`, `intersection_mode="accutile"`）：
 
 1. Pinhole 相机模型 3DGS（无 UT、Eval3D、AbsGrad、Appearance Optimization）。
-2. NVIDIA GPU Compute Capability $\ge 10.0$。
-3. Python 环境已安装 `cuda.tile` 且宿主机具备可用 `nvcc`。
-4. 单 GPU 训练（多 GPU 分布式训练自动组合 `cuda_ffi` 与 JAX 拓扑）。
+2. 单 GPU、非 distributed 训练。
+3. NVIDIA GPU Compute Capability $\ge 9.0$ 且 CUTLASS DSL 可导入。
+4. `tile_size=16`，使用 float32 Classic rasterization contract。
 
-`projection_backend="cuda_ffi_strict"` 当前仅显式启用，不参与自动路由；这样可避免在原生 backward 完成前改变训练默认值。
+不满足条件时保留权威 JAX 路径；显式传入 backend 参数时 CLI 不覆盖用户选择。
 
 ---
 
@@ -284,7 +295,7 @@ uv run jax-gs estimate-memory \
                                                                   │
                                             ┌─────────────────────┴─────────────────────┐
                                             ▼                                           ▼
-                               [Rank 0: Local Rasterize (CUDA FFI)]        [Rank 1: Local Rasterize (CUDA FFI)]
+                               [Rank 0: Local Rasterize (JAX)]             [Rank 1: Local Rasterize (JAX)]
                                             │                                           │
                                             ▼                                           ▼
                                     [Rank 0: Local Loss]                        [Rank 1: Local Loss]
@@ -306,19 +317,16 @@ uv run jax-gs estimate-memory \
 
 ## 📊 性能评测
 
-在 NVIDIA GeForce RTX 5090 上，针对标准 Garden 场景（138,766 个激活高斯，640×360 分辨率，524,288 容量限制）进行严格的端到端单步耗时测量：
+在 NVIDIA GeForce RTX 5090 上，标准 Garden 场景（138,766 active、640×360、355,211 intersections、524,288 固定容量）的最终交替测量为：
 
-| 模块 / 阶段 | 传统 JAX 纯净实现 | jax-gs 原生 CUDA FFI 优化 | 加速比 |
-| --- | --- | --- | --- |
-| **Compositor Forward** | ~1,250 µs | **315 µs** | **3.97×** |
-| **Compositor Backward** | ~2,030 µs | **651 µs** | **3.12×** |
-| **CUB Sort & Offsets** | ~897 µs | **108 µs** | **8.30×** |
-| **Full Raster Forward** | ~1,585 µs | **606 µs** | **2.61×** |
-| **Value & Grad (Step)** | ~3,450 µs | **1,369 µs** | **2.52×** |
+| 路径 | Forward median | Value-and-grad median |
+| --- | ---: | ---: |
+| **CuTe production** | **约 0.47–0.48 ms** | **约 1.15–1.19 ms** |
+| 迁移前保留基线 | 约 0.43–0.45 ms | 约 1.14–1.17 ms |
 
-严格原生投影的独立配对测量为 **121.8 → 103.8 µs（1.17×）**；完整 Garden 前向 fresh-process 中位数约为 **0.805 → 0.783 ms（1.03×）**。当前 backward 仍重计算权威 JAX 投影，独立 value-and-grad 约为 **326.6 → 341.5 µs**，因此该后端保持显式可选而非默认。
+RGB/RGBD compositor 现在每个 CTA batch 处理 512 个候选、每线程协作加载两个候选；更宽通道仍保留 256 候选 batch，避免提高 shared-memory footprint。交错 Nsight 测量中 compositor forward 为 `206.27→203.23 µs`，backward 为 `528.77→500.67 µs`，完整 value-and-grad 的 GPU kernels 合计为 `1042.68→1012.10 µs`。因此反向 wall time 已基本达到迁移前 CUDA 基线；forward 剩余差距仍主要来自自定义 saturated scan/radix 的额外 device launches。相比迁移初期约 13–18% 的差距，5-bit tile radix、segmented depth radix、launch fusion、packed backward gradient buffer 和 wider compositor batches 已显著收敛性能，同时保持所有动态 topology 字段零 mismatch。
 
-> *注：测试环境为 Ubuntu 24.04, Python 3.12, CUDA 13.3, JAX 0.11.0, RTX 5090 32GB。投影 A/B 测量期间另有 COLMAP 进程占用约 5.6 GiB 显存，分布存在噪声，以上仅报告保守中位数。*
+> *注：测试环境为 Ubuntu 24.04、Python 3.12、CUDA 13、JAX 0.11.0、RTX 5090。桌面 GPU 负载会造成 wall-time 抖动，因此范围来自稳定交替测量，kernel 结论以 Nsight 为准。*
 
 ### 运行性能基准与自动调优工具
 
@@ -330,9 +338,9 @@ uv run python benchmarks/benchmark_rasterization.py \
   --active 138766 \
   --resolution 640x360 \
   --backend intersections \
-  --projection-backend cuda_ffi_strict \
-  --compositor-backend cuda_ffi \
-  --intersection-backend cuda_tile_cub \
+  --projection-backend cute \
+  --compositor-backend cute \
+  --intersection-backend cute \
   --intersection-mode accutile \
   --max-intersections 524288 \
   --max-candidates-per-tile 2048 \

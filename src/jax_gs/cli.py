@@ -4,9 +4,7 @@ import argparse
 from dataclasses import replace
 import importlib.util
 import json
-import os
 from pathlib import Path
-import shutil
 from typing import Sequence
 
 from flax import nnx
@@ -105,25 +103,17 @@ def _native_training_defaults_available() -> bool:
             float(getattr(device, "compute_capability", 0.0))
             for device in devices
         }
-        cutile_available = importlib.util.find_spec("cuda.tile") is not None
+        cute_available = importlib.util.find_spec("cutlass.jax") is not None
     except (ImportError, ModuleNotFoundError, RuntimeError, TypeError, ValueError):
         return False
     if not devices or any(
         "cuda" not in str(device).lower() for device in devices
     ):
         return False
-    # cuda-tile 1.5 rejects Hopper; keep automatic routing conservative.
-    if (
-        len(capabilities) != 1
-        or min(capabilities) < 10.0
-        or not cutile_available
-    ):
-        return False
-    if shutil.which(os.environ.get("JAX_GS_NVCC", "nvcc")):
-        return True
-    return bool(
-        os.environ.get("JAX_GS_CUDA_FFI_LIBRARY")
-        and os.environ.get("JAX_GS_CUDA_INTERSECTIONS_FFI_LIBRARY")
+    return (
+        len(capabilities) == 1
+        and min(capabilities) >= 9.0
+        and cute_available
     )
 
 
@@ -138,6 +128,7 @@ def _apply_training_defaults(
     rasterizer = config.rasterizer
     uses_defaults = (
         rasterizer.backend == "auto"
+        and rasterizer.projection_backend == "jax"
         and rasterizer.compositor_backend == "jax"
         and rasterizer.intersection_backend == "auto"
         and rasterizer.intersection_mode == "auto"
@@ -162,8 +153,9 @@ def _apply_training_defaults(
         rasterizer=replace(
             rasterizer,
             backend="intersections",
-            compositor_backend="cuda_ffi",
-            intersection_backend="cuda_tile_cub",
+            projection_backend="cute",
+            compositor_backend="cute",
+            intersection_backend="cute",
             intersection_mode="accutile",
         ),
     )
@@ -699,28 +691,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument(
         "--projection-backend",
-        choices=("jax", "cuda_ffi_strict"),
+        choices=("jax", "cute"),
         help=(
-            "dense pinhole projection backend; strict CUDA FFI uses native "
-            "forward projection and authoritative JAX-recompute gradients"
+            "dense pinhole projection backend; CuTe uses CUTLASS DSL forward "
+            "projection and authoritative JAX-recompute gradients"
         ),
     )
     train_parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas", "cuda_ffi"),
+        choices=("jax", "pallas", "cute"),
         help=(
-            "compositor used for forward and reverse mode; Pallas requires "
-            "Hopper-or-newer, CUDA FFI requires an NVIDIA GPU and nvcc or "
-            "a prebuilt JAX_GS_CUDA_FFI_LIBRARY"
+            "compositor used for forward and reverse mode; CuTe requires an "
+            "NVIDIA CUDA GPU"
         ),
     )
     train_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile", "cuda_tile_cub"),
-        help=(
-            "use Pallas or NVIDIA cuTile for AccuTile scans; cuda_tile_cub "
-            "also uses CUDA FFI+CUB for prefix, sorting, and offsets"
-        ),
+        choices=("auto", "jax", "pallas", "cuda_tile", "cute"),
+        help="use Pallas, NVIDIA cuTile, or CuTe DSL for AccuTile topology",
     )
     train_parser.add_argument(
         "--intersection-mode",
@@ -777,24 +765,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_parser.add_argument(
         "--projection-backend",
-        choices=("jax", "cuda_ffi_strict"),
+        choices=("jax", "cute"),
         help="dense pinhole projection backend",
     )
     render_parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas", "cuda_ffi"),
-        help=(
-            "experimental compositor; Pallas requires Hopper-or-newer, "
-            "CUDA FFI requires an NVIDIA GPU and nvcc or a prebuilt library"
-        ),
+        choices=("jax", "pallas", "cute"),
+        help="GPU compositor; CuTe requires NVIDIA CUDA",
     )
     render_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile", "cuda_tile_cub"),
-        help=(
-            "use Pallas or NVIDIA cuTile for AccuTile scans; cuda_tile_cub "
-            "also uses CUDA FFI+CUB for prefix, sorting, and offsets"
-        ),
+        choices=("auto", "jax", "pallas", "cuda_tile", "cute"),
+        help="use Pallas, NVIDIA cuTile, or CuTe DSL for AccuTile topology",
     )
     render_parser.add_argument(
         "--intersection-mode",

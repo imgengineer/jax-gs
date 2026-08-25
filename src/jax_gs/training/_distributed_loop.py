@@ -613,8 +613,9 @@ def train_distributed(
     candidate_bound = (
         config.rasterizer.max_candidates_per_tile
         if resume_manifest is None
-        else resume_manifest.get(
-            "candidate_bound", config.rasterizer.max_candidates_per_tile
+        else (
+            resume_manifest.get("candidate_bound")
+            or config.rasterizer.max_candidates_per_tile
         )
     )
     runtime_config = _runtime_training_config(

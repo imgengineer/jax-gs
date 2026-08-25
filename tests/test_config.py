@@ -14,14 +14,18 @@ def test_legacy_gpu_backends_migrate_without_rewriting_current_pallas():
             {
                 "rasterizer": {
                     "backend": "cuda_ffi",
-                    "intersection_backend": "pallas",
+                    "projection_backend": "cuda_ffi_strict",
+                    "compositor_backend": "cuda_ffi",
+                    "intersection_backend": "cuda_tile_cub",
                     "sort_backend": "cuda_ffi",
                 }
             }
         )
 
     assert config.rasterizer.backend == "jax"
-    assert config.rasterizer.intersection_backend == "pallas"
+    assert config.rasterizer.projection_backend == "cute"
+    assert config.rasterizer.compositor_backend == "cute"
+    assert config.rasterizer.intersection_backend == "cute"
     assert config.rasterizer.sort_backend == "jax"
 
 
@@ -41,36 +45,45 @@ def test_removed_cutile_backend_values_map_to_pure_jax():
 def test_compositor_backend_accepts_explicit_gpu_paths():
     assert RasterizationConfig().compositor_backend == "jax"
     pallas = RasterizationConfig(compositor_backend="pallas")
-    cuda_ffi = RasterizationConfig(compositor_backend="cuda_ffi")
+    cute = RasterizationConfig(compositor_backend="cute")
     assert pallas.compositor_backend == "pallas"
-    assert cuda_ffi.compositor_backend == "cuda_ffi"
+    assert cute.compositor_backend == "cute"
     with pytest.raises(ValueError, match="compositor_backend"):
         RasterizationConfig(compositor_backend="invalid")
-    for compositor_backend in ("pallas", "cuda_ffi"):
+    with pytest.raises(ValueError, match="compositor_backend"):
+        RasterizationConfig(compositor_backend="cuda_ffi")
+    for compositor_backend in ("pallas", "cute"):
         with pytest.raises(ValueError, match="intersections backend"):
             RasterizationConfig(
                 backend="reference", compositor_backend=compositor_backend
             )
 
 
-def test_projection_backend_accepts_explicit_strict_cuda_path():
+def test_projection_backend_accepts_cute_and_rejects_removed_cuda_path():
     assert RasterizationConfig().projection_backend == "jax"
-    config = RasterizationConfig(projection_backend="cuda_ffi_strict")
-    assert config.projection_backend == "cuda_ffi_strict"
+    cute = RasterizationConfig(projection_backend="cute")
+    assert cute.projection_backend == "cute"
+    with pytest.raises(ValueError, match="projection_backend"):
+        RasterizationConfig(projection_backend="cuda_ffi_strict")
     with pytest.raises(ValueError, match="projection_backend"):
         RasterizationConfig(projection_backend="invalid")
     with pytest.raises(ValueError, match="intersections backend"):
         RasterizationConfig(
-            backend="reference", projection_backend="cuda_ffi_strict"
+            backend="reference", projection_backend="cute"
         )
 
 
 @pytest.mark.parametrize(
-    "backend", ["pallas", "cuda_tile", "cuda_tile_cub"]
+    "backend", ["pallas", "cuda_tile", "cute"]
 )
 def test_intersection_backend_accepts_explicit_gpu_paths(backend):
     config = RasterizationConfig(intersection_backend=backend)
     assert config.intersection_backend == backend
+
+
+def test_intersection_backend_rejects_removed_cuda_ffi_path():
+    with pytest.raises(ValueError, match="intersection_backend"):
+        RasterizationConfig(intersection_backend="cuda_tile_cub")
 
 
 def test_2dgs_training_config_round_trips_upstream_regularizers(tmp_path):

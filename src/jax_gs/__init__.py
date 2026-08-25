@@ -23,7 +23,7 @@ os.environ.setdefault(
 )
 
 from .api import PaddedProjection, fully_fused_projection
-from ._cuda_projection_ffi import fully_fused_projection_cuda_ffi
+from ._cute_projection import fully_fused_projection_cute
 from .cameras import proj, world_to_cam
 from .capabilities import (
     has_2dgs,
@@ -37,6 +37,7 @@ from .capabilities import (
 from .checkpoints import (
     is_distributed_checkpoint,
     load_checkpoint_appearance_image_names,
+    load_checkpoint_candidate_bound,
     load_checkpoint_config,
     load_checkpoint_intersection_capacity,
     load_checkpoint_scene_transform,
@@ -225,7 +226,7 @@ __all__ = [
     "export_splat",
     "export_splats",
     "fully_fused_projection",
-    "fully_fused_projection_cuda_ffi",
+    "fully_fused_projection_cute",
     "fully_fused_projection_2dgs",
     "fully_fused_projection_with_ut",
     "gaussian_density_reg",
@@ -244,6 +245,7 @@ __all__ = [
     "isect_tiles_sparse",
     "is_distributed_checkpoint",
     "load_checkpoint_appearance_image_names",
+    "load_checkpoint_candidate_bound",
     "load_checkpoint_config",
     "load_checkpoint_intersection_capacity",
     "load_checkpoint_scene_transform",

@@ -178,6 +178,10 @@ if [[ "${RUN_GPU_TESTS:-0}" == "1" ]]; then
   # state from accumulating inside pytest, which has produced pxla/ptxas
   # crashes on the local CUDA 13.3 + Blackwell stack.
   run_gpu_test_file_by_case tests/test_accutile_intersections.py
+  run_gpu_test_file_by_case tests/test_cute_bridge.py
+  run_gpu_test_file_by_case tests/test_cute_compositor.py
+  run_gpu_test_file_by_case tests/test_cute_intersections.py
+  run_gpu_test_file_by_case tests/test_cute_projection.py
   run_gpu_test_file_by_case tests/test_pallas_compositor.py
   run_gpu_test_file_by_case tests/test_rasterization_jax.py
   run_gpu_test_file_by_case tests/test_training.py

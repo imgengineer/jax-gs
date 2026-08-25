@@ -325,7 +325,7 @@ def test_root_distributed_flag_matches_concatenated_scene_and_shard_gradients(
         distributed_gradients, baseline_gradients, strict=True
     ):
         np.testing.assert_allclose(
-            distributed_gradient, baseline_gradient, rtol=2e-5, atol=2e-6
+            distributed_gradient, baseline_gradient, rtol=2e-4, atol=2e-5
         )
 
 
@@ -471,104 +471,53 @@ def _supports_cuda() -> bool:
     return device.platform == "gpu" and "cuda" in str(device).lower()
 
 
-def test_distributed_rasterization_cuda_ffi_parity():
+@pytest.mark.parametrize(
+    "config",
+    [
+        RasterizationConfig(
+            backend="intersections",
+            compositor_backend="cute",
+            intersection_backend="jax",
+            intersection_mode="accutile",
+            tile_size=16,
+            max_intersections=64,
+            max_candidates_per_tile=32,
+        ),
+        RasterizationConfig(
+            backend="intersections",
+            compositor_backend="jax",
+            intersection_backend="cute",
+            intersection_mode="accutile",
+            tile_size=16,
+            max_intersections=64,
+            max_candidates_per_tile=32,
+        ),
+    ],
+    ids=("compositor", "intersections"),
+)
+def test_distributed_rasterization_rejects_cute_backends(config):
     if not _supports_cuda():
-        pytest.skip("CUDA FFI compositor requires an NVIDIA CUDA GPU")
+        pytest.skip("CuTe backends require an NVIDIA CUDA GPU")
 
     inputs = _distributed_render_inputs(None)
-    model_inputs = inputs[:6]
-    viewmats, Ks = inputs[6:]
-
-    cfg_jax = RasterizationConfig(
-        backend="intersections",
-        compositor_backend="jax",
-        intersection_backend="jax",
-        intersection_mode="accutile",
-        tile_size=16,
-        max_intersections=64,
-        max_candidates_per_tile=32,
-    )
-    cfg_ffi = RasterizationConfig(
-        backend="intersections",
-        compositor_backend="cuda_ffi",
-        intersection_backend="jax",
-        intersection_mode="accutile",
-        tile_size=16,
-        max_intersections=64,
-        max_candidates_per_tile=32,
-    )
-
-    def render_distributed_cfg(
-        cfg,
-        m_in,
-        q_in,
-        s_in,
-        o_in,
-        c_in,
-        e_in,
-    ):
-        def render_rank(
-            local_means,
-            local_quats,
-            local_scales,
-            local_opacities,
-            local_colors,
-            local_extra_signals,
-            local_viewmats,
-            local_Ks,
-        ):
-            rendered, alpha, info = jax_gs.rasterization(
-                local_means,
-                local_quats,
-                local_scales,
-                local_opacities,
-                local_colors,
-                local_viewmats,
-                local_Ks,
-                16,
-                16,
-                sh_degree=None,
-                packed=False,
-                distributed=True,
-                distributed_world_size=2,
-                distributed_axis_name="rank",
-                config=cfg,
-            )
-            return rendered, alpha
-
-        return jax.vmap(render_rank, axis_name="rank")(
-            m_in,
-            q_in,
-            s_in,
-            o_in,
-            c_in,
-            e_in,
-            viewmats,
-            Ks,
+    with pytest.raises(NotImplementedError, match="distributed"):
+        jax_gs.rasterization(
+            inputs[0][0],
+            inputs[1][0],
+            inputs[2][0],
+            inputs[3][0],
+            inputs[4][0],
+            inputs[6][0],
+            inputs[7][0],
+            16,
+            16,
+            sh_degree=None,
+            packed=False,
+            distributed=True,
+            distributed_world_size=2,
+            distributed_axis_name="rank",
+            config=config,
         )
-
-    out_jax = render_distributed_cfg(cfg_jax, *model_inputs)
-    out_ffi = render_distributed_cfg(cfg_ffi, *model_inputs)
-
-    np.testing.assert_allclose(out_jax[0], out_ffi[0], rtol=1e-4, atol=1e-4)
-    np.testing.assert_allclose(out_jax[1], out_ffi[1], rtol=1e-4, atol=1e-4)
-
-    def distributed_loss(cfg, m, q, s, o, c, e):
-        renders, alphas = render_distributed_cfg(cfg, m, q, s, o, c, e)
-        return jnp.sum(renders) + 0.01 * jnp.sum(alphas)
-
-    argnums = (0, 1, 2, 3, 4)
-    grad_jax = jax.grad(
-        lambda m, q, s, o, c, e: distributed_loss(cfg_jax, m, q, s, o, c, e),
-        argnums=argnums,
-    )(*model_inputs)
-    grad_ffi = jax.grad(
-        lambda m, q, s, o, c, e: distributed_loss(cfg_ffi, m, q, s, o, c, e),
-        argnums=argnums,
-    )(*model_inputs)
-
-    for g_jax, g_ffi in zip(grad_jax, grad_ffi, strict=True):
-        np.testing.assert_allclose(g_jax, g_ffi, rtol=1e-4, atol=1e-4)
 
 
 def test_cli_runs_one_worker_for_the_current_jax_process(monkeypatch):

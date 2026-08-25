@@ -18,6 +18,7 @@ from jax_gs.capacity import (
 )
 from jax_gs.checkpoints import (
     load_checkpoint_appearance_image_names,
+    load_checkpoint_candidate_bound,
     load_checkpoint_config,
     load_checkpoint_intersection_capacity,
     load_checkpoint_storage_capacity,
@@ -445,6 +446,7 @@ def test_checkpoint_records_physical_capacity_separately_from_logical_maximum(
         step=7,
         config=config,
         intersection_capacity=131_072,
+        candidate_bound=2_048,
     )
     metadata = json.loads(
         (checkpoint / "jax_gs_checkpoint.json").read_text(encoding="utf-8")
@@ -452,8 +454,10 @@ def test_checkpoint_records_physical_capacity_separately_from_logical_maximum(
     assert metadata["storage_capacity"] == 8
     assert metadata["max_capacity"] == 16
     assert metadata["intersection_capacity"] == 131_072
+    assert metadata["candidate_bound"] == 2_048
     assert load_checkpoint_storage_capacity(checkpoint) == 8
     assert load_checkpoint_intersection_capacity(checkpoint) == 131_072
+    assert load_checkpoint_candidate_bound(checkpoint) == 2_048
     assert load_checkpoint_config(checkpoint).model.capacity == 16
 
     wrong_shape = GaussianModel.empty(model_config, physical_capacity=4)

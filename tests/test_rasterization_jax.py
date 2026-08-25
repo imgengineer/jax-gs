@@ -2040,10 +2040,10 @@ def test_pallas_compositor_matches_high_level_jax_gradients(
         )
 
 
-@pytest.mark.parametrize("compositor_backend", ["pallas", "cuda_ffi"])
+@pytest.mark.parametrize("compositor_backend", ["pallas", "cute"])
 def test_gpu_compositors_reject_eval3d(compositor_backend):
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
-    with pytest.raises(NotImplementedError, match="Pallas.*CUDA FFI.*Eval3D"):
+    with pytest.raises(NotImplementedError, match="optimized.*Eval3D"):
         rasterization(
             means,
             quats,
@@ -2061,35 +2061,35 @@ def test_gpu_compositors_reject_eval3d(compositor_backend):
         )
 
 
-def test_cuda_ffi_supports_single_rank_distributed_rasterization():
+def test_cute_rejects_single_rank_distributed_rasterization():
     device = jax.devices()[0]
     if device.platform != "gpu" or "cuda" not in str(device).lower():
-        pytest.skip("CUDA FFI requires a CUDA GPU")
+        pytest.skip("CuTe requires a CUDA GPU")
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
     config = RasterizationConfig(
         backend="intersections",
-        compositor_backend="cuda_ffi",
+        compositor_backend="cute",
         max_intersections=64,
     )
-    expected = rasterization(
-        means, quats, scales, opacities, colors, viewmats, Ks, 32, 32,
-        config=config,
-    )
-    actual = rasterization(
-        means, quats, scales, opacities, colors, viewmats, Ks, 32, 32,
-        distributed=True,
-        config=config,
-    )
+    with pytest.raises(NotImplementedError, match="distributed"):
+        rasterization(
+            means,
+            quats,
+            scales,
+            opacities,
+            colors,
+            viewmats,
+            Ks,
+            32,
+            32,
+            distributed=True,
+            config=config,
+        )
 
-    np.testing.assert_array_equal(np.asarray(actual[0]), np.asarray(expected[0]))
-    np.testing.assert_array_equal(np.asarray(actual[1]), np.asarray(expected[1]))
-    assert int(actual[2]["distributed_world_size"]) == 1
-    assert bool(actual[2]["distributed_requested"])
 
-
-def test_cuda_ffi_rejects_high_level_absgrad():
+def test_cute_rejects_high_level_absgrad():
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
-    with pytest.raises(NotImplementedError, match="CUDA FFI.*AbsGrad"):
+    with pytest.raises(NotImplementedError, match="optimized.*AbsGrad"):
         rasterization(
             means,
             quats,
@@ -2104,7 +2104,7 @@ def test_cuda_ffi_rejects_high_level_absgrad():
             _means2d_absgrad_probe=jnp.zeros((1, 4, 2), jnp.float32),
             config=RasterizationConfig(
                 backend="intersections",
-                compositor_backend="cuda_ffi",
+                compositor_backend="cute",
                 max_intersections=64,
             ),
         )

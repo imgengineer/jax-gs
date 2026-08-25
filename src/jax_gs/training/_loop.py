@@ -82,6 +82,16 @@ class TrainingResult:
     appearance: AppearanceOptModule | None = None
 
 
+def _clear_obsolete_train_step_cache(train_step: Any) -> None:
+    """Evict only an obsolete train-step plan, never unrelated JAX caches."""
+
+    clear_cache = getattr(
+        getattr(train_step, "jitted_fn", None), "clear_cache", None
+    )
+    if callable(clear_cache):
+        clear_cache()
+
+
 def make_render_step(config: TrainConfig, width: int, height: int):
     _validate_2dgs_mode(config)
 
@@ -468,7 +478,14 @@ def train(
         minimum=config.intersection_bucket_min_capacity,
         maximum=intersection_limit,
     )
-    candidate_bound = config.rasterizer.max_candidates_per_tile
+    candidate_bound = (
+        config.rasterizer.max_candidates_per_tile
+        if resume_from is None
+        else (
+            _training.load_checkpoint_candidate_bound(resume_from)
+            or config.rasterizer.max_candidates_per_tile
+        )
+    )
 
     def _runtime_training_config(
         intersection_capacity: int, candidate_bound: int | None
@@ -800,8 +817,8 @@ def train(
                 image_height=training_height,
                 image_width=training_width,
             )
+            _clear_obsolete_train_step_cache(train_step)
             del train_step
-            jax.clear_caches()
             gc.collect()
             runtime_config = next_runtime_config
             candidate_bound = next_candidate_bound
@@ -840,8 +857,8 @@ def train(
             runtime_config = _runtime_training_config(
                 intersection_capacity, tuned_bound
             )
+            _clear_obsolete_train_step_cache(train_step)
             del train_step
-            jax.clear_caches()
             gc.collect()
             train_step = _training.make_train_step(runtime_config)
             print(f"candidate_bound_tuned={tuned_bound}", flush=True)
@@ -903,8 +920,6 @@ def train(
                     image_height=training_height,
                     image_width=training_width,
                 )
-                jax.clear_caches()
-                gc.collect()
                 print(
                     f"capacity_growth={old_capacity}->{target_capacity} "
                     f"required={required_capacity}",
@@ -981,11 +996,8 @@ def train(
                     image_height=training_height,
                     image_width=training_width,
                 )
-                # Bucket shapes only grow, so the old executable will never be
-                # reused. Release its compiler cache before compiling the next
-                # large shape to avoid cumulative host-memory pressure.
-                jax.clear_caches()
-                gc.collect()
+                # Keep prior bucket executables cached: compaction can revisit
+                # them, and a global clear would invalidate unrelated JITs.
                 print(
                     f"capacity_growth={old_capacity}->{target_capacity} "
                     f"required={required_capacity}",
@@ -1071,13 +1083,15 @@ def train(
                         minimum=config.intersection_bucket_min_capacity,
                         maximum=intersection_limit,
                     )
-                runtime_config = _runtime_training_config(
+                next_runtime_config = _runtime_training_config(
                     intersection_capacity, candidate_bound
                 )
-                del train_step
-                jax.clear_caches()
-                gc.collect()
-                train_step = _training.make_train_step(runtime_config)
+                if next_runtime_config != runtime_config:
+                    runtime_config = next_runtime_config
+                    _clear_obsolete_train_step_cache(train_step)
+                    del train_step
+                    gc.collect()
+                    train_step = _training.make_train_step(runtime_config)
                 print(
                     f"capacity_compaction={old_capacity}->{model.capacity} "
                     f"active={compacted_count}",
@@ -1148,6 +1162,7 @@ def train(
                 step=step,
                 config=config,
                 intersection_capacity=intersection_capacity,
+                candidate_bound=candidate_bound,
                 scene_transform=transform,
                 scene_scale=scene_scale,
                 pose_adjust=pose_adjust,
@@ -1200,6 +1215,7 @@ def train(
             step=config.steps,
             config=config,
             intersection_capacity=intersection_capacity,
+            candidate_bound=candidate_bound,
             scene_transform=transform,
             scene_scale=scene_scale,
             pose_adjust=pose_adjust,

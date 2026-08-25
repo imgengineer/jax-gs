@@ -183,8 +183,9 @@ def test_train_cli_uses_native_defaults_when_supported(monkeypatch):
 
     rasterizer = captured["config"].rasterizer
     assert rasterizer.backend == "intersections"
-    assert rasterizer.compositor_backend == "cuda_ffi"
-    assert rasterizer.intersection_backend == "cuda_tile_cub"
+    assert rasterizer.projection_backend == "cute"
+    assert rasterizer.compositor_backend == "cute"
+    assert rasterizer.intersection_backend == "cute"
     assert rasterizer.intersection_mode == "accutile"
 
 
@@ -276,14 +277,14 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
         ["train", "--compositor-backend", "pallas"]
     )
     pallas_args.func(pallas_args)
-    cuda_ffi_args = parser.parse_args(
-        ["train", "--compositor-backend", "cuda_ffi"]
+    cute_compositor_args = parser.parse_args(
+        ["train", "--compositor-backend", "cute"]
     )
-    cuda_ffi_args.func(cuda_ffi_args)
-    cuda_tile_cub_args = parser.parse_args(
-        ["train", "--intersection-backend", "cuda_tile_cub"]
+    cute_compositor_args.func(cute_compositor_args)
+    cute_intersection_args = parser.parse_args(
+        ["train", "--intersection-backend", "cute"]
     )
-    cuda_tile_cub_args.func(cuda_tile_cub_args)
+    cute_intersection_args.func(cute_intersection_args)
 
     sparse_config, sparse_resume = captured[0]
     assert sparse_config.packed
@@ -298,15 +299,12 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     pallas_config, pallas_resume = captured[2]
     assert pallas_config.rasterizer.compositor_backend == "pallas"
     assert pallas_resume is None
-    cuda_ffi_config, cuda_ffi_resume = captured[3]
-    assert cuda_ffi_config.rasterizer.compositor_backend == "cuda_ffi"
-    assert cuda_ffi_resume is None
-    cuda_tile_cub_config, cuda_tile_cub_resume = captured[4]
-    assert (
-        cuda_tile_cub_config.rasterizer.intersection_backend
-        == "cuda_tile_cub"
-    )
-    assert cuda_tile_cub_resume is None
+    cute_compositor_config, cute_compositor_resume = captured[3]
+    assert cute_compositor_config.rasterizer.compositor_backend == "cute"
+    assert cute_compositor_resume is None
+    cute_intersection_config, cute_intersection_resume = captured[4]
+    assert cute_intersection_config.rasterizer.intersection_backend == "cute"
+    assert cute_intersection_resume is None
 
 
 def test_train_cli_exposes_target_primitives(monkeypatch):

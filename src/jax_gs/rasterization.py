@@ -16,7 +16,7 @@ from .external_distortion import (
     BivariateWindshieldModelParameters,
     validate_external_distortion,
 )
-from .intersections import _prepare_accutile_state_jax, intersect_tiles
+from .intersections import intersect_tiles
 from .lidar import RowOffsetStructuredSpinningLidarModelParametersExt
 from .lidar_intersections import isect_tiles_lidar
 from .low_level import (
@@ -781,9 +781,9 @@ def _render_camera_intersections(
     use_fused = (
         means2d.shape[0] > 0
         and intersection_capacity > 0
-        and config.projection_backend == "cuda_ffi_strict"
-        and config.intersection_backend == "cuda_tile_cub"
-        and config.compositor_backend == "cuda_ffi"
+        and config.projection_backend == "cute"
+        and config.intersection_backend == "cute"
+        and config.compositor_backend == "cute"
         and config.rasterize_mode == "classic"
         and config.intersection_mode != "aabb"
         and tile_size == 16
@@ -794,35 +794,24 @@ def _render_camera_intersections(
     )
     if use_fused:
         assert colors is not None
-        topology_state = _prepare_accutile_state_jax(
-            jax.lax.stop_gradient(means2d),
-            jax.lax.stop_gradient(radii),
-            jax.lax.stop_gradient(conics),
-            jax.lax.stop_gradient(opacities),
-            jax.lax.stop_gradient(valid)
-            & jnp.isfinite(jax.lax.stop_gradient(depths)),
-            tile_size=tile_size,
-            tile_width=tile_width,
-            tile_height=tile_height,
-            alpha_threshold=config.alpha_clip,
-        )
         feature_background = (
             jnp.zeros((colors.shape[-1],), dtype=colors.dtype)
             if background is None
             else background
         )
-        from ._cuda_intersections_ffi import (
-            rasterize_accutile_cuda_ffi_fused,
+        from ._cute_intersections import (
+            rasterize_accutile_cute_raw_fused as fused_rasterize,
         )
 
-        with jax.named_scope("intersection_compositor_cuda_ffi_fused"):
-            rendered, alphas, fused_info = rasterize_accutile_cuda_ffi_fused(
-                topology_state,
+        with jax.named_scope("intersection_compositor_cute_raw_fused"):
+            rendered, alphas, fused_info = fused_rasterize(
+                radii,
                 depths,
                 means2d,
                 conics,
                 colors,
                 opacities,
+                valid,
                 capacity=intersection_capacity,
                 tile_size=tile_size,
                 tile_width=tile_width,
@@ -906,11 +895,10 @@ def _render_camera_intersections(
     if feature_background is None:
         feature_background = jnp.zeros((features.shape[-1],), dtype=features.dtype)
 
-    if config.compositor_backend in {"pallas", "cuda_ffi"}:
+    if config.compositor_backend in {"pallas", "cute"}:
         if absgrad_probe is not None:
             raise NotImplementedError(
-                "the experimental Pallas and CUDA FFI compositors do not "
-                "support AbsGrad"
+                "the experimental optimized compositors do not support AbsGrad"
             )
         with jax.named_scope(f"compositing_{config.compositor_backend}"):
             if config.compositor_backend == "pallas":
@@ -932,12 +920,10 @@ def _render_camera_intersections(
                     alpha_threshold=config.alpha_clip,
                     transmittance_threshold=config.transmittance_eps,
                 )
-            else:
-                # Keep the native extension, nvcc discovery, and source lookup
-                # fully lazy for ordinary imports and the default JAX path.
-                from ._cuda_ffi import rasterize_to_pixels_cuda_ffi
+            elif config.compositor_backend == "cute":
+                from ._cute_compositor import rasterize_to_pixels_cute
 
-                rendered, alphas, low_info = rasterize_to_pixels_cuda_ffi(
+                rendered, alphas, low_info = rasterize_to_pixels_cute(
                     means2d,
                     conics,
                     features,
@@ -1569,37 +1555,42 @@ def rasterization(
     it while passing ``absgrad=True``; it never changes forward values.
     """
 
-    if config.intersection_backend == "cuda_tile_cub":
-        if with_eval3d or with_ut or camera_model != "pinhole":
-            raise NotImplementedError(
-                "the cuTile+CUB intersection backend currently supports "
-                "single-camera-style pinhole 3DGS AccuTile rendering only"
-            )
-    if config.projection_backend == "cuda_ffi_strict":
+    if config.intersection_backend == "cute":
         if distributed:
             raise NotImplementedError(
-                "the strict CUDA FFI projection does not support distributed rendering"
+                "the CuTe intersection backend does not support distributed rendering"
+            )
+        if with_eval3d or with_ut or camera_model != "pinhole":
+            raise NotImplementedError(
+                "the optimized AccuTile intersection backend currently supports "
+                "single-camera-style pinhole 3DGS only"
+            )
+    if config.projection_backend == "cute":
+        if distributed:
+            raise NotImplementedError(
+                "the optimized projection does not support distributed rendering"
             )
         if sparse_grad:
             raise NotImplementedError(
-                "the strict CUDA FFI projection does not support sparse_grad"
+                "the optimized projection does not support sparse_grad"
             )
         if with_ut or with_eval3d or camera_model != "pinhole" or covars is not None:
             raise NotImplementedError(
-                "the strict CUDA FFI projection supports pinhole quaternion/scale "
-                "3DGS only"
+                "the optimized projection supports pinhole quaternion/scale 3DGS only"
             )
     if _means2d_absgrad_probe is not None and not absgrad:
         raise ValueError("_means2d_absgrad_probe requires absgrad=True")
-    if config.compositor_backend in {"pallas", "cuda_ffi"} and absgrad:
+    if distributed and config.compositor_backend == "cute":
         raise NotImplementedError(
-            "the experimental Pallas and CUDA FFI compositors do not "
-            "support AbsGrad"
+            "the CuTe compositor does not support distributed rendering"
         )
-    if config.compositor_backend in {"pallas", "cuda_ffi"} and with_eval3d:
+    if config.compositor_backend in {"pallas", "cute"} and absgrad:
         raise NotImplementedError(
-            "the experimental Pallas and CUDA FFI compositors do not "
-            "support Eval3D"
+            "the optimized compositors do not support AbsGrad"
+        )
+    if config.compositor_backend in {"pallas", "cute"} and with_eval3d:
+        raise NotImplementedError(
+            "the optimized compositors do not support Eval3D"
         )
     if _means2d_absgrad_probe is not None and with_eval3d:
         raise ValueError(
@@ -2204,10 +2195,12 @@ def rasterization(
             )
     else:
         with jax.named_scope("projection"):
-            if config.projection_backend == "cuda_ffi_strict":
-                from ._cuda_projection_ffi import fully_fused_projection_cuda_ffi
+            if config.projection_backend == "cute":
+                from ._cute_projection import (
+                    fully_fused_projection_cute as project,
+                )
 
-                projection_outputs = fully_fused_projection_cuda_ffi(
+                projection_outputs = project(
                     means,
                     viewmats,
                     Ks,
@@ -2440,6 +2433,7 @@ def rasterization(
         "eval3d_world_space": jnp.asarray(with_eval3d),
         "distributed_world_size": jnp.asarray(1, dtype=jnp.int32),
         "distributed_requested": jnp.asarray(distributed),
+        "distributed_feature_exchange": jnp.asarray(False),
         "packed_requested": packed_requested,
         "packed_metadata_available": jnp.asarray(
             packed_metadata_available

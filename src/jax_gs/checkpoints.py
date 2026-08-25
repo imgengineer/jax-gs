@@ -1512,6 +1512,7 @@ def save_checkpoint(
     strategy_state: StrategyState | None = None,
     config: TrainConfig | None = None,
     intersection_capacity: int | None = None,
+    candidate_bound: int | None = None,
     pose_module: Any | None = None,
     pose_optimizer: nnx.Optimizer | None = None,
     pose_image_names: Sequence[str] | None = None,
@@ -1528,6 +1529,10 @@ def save_checkpoint(
         intersection_capacity = int(intersection_capacity)
         if intersection_capacity <= 0:
             raise ValueError("intersection_capacity must be positive")
+    if candidate_bound is not None:
+        candidate_bound = int(candidate_bound)
+        if candidate_bound <= 0:
+            raise ValueError("candidate_bound must be positive")
     has_scene_transform = scene_transform is not None
     has_scene_scale = scene_scale is not None
     if has_scene_transform != has_scene_scale:
@@ -1616,6 +1621,7 @@ def save_checkpoint(
         "active_count": active_count,
         "active_prefix": active_prefix,
         "intersection_capacity": intersection_capacity,
+        "candidate_bound": candidate_bound,
     }
     if pose is not None:
         names, camera_count = pose
@@ -1913,6 +1919,22 @@ def load_checkpoint_intersection_capacity(
     if capacity <= 0:
         raise ValueError("checkpoint intersection capacity must be positive")
     return capacity
+
+
+def load_checkpoint_candidate_bound(checkpoint_path: str | Path) -> int | None:
+    """Return the learned compositor candidate bound, if present."""
+
+    metadata_path = Path(checkpoint_path) / _CHECKPOINT_METADATA
+    if not metadata_path.is_file():
+        return None
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    value = metadata.get("candidate_bound")
+    if value is None:
+        return None
+    bound = int(value)
+    if bound <= 0:
+        raise ValueError("checkpoint candidate bound must be positive")
+    return bound
 
 
 def load_checkpoint_active_prefix(checkpoint_path: str | Path) -> bool:

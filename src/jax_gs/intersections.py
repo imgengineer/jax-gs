@@ -574,9 +574,9 @@ def intersect_tiles(
     sorted normally and ``overflow`` is set. ``backend='pallas'`` replaces
     the AccuTile count and pair-emission scans; geometry preparation, prefix
     sums, sorting, and offsets deliberately remain in JAX. The explicit
-    ``backend='cuda_tile'`` option uses NVIDIA cuTile for the same two scans.
-    ``backend='cuda_tile_cub'`` additionally moves the saturated prefix,
-    fixed-capacity sort, and tile-offset construction into CUDA FFI+CUB.
+    ``backend='cuda_tile'`` option uses NVIDIA cuTile for the same two scans,
+    while ``backend='cute'`` runs the complete fixed-capacity topology through
+    CUTLASS CuTe DSL.
     """
 
     tile_size = _static_int("tile_size", tile_size, minimum=1)
@@ -588,11 +588,10 @@ def intersect_tiles(
         "jax",
         "pallas",
         "cuda_tile",
-        "cuda_tile_cub",
+        "cute",
     }:
         raise ValueError(
-            "backend must be 'auto', 'jax', 'pallas', 'cuda_tile', or "
-            "'cuda_tile_cub'"
+            "backend must be 'auto', 'jax', 'pallas', 'cuda_tile', or 'cute'"
         )
     if sort_backend not in {"auto", "jax"}:
         raise ValueError("sort_backend must be 'auto' or 'jax'")
@@ -617,10 +616,10 @@ def intersect_tiles(
         raise ValueError("radii must have shape [N, 2]")
     if depths.shape != (gaussian_count,):
         raise ValueError("depths must have shape [N]")
-    if backend == "cuda_tile_cub" and depths.dtype != jnp.float32:
+    if backend == "cute" and depths.dtype != jnp.float32:
         raise ValueError(
-            "backend='cuda_tile_cub' requires float32 depths to preserve "
-            "exact sort ordering"
+            f"backend={backend!r} requires float32 depths to preserve exact "
+            "sort ordering"
         )
     if valid.shape != (gaussian_count,):
         raise ValueError("valid must have shape [N]")
@@ -652,14 +651,79 @@ def intersect_tiles(
 
     tight_inputs = conics is not None and opacities is not None
     use_accutile = mode != "aabb" and tight_inputs
-    if backend == "cuda_tile_cub" and not use_accutile:
+    if backend == "cute" and not use_accutile:
         raise ValueError(
-            "backend='cuda_tile_cub' requires opacity-aware AccuTile inputs"
+            f"backend={backend!r} requires opacity-aware AccuTile inputs"
         )
     accutile_state = None
     min_x = min_y = span_x = None
     if mode == "accutile" and not tight_inputs:
         raise ValueError("mode='accutile' requires conics and opacities")
+
+    if backend == "cute":
+        if tile_size != 16:
+            raise ValueError("backend='cute' requires tile_size=16")
+        assert conics is not None
+        assert opacities is not None
+        from ._cute_intersections import (
+            _emit_accutile_intersections_cute,
+            _prepare_accutile_counts_cute,
+            intersection_prefix_cute,
+            intersection_sort_offsets_cute,
+        )
+
+        with jax.named_scope("intersection_accutile_cute"):
+            state_floats, state_bounds, state_is_y, counts = (
+                _prepare_accutile_counts_cute(
+                    means2d,
+                    radii,
+                    depths,
+                    conics,
+                    opacities,
+                    valid,
+                    tile_width=tile_width,
+                    tile_height=tile_height,
+                    alpha_threshold=alpha_threshold,
+                )
+            )
+            cumulative, valid_count, overflow, required_count = (
+                intersection_prefix_cute(counts, capacity=capacity)
+            )
+            if capacity == 0:
+                return TileIntersections(
+                    padded_gaussians,
+                    padded_tiles,
+                    empty_offsets,
+                    valid_count,
+                    overflow,
+                    required_count,
+                )
+            gaussian_ids, tile_ids = _emit_accutile_intersections_cute(
+                state_floats,
+                state_bounds,
+                state_is_y,
+                cumulative,
+                valid_count,
+                capacity=capacity,
+                tile_width=tile_width,
+            )
+            gaussian_ids, tile_ids, offsets, valid_count = (
+                intersection_sort_offsets_cute(
+                    gaussian_ids,
+                    tile_ids,
+                    depths,
+                    valid_count,
+                    tile_count=tile_count,
+                )
+            )
+        return TileIntersections(
+            gaussian_ids,
+            tile_ids,
+            offsets.reshape((tile_height, tile_width)),
+            valid_count,
+            overflow,
+            required_count,
+        )
 
     with jax.named_scope("intersection_bounds_scan"):
         if use_accutile:
@@ -683,7 +747,7 @@ def intersect_tiles(
                     tile_width=tile_width,
                     tile_height=tile_height,
                 )
-            elif backend in {"cuda_tile", "cuda_tile_cub"}:
+            elif backend == "cuda_tile":
                 from ._cutile_intersections import (
                     count_accutile_intersections_cutile,
                 )
@@ -727,26 +791,15 @@ def intersect_tiles(
             tiles_per_gaussian = jnp.where(
                 gaussian_valid, span_x * span_y, 0
             ).astype(jnp.int32)
-        if backend == "cuda_tile_cub":
-            from ._cuda_intersections_ffi import (
-                intersection_prefix_cuda_ffi,
-            )
-
-            cumulative, valid_count, overflow, required_count = (
-                intersection_prefix_cuda_ffi(
-                    tiles_per_gaussian, capacity=capacity
-                )
-            )
-        else:
-            required_cumulative = _saturating_cumsum(
-                tiles_per_gaussian, 2**30 - 1
-            )
-            required_count = required_cumulative[-1]
-            cumulative = jnp.minimum(
-                required_cumulative, jnp.int32(capacity + 1)
-            )
-            valid_count = jnp.minimum(required_count, jnp.int32(capacity))
-            overflow = required_count > capacity
+        required_cumulative = _saturating_cumsum(
+            tiles_per_gaussian, 2**30 - 1
+        )
+        required_count = required_cumulative[-1]
+        cumulative = jnp.minimum(
+            required_cumulative, jnp.int32(capacity + 1)
+        )
+        valid_count = jnp.minimum(required_count, jnp.int32(capacity))
+        overflow = required_count > capacity
     if capacity == 0:
         return TileIntersections(
             padded_gaussians,
@@ -770,7 +823,7 @@ def intersect_tiles(
                     tile_width=tile_width,
                     tile_height=tile_height,
                 )
-        elif backend in {"cuda_tile", "cuda_tile_cub"}:
+        elif backend == "cuda_tile":
             from ._cutile_intersections import (
                 emit_accutile_intersections_cutile,
             )
@@ -810,33 +863,6 @@ def intersect_tiles(
                 tile_width=tile_width,
                 capacity=capacity,
             )
-    if backend == "cuda_tile_cub":
-        from ._cuda_intersections_ffi import (
-            intersection_sort_offsets_cuda_ffi,
-        )
-
-        with jax.named_scope("intersection_sort_offsets_cuda_ffi"):
-            (
-                gaussian_ids,
-                tile_ids,
-                offsets,
-                valid_count,
-            ) = intersection_sort_offsets_cuda_ffi(
-                gaussian_ids,
-                tile_ids,
-                depths,
-                valid_count,
-                tile_count=tile_count,
-            )
-        return TileIntersections(
-            gaussian_ids,
-            tile_ids,
-            offsets.reshape(tile_height, tile_width),
-            valid_count,
-            overflow,
-            required_count,
-        )
-
     ranks = jnp.arange(capacity, dtype=jnp.int32)
     output_valid = ranks < valid_count
 

@@ -25,8 +25,8 @@ _TUNING_OVERRIDE_ENV = (
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Benchmark cuTile count/emit variants inside the exact "
-            "cuda_tile_cub renderer and cache the fastest profile"
+            "Benchmark cuTile count/emit variants inside the explicit "
+            "cuda_tile renderer and cache the fastest profile"
         )
     )
     parser.add_argument("--npz", type=Path, required=True)
@@ -67,9 +67,9 @@ def _benchmark_command(args: argparse.Namespace, output: Path) -> list[str]:
         "--backend",
         "intersections",
         "--compositor-backend",
-        "cuda_ffi",
+        "jax",
         "--intersection-backend",
-        "cuda_tile_cub",
+        "cuda_tile",
         "--intersection-mode",
         "accutile",
         "--sort-backend",
