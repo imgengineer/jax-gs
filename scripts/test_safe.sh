@@ -5,13 +5,6 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-/tmp/jax-gs-pycache-${UID}-$$}"
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
-export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-4}"
-export MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}"
-export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-4}"
-export XLA_FLAGS="--xla_gpu_force_compilation_parallelism=1"
-export MAX_JOBS=1
-export CMAKE_BUILD_PARALLEL_LEVEL=1
 
 gpu_preflight() {
   local compiler_processes d_state_threads compute_processes available_kib

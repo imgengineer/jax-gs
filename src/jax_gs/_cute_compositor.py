@@ -74,6 +74,148 @@ def _clamp_int(value, minimum, maximum):
     return cutlass.min(cutlass.max(value, minimum), maximum)
 
 
+@cute.jit
+def _composite_tile_forward(
+    means: cute.Tensor,
+    conics: cute.Tensor,
+    colors: cute.Tensor,
+    opacities: cute.Tensor,
+    ids: cute.Tensor,
+    foreground: cute.Tensor,
+    alpha_out: cute.Tensor,
+    accepted_final_transmittance: cute.Tensor,
+    last_ids: cute.Tensor,
+    tile_overflow: cute.Tensor,
+    tile_id,
+    thread,
+    start,
+    end,
+    gaussian_count: int,
+    image_width: int,
+    image_height: int,
+    tile_width: int,
+    per_tile_bound: int,
+    channels: cutlass.Constexpr[int],
+    batch_capacity: cutlass.Constexpr[int],
+    alpha_threshold: float,
+    transmittance_threshold: float,
+):
+    tile_x = tile_id % tile_width
+    tile_y = tile_id // tile_width
+    pixel_x = tile_x * _TILE_SIZE + (thread & (_TILE_SIZE - 1))
+    pixel_y = tile_y * _TILE_SIZE + (thread >> 4)
+    pixel_valid = pixel_x < image_width and pixel_y < image_height
+    pixel_id = cutlass.min(
+        pixel_y * image_width + pixel_x,
+        image_width * image_height - 1,
+    )
+
+    candidate_count = end - start
+    rendered_count = cutlass.min(candidate_count, per_tile_bound)
+    if thread == 0:
+        tile_overflow[tile_id] = cutlass.Uint8(
+            1 if candidate_count > per_tile_bound else 0
+        )
+
+    smem = cutlass.utils.SmemAllocator()
+    batch_ids = smem.allocate_tensor(cutlass.Int32, batch_capacity)
+    batch_means = smem.allocate_tensor(
+        cutlass.Float32, cute.make_layout((batch_capacity, 2))
+    )
+    batch_conics = smem.allocate_tensor(
+        cutlass.Float32, cute.make_layout((batch_capacity, 3))
+    )
+    batch_opacities = smem.allocate_tensor(cutlass.Float32, batch_capacity)
+    batch_colors = smem.allocate_tensor(
+        cutlass.Float32, cute.make_layout((batch_capacity, channels))
+    )
+
+    rendered = cute.make_rmem_tensor(
+        cute.make_layout(channels), cutlass.Float32
+    )
+    for channel in cutlass.range_constexpr(channels):
+        rendered[channel] = 0.0
+    transmittance = cutlass.Float32(1.0)
+    accepted_transmittance = cutlass.Float32(1.0)
+    last_id = cutlass.Int32(-1)
+    done = not pixel_valid
+    px = cutlass.Float32(pixel_x) + 0.5
+    py = cutlass.Float32(pixel_y) + 0.5
+
+    for batch_start in cutlass.range(
+        cutlass.Int32(0), rendered_count, batch_capacity
+    ):
+        for slot in cutlass.range(
+            cutlass.Int32(thread), batch_capacity, _TILE_PIXELS
+        ):
+            local = batch_start + slot
+            if local < rendered_count:
+                position = start + local
+                raw_id = ids[position]
+                gaussian_id = cutlass.Int32(-1)
+                if raw_id >= 0:
+                    gaussian_id = cutlass.min(raw_id, gaussian_count - 1)
+                batch_ids[slot] = gaussian_id
+                if gaussian_id >= 0:
+                    batch_means[slot, 0] = means[gaussian_id, 0]
+                    batch_means[slot, 1] = means[gaussian_id, 1]
+                    batch_conics[slot, 0] = conics[gaussian_id, 0]
+                    batch_conics[slot, 1] = conics[gaussian_id, 1]
+                    batch_conics[slot, 2] = conics[gaussian_id, 2]
+                    batch_opacities[slot] = opacities[gaussian_id]
+                    for channel in cutlass.range_constexpr(channels):
+                        batch_colors[slot, channel] = colors[
+                            gaussian_id, channel
+                        ]
+        cute.arch.sync_threads()
+
+        batch_size = cutlass.min(
+            batch_capacity, rendered_count - batch_start
+        )
+        for t in cutlass.range(batch_size):
+            if not done:
+                gaussian_id = batch_ids[t]
+                if gaussian_id >= 0:
+                    dx = px - batch_means[t, 0]
+                    dy = py - batch_means[t, 1]
+                    sigma = 0.5 * (
+                        batch_conics[t, 0] * dx * dx
+                        + batch_conics[t, 2] * dy * dy
+                    ) + batch_conics[t, 1] * dx * dy
+                    weight_valid = cute.math.isfinite(sigma) and sigma >= 0.0
+                    if weight_valid:
+                        visibility = cute.math.exp(-sigma, fastmath=True)
+                        raw_alpha = batch_opacities[t] * visibility
+                        alpha = cutlass.min(_MAX_ALPHA, raw_alpha)
+                        if cute.math.isnan(raw_alpha) or (
+                            cute.math.isinf(raw_alpha) and raw_alpha < 0.0
+                        ):
+                            alpha = cutlass.Float32(0.0)
+                        if alpha >= alpha_threshold:
+                            next_transmittance = transmittance * (1.0 - alpha)
+                            if next_transmittance > transmittance_threshold:
+                                weight = alpha * transmittance
+                                for channel in cutlass.range_constexpr(channels):
+                                    rendered[channel] = (
+                                        rendered[channel]
+                                        + batch_colors[t, channel] * weight
+                                    )
+                                transmittance = next_transmittance
+                                accepted_transmittance = next_transmittance
+                                last_id = start + batch_start + t
+                            else:
+                                transmittance = next_transmittance
+                                done = True
+        cute.arch.sync_threads()
+
+    if pixel_valid:
+        for channel in cutlass.range_constexpr(channels):
+            foreground[pixel_y, pixel_x, channel] = rendered[channel]
+        alpha_out[pixel_y, pixel_x] = 1.0 - accepted_transmittance
+        accepted_final_transmittance[pixel_y, pixel_x] = accepted_transmittance
+        last_ids[pixel_y, pixel_x] = last_id
+
+
 @cute.kernel
 def _compositor_forward_kernel(
     means: cute.Tensor,
@@ -102,16 +244,6 @@ def _compositor_forward_kernel(
     tile_id, _, _ = cute.arch.block_idx()
     thread, _, _ = cute.arch.thread_idx()
     if tile_id < tile_count:
-        tile_x = tile_id % tile_width
-        tile_y = tile_id // tile_width
-        pixel_x = tile_x * _TILE_SIZE + (thread & (_TILE_SIZE - 1))
-        pixel_y = tile_y * _TILE_SIZE + (thread >> 4)
-        pixel_valid = pixel_x < image_width and pixel_y < image_height
-        pixel_id = cutlass.min(
-            pixel_y * image_width + pixel_x,
-            image_width * image_height - 1,
-        )
-
         bounded_valid_count = _clamp_int(
             valid_count[0], cutlass.Int32(0), input_capacity
         )
@@ -122,121 +254,36 @@ def _compositor_forward_kernel(
         if tile_id + 1 < tile_count:
             end = offsets[tile_id + 1]
         end = _clamp_int(end, start, bounded_valid_count)
-        candidate_count = end - start
-        rendered_count = cutlass.min(candidate_count, per_tile_bound)
-        if thread == 0:
-            tile_overflow[tile_id] = cutlass.Uint8(
-                1 if candidate_count > per_tile_bound else 0
-            )
-
-        # RGB/RGBD amortize CTA barriers with two candidates per thread;
-        # wider channels retain the lower shared-memory footprint.
-        loads_per_thread = (
-            _WIDE_BATCH_LOADS_PER_THREAD
-            if channels <= _WIDE_BATCH_MAX_CHANNELS
-            else 1
+        _composite_tile_forward(
+            means,
+            conics,
+            colors,
+            opacities,
+            ids,
+            foreground,
+            alpha_out,
+            accepted_final_transmittance,
+            last_ids,
+            tile_overflow,
+            tile_id,
+            thread,
+            start,
+            end,
+            gaussian_count,
+            image_width,
+            image_height,
+            tile_width,
+            per_tile_bound,
+            channels,
+            _TILE_PIXELS
+            * (
+                _WIDE_BATCH_LOADS_PER_THREAD
+                if channels <= _WIDE_BATCH_MAX_CHANNELS
+                else 1
+            ),
+            alpha_threshold,
+            transmittance_threshold,
         )
-        batch_capacity = _TILE_PIXELS * loads_per_thread
-        smem = cutlass.utils.SmemAllocator()
-        batch_ids = smem.allocate_tensor(cutlass.Int32, batch_capacity)
-        batch_means = smem.allocate_tensor(
-            cutlass.Float32, cute.make_layout((batch_capacity, 2))
-        )
-        batch_conics = smem.allocate_tensor(
-            cutlass.Float32, cute.make_layout((batch_capacity, 3))
-        )
-        batch_opacities = smem.allocate_tensor(cutlass.Float32, batch_capacity)
-        batch_colors = smem.allocate_tensor(
-            cutlass.Float32, cute.make_layout((batch_capacity, channels))
-        )
-
-        rendered = cute.make_rmem_tensor(
-            cute.make_layout(channels), cutlass.Float32
-        )
-        for channel in cutlass.range_constexpr(channels):
-            rendered[channel] = 0.0
-        transmittance = cutlass.Float32(1.0)
-        accepted_transmittance = cutlass.Float32(1.0)
-        last_id = cutlass.Int32(-1)
-        done = not pixel_valid
-        px = cutlass.Float32(pixel_x) + 0.5
-        py = cutlass.Float32(pixel_y) + 0.5
-
-        for batch_start in cutlass.range(
-            cutlass.Int32(0), rendered_count, batch_capacity
-        ):
-            for load in cutlass.range_constexpr(loads_per_thread):
-                slot = thread + load * _TILE_PIXELS
-                local = batch_start + slot
-                if local < rendered_count:
-                    position = start + local
-                    raw_id = ids[position]
-                    gaussian_id = cutlass.Int32(-1)
-                    if raw_id >= 0:
-                        gaussian_id = cutlass.min(raw_id, gaussian_count - 1)
-                    batch_ids[slot] = gaussian_id
-                    if gaussian_id >= 0:
-                        batch_means[slot, 0] = means[gaussian_id, 0]
-                        batch_means[slot, 1] = means[gaussian_id, 1]
-                        batch_conics[slot, 0] = conics[gaussian_id, 0]
-                        batch_conics[slot, 1] = conics[gaussian_id, 1]
-                        batch_conics[slot, 2] = conics[gaussian_id, 2]
-                        batch_opacities[slot] = opacities[gaussian_id]
-                        for channel in cutlass.range_constexpr(channels):
-                            batch_colors[slot, channel] = colors[
-                                gaussian_id, channel
-                            ]
-            cute.arch.sync_threads()
-
-            batch_size = cutlass.min(
-                batch_capacity, rendered_count - batch_start
-            )
-            for t in cutlass.range(batch_size):
-                if not done:
-                    gaussian_id = batch_ids[t]
-                    if gaussian_id >= 0:
-                        dx = px - batch_means[t, 0]
-                        dy = py - batch_means[t, 1]
-                        sigma = 0.5 * (
-                            batch_conics[t, 0] * dx * dx
-                            + batch_conics[t, 2] * dy * dy
-                        ) + batch_conics[t, 1] * dx * dy
-                        weight_valid = cute.math.isfinite(sigma) and sigma >= 0.0
-                        if weight_valid:
-                            visibility = cute.math.exp(-sigma, fastmath=True)
-                            raw_alpha = batch_opacities[t] * visibility
-                            alpha = cutlass.min(_MAX_ALPHA, raw_alpha)
-                            if cute.math.isnan(raw_alpha) or (
-                                cute.math.isinf(raw_alpha) and raw_alpha < 0.0
-                            ):
-                                alpha = cutlass.Float32(0.0)
-                            if alpha >= alpha_threshold:
-                                next_transmittance = transmittance * (1.0 - alpha)
-                                if next_transmittance > transmittance_threshold:
-                                    weight = alpha * transmittance
-                                    for channel in cutlass.range_constexpr(
-                                        channels
-                                    ):
-                                        rendered[channel] = (
-                                            rendered[channel]
-                                            + batch_colors[t, channel] * weight
-                                        )
-                                    transmittance = next_transmittance
-                                    accepted_transmittance = next_transmittance
-                                    last_id = start + batch_start + t
-                                else:
-                                    transmittance = next_transmittance
-                                    done = True
-            cute.arch.sync_threads()
-
-        if pixel_valid:
-            for channel in cutlass.range_constexpr(channels):
-                foreground[pixel_y, pixel_x, channel] = rendered[channel]
-            alpha_out[pixel_y, pixel_x] = 1.0 - accepted_transmittance
-            accepted_final_transmittance[pixel_y, pixel_x] = (
-                accepted_transmittance
-            )
-            last_ids[pixel_y, pixel_x] = last_id
 
 
 @cute.kernel

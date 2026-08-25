@@ -119,7 +119,10 @@ def test_cute_accutile_preparation_count_and_emission_match_jax():
         np.testing.assert_array_equal(actual_value, expected_value)
 
 
-def test_cute_raw_fused_matches_staged_jax_forward_and_gradients():
+@pytest.mark.parametrize("candidate_bound", [32, 2])
+def test_cute_raw_fused_matches_staged_jax_forward_and_gradients(
+    candidate_bound,
+):
     if not _supports_cute():
         pytest.skip("CuTe intersections require an NVIDIA CUDA GPU")
     tile_width = tile_height = 2
@@ -167,8 +170,8 @@ def test_cute_raw_fused_matches_staged_jax_forward_and_gradients():
             topology.gaussian_ids,
             backgrounds=background_[None, ...],
             valid_count=topology.valid_count,
-            max_gaussians_per_tile=32,
-            max_candidates_per_tile=32,
+            max_gaussians_per_tile=candidate_bound,
+            max_candidates_per_tile=candidate_bound,
             return_info=True,
         )
         return rendered[0], alpha[0], topology
@@ -189,8 +192,8 @@ def test_cute_raw_fused_matches_staged_jax_forward_and_gradients():
             image_width=32,
             image_height=32,
             background=background_,
-            max_gaussians_per_tile=32,
-            max_candidates_per_tile=32,
+            max_gaussians_per_tile=candidate_bound,
+            max_candidates_per_tile=candidate_bound,
             alpha_threshold=1 / 255,
             transmittance_threshold=1e-4,
         )
@@ -200,6 +203,14 @@ def test_cute_raw_fused_matches_staged_jax_forward_and_gradients():
     np.testing.assert_allclose(actual[0], expected[0], rtol=3e-5, atol=3e-6)
     np.testing.assert_allclose(actual[1], expected[1], rtol=3e-5, atol=3e-6)
     topology = expected[2]
+    flat_offsets = topology.offsets.reshape(-1)
+    ends = jnp.concatenate((flat_offsets[1:], topology.valid_count[None]))
+    np.testing.assert_array_equal(
+        actual[2]["tile_overflow"],
+        ((ends - flat_offsets) > candidate_bound).reshape(
+            tile_height, tile_width
+        ),
+    )
     for actual_value, expected_value in (
         (actual[2]["gaussian_ids"], topology.gaussian_ids),
         (actual[2]["tile_ids"], topology.tile_ids),
@@ -267,13 +278,16 @@ def test_cute_intersection_sort_offsets_preserves_ties_and_padding():
         np.testing.assert_array_equal(actual_value, expected_value)
 
 
-def test_cute_intersection_sort_offsets_is_stable_across_blocks():
+@pytest.mark.parametrize("tile_count", [17, 97])
+def test_cute_intersection_sort_offsets_is_stable_across_blocks(tile_count):
     if not _supports_cute():
         pytest.skip("CuTe intersections require an NVIDIA CUDA GPU")
     capacity = 4097
     valid_count = capacity - 13
     generator = np.random.default_rng(17)
-    tile_ids = generator.integers(0, 17, size=capacity, dtype=np.int32)
+    tile_ids = generator.integers(
+        0, tile_count, size=capacity, dtype=np.int32
+    )
     depths = generator.normal(size=capacity).astype(np.float32)
     depths[::19] = np.float32(0.0)
     depths[1::23] = np.float32(-0.0)
@@ -290,7 +304,7 @@ def test_cute_intersection_sort_offsets_is_stable_across_blocks():
     expected_gaussians[:valid_count] = gaussian_ids[:valid_count][order]
     expected_tiles[:valid_count] = tile_ids[:valid_count][order]
     expected_offsets = np.searchsorted(
-        expected_tiles[:valid_count], np.arange(17), side="left"
+        expected_tiles[:valid_count], np.arange(tile_count), side="left"
     ).astype(np.int32)
 
     sort = jax.jit(
@@ -300,7 +314,7 @@ def test_cute_intersection_sort_offsets_is_stable_across_blocks():
                 tile_ids,
                 depths,
                 count,
-                tile_count=17,
+                tile_count=tile_count,
                 segment_capacity=512,
             )
         )

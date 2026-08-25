@@ -76,13 +76,13 @@ def test_explicit_host_thread_configuration_is_not_clamped():
     }
 
 
-def test_default_xla_flags_initialize_on_supported_jax():
+def test_import_does_not_set_default_xla_flags():
     environment = os.environ.copy()
     environment.pop("XLA_FLAGS", None)
     environment["JAX_PLATFORMS"] = "cpu"
 
     assert _initialized_default_xla_environment(environment) == {
-        "flags": "--xla_gpu_force_compilation_parallelism=1",
+        "flags": None,
         "platform": "cpu",
     }
 

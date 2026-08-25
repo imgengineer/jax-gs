@@ -12,15 +12,10 @@ from ._runtime_cache import configure_persistent_compilation_cache
 configure_persistent_compilation_cache()
 
 # Large bucketed models are supported up to ten million logical slots, but
-# JAX's default GPU preallocation can make
-# concurrent tools or desktop workloads run out of memory before training even
-# starts. Serial GPU code generation also avoids launching several memory-heavy
-# ptxas workers at once. Users can override either default in their environment.
+# JAX's default GPU preallocation can make concurrent tools or desktop workloads
+# run out of memory before training even starts. Users can override this default
+# in their environment.
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
-os.environ.setdefault(
-    "XLA_FLAGS",
-    "--xla_gpu_force_compilation_parallelism=1",
-)
 
 from .api import PaddedProjection, fully_fused_projection
 from ._cute_projection import fully_fused_projection_cute

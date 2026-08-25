@@ -24,18 +24,6 @@ from typing import Any, Callable
 # This must be set before importing JAX.  Assignment (rather than setdefault)
 # makes the benchmark safe even when a shell profile enables preallocation.
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-for _thread_variable in (
-    "OMP_NUM_THREADS",
-    "OPENBLAS_NUM_THREADS",
-    "MKL_NUM_THREADS",
-    "NUMEXPR_NUM_THREADS",
-):
-    os.environ.setdefault(_thread_variable, "4")
-os.environ.setdefault(
-    "XLA_FLAGS",
-    "--xla_gpu_force_compilation_parallelism=1",
-)
-
 import jax
 import jax.numpy as jnp
 import numpy as np

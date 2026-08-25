@@ -18,6 +18,7 @@ import cuda.bindings.driver as cuda
 
 from ._cute_compositor import (
     _SUPPORTED_CHANNELS,
+    _composite_tile_forward,
     _cute_device,
     _run_backward,
     _run_forward,
@@ -34,6 +35,8 @@ _TILE_RADIX_BITS = 5
 _TILE_RADIX_SIZE = 1 << _TILE_RADIX_BITS
 _WARPS_PER_BLOCK = _BLOCK_SIZE // 32
 _UINT64_MAX = (1 << 64) - 1
+# Keep the production RGB mega kernel below 50 KiB so two CTAs fit per SM.
+_MEGA_COMPOSITOR_BATCH_CAPACITY = 128
 
 
 @cute.jit
@@ -772,34 +775,12 @@ def _launch_tile_radix_histogram(
     )
 
 
-@cute.kernel
-def _scan_tile_radix_bucket_totals_kernel(
-    bucket_totals: cute.Tensor,
-    bucket_base: cute.Tensor,
-):
-    bucket, _, _ = cute.arch.thread_idx()
-    shared = cutlass.utils.SmemAllocator().allocate_tensor(
-        cutlass.Int32, _TILE_RADIX_SIZE
-    )
-    shared[bucket] = bucket_totals[bucket]
-    cute.arch.sync_threads()
-    for offset in (1, 2, 4, 8, 16):
-        addend = cutlass.Int32(0)
-        if bucket >= offset:
-            addend = shared[bucket - offset]
-        cute.arch.sync_threads()
-        shared[bucket] = shared[bucket] + addend
-        cute.arch.sync_threads()
-    bucket_base[bucket] = 0 if bucket == 0 else shared[bucket - 1]
-
-
 @cute.jit
 def _launch_scan_tile_radix_histogram(
     stream: cuda.CUstream,
     histogram: cute.Tensor,
     block_prefix: cute.Tensor,
     bucket_totals: cute.Tensor,
-    bucket_base: cute.Tensor,
     *,
     block_count: int,
 ):
@@ -810,13 +791,6 @@ def _launch_scan_tile_radix_histogram(
         block=[_BLOCK_SIZE, 1, 1],
         stream=stream,
     )
-    _scan_tile_radix_bucket_totals_kernel(
-        bucket_totals, bucket_base
-    ).launch(
-        grid=[1, 1, 1],
-        block=[_TILE_RADIX_SIZE, 1, 1],
-        stream=stream,
-    )
 
 
 @cute.kernel
@@ -824,7 +798,7 @@ def _tile_radix_scatter_kernel(
     keys: cute.Tensor,
     values: cute.Tensor,
     block_prefix: cute.Tensor,
-    bucket_base: cute.Tensor,
+    bucket_totals: cute.Tensor,
     local_ranks: cute.Tensor,
     output_keys: cute.Tensor,
     output_values: cute.Tensor,
@@ -833,6 +807,19 @@ def _tile_radix_scatter_kernel(
 ):
     thread, _, _ = cute.arch.thread_idx()
     block, _, _ = cute.arch.block_idx()
+    bucket_base = cutlass.utils.SmemAllocator().allocate_tensor(
+        cutlass.Int32, _TILE_RADIX_SIZE
+    )
+    if thread < _TILE_RADIX_SIZE:
+        value = bucket_totals[thread]
+        inclusive = value
+        for offset in (1, 2, 4, 8, 16):
+            addend = cute.arch.shuffle_sync_up(inclusive, offset)
+            if thread >= offset:
+                inclusive = inclusive + addend
+        bucket_base[thread] = inclusive - value
+    cute.arch.sync_threads()
+
     index = block * _BLOCK_SIZE + thread
     if index < count:
         key = keys[index]
@@ -854,7 +841,7 @@ def _launch_tile_radix_scatter(
     keys: cute.Tensor,
     values: cute.Tensor,
     block_prefix: cute.Tensor,
-    bucket_base: cute.Tensor,
+    bucket_totals: cute.Tensor,
     local_ranks: cute.Tensor,
     output_keys: cute.Tensor,
     output_values: cute.Tensor,
@@ -867,7 +854,7 @@ def _launch_tile_radix_scatter(
         keys,
         values,
         block_prefix,
-        bucket_base,
+        bucket_totals,
         local_ranks,
         output_keys,
         output_values,
@@ -880,34 +867,23 @@ def _launch_tile_radix_scatter(
     )
 
 
-@cute.kernel
-def _segmented_depth_radix_kernel(
+@cute.jit
+def _sort_depth_segment(
     keys: cute.Tensor,
     values: cute.Tensor,
-    offsets: cute.Tensor,
-    effective_valid_count: cute.Tensor,
     output_gaussians: cute.Tensor,
     output_tiles: cute.Tensor,
-    capacity: int,
-    tile_count: int,
+    start,
+    segment_count,
+    tile,
     segment_capacity: cutlass.Constexpr[int],
 ):
-    tile, _, _ = cute.arch.block_idx()
     thread, _, _ = cute.arch.thread_idx()
     warp = thread >> 5
     lane = thread & 31
-    count = cutlass.min(
-        cutlass.max(effective_valid_count[0], cutlass.Int32(0)), capacity
-    )
-    start = cutlass.min(cutlass.max(offsets[tile], 0), count)
-    end = count
-    if tile + 1 < tile_count:
-        end = cutlass.min(cutlass.max(offsets[tile + 1], start), count)
-    segment_count = end - start
-
     smem = cutlass.utils.SmemAllocator()
-    keys_a = smem.allocate_tensor(cutlass.Uint64, segment_capacity)
-    keys_b = smem.allocate_tensor(cutlass.Uint64, segment_capacity)
+    keys_a = smem.allocate_tensor(cutlass.Uint32, segment_capacity)
+    keys_b = smem.allocate_tensor(cutlass.Uint32, segment_capacity)
     values_a = smem.allocate_tensor(cutlass.Int32, segment_capacity)
     values_b = smem.allocate_tensor(cutlass.Int32, segment_capacity)
     histogram = smem.allocate_tensor(cutlass.Int32, _RADIX_SIZE)
@@ -921,10 +897,11 @@ def _segmented_depth_radix_kernel(
     )
     warp_totals = smem.allocate_tensor(cutlass.Int32, _WARPS_PER_BLOCK)
 
+    # Tile bits are constant inside a segment; only the 32-bit depth key sorts.
     for local_index in cutlass.range(
         cutlass.Int32(thread), segment_count, _BLOCK_SIZE
     ):
-        keys_a[local_index] = keys[start + local_index]
+        keys_a[local_index] = cutlass.Uint32(keys[start + local_index])
         values_a[local_index] = values[start + local_index]
     cute.arch.sync_threads()
 
@@ -942,7 +919,7 @@ def _segmented_depth_radix_kernel(
         ):
             digit = cutlass.Int32(
                 (source_keys[local_index] >> shift)
-                & cutlass.Uint64(_RADIX_SIZE - 1)
+                & cutlass.Uint32(_RADIX_SIZE - 1)
             )
             cute.arch.atomic_add(
                 histogram.iterator + digit,
@@ -988,13 +965,13 @@ def _segmented_depth_radix_kernel(
             local_index = chunk_start + thread
             active = local_index < segment_count
             digit = cutlass.Int32(0)
-            key = cutlass.Uint64(_UINT64_MAX)
+            key = cutlass.Uint32((1 << 32) - 1)
             item_value = cutlass.Int32(-1)
             if active:
                 key = source_keys[local_index]
                 item_value = source_values[local_index]
                 digit = cutlass.Int32(
-                    (key >> shift) & cutlass.Uint64(_RADIX_SIZE - 1)
+                    (key >> shift) & cutlass.Uint32(_RADIX_SIZE - 1)
                 )
                 cute.arch.atomic_add(
                     warp_histogram.iterator
@@ -1035,6 +1012,39 @@ def _segmented_depth_radix_kernel(
         output_gaussians[start + local_index] = values_a[local_index]
         output_tiles[start + local_index] = tile
 
+
+@cute.kernel
+def _segmented_depth_radix_kernel(
+    keys: cute.Tensor,
+    values: cute.Tensor,
+    offsets: cute.Tensor,
+    effective_valid_count: cute.Tensor,
+    output_gaussians: cute.Tensor,
+    output_tiles: cute.Tensor,
+    capacity: int,
+    tile_count: int,
+    segment_capacity: cutlass.Constexpr[int],
+):
+    tile, _, _ = cute.arch.block_idx()
+    thread, _, _ = cute.arch.thread_idx()
+    count = cutlass.min(
+        cutlass.max(effective_valid_count[0], cutlass.Int32(0)), capacity
+    )
+    start = cutlass.min(cutlass.max(offsets[tile], 0), count)
+    end = count
+    if tile + 1 < tile_count:
+        end = cutlass.min(cutlass.max(offsets[tile + 1], start), count)
+    _sort_depth_segment(
+        keys,
+        values,
+        output_gaussians,
+        output_tiles,
+        start,
+        end - start,
+        tile,
+        segment_capacity,
+    )
+
     tail_index = count + tile * _BLOCK_SIZE + thread
     tail_stride = tile_count * _BLOCK_SIZE
     while tail_index < capacity:
@@ -1066,6 +1076,224 @@ def _launch_segmented_depth_radix(
         output_tiles,
         capacity,
         tile_count,
+        segment_capacity,
+    ).launch(
+        grid=[tile_count, 1, 1],
+        block=[_BLOCK_SIZE, 1, 1],
+        stream=stream,
+    )
+
+
+@cute.jit
+def _bounded_effective_count(keys, declared_valid_count, capacity):
+    low = cutlass.Int32(0)
+    high = cutlass.min(
+        cutlass.max(declared_valid_count[0], cutlass.Int32(0)), capacity
+    )
+    while low < high:
+        middle = low + (high - low) // 2
+        if keys[middle] < cutlass.Uint64(_UINT64_MAX):
+            low = middle + 1
+        else:
+            high = middle
+    return low
+
+
+@cute.jit
+def _tile_lower_bound(keys, count, tile):
+    low = cutlass.Int32(0)
+    high = count
+    while low < high:
+        middle = low + (high - low) // 2
+        if cutlass.Int32(keys[middle] >> 32) < tile:
+            low = middle + 1
+        else:
+            high = middle
+    return low
+
+
+@cute.kernel
+def _tail_mega_kernel(
+    keys: cute.Tensor,
+    values: cute.Tensor,
+    declared_valid_count: cute.Tensor,
+    means: cute.Tensor,
+    conics: cute.Tensor,
+    colors: cute.Tensor,
+    opacities: cute.Tensor,
+    output_gaussians: cute.Tensor,
+    output_tiles: cute.Tensor,
+    offsets: cute.Tensor,
+    effective_valid_count: cute.Tensor,
+    max_segment_count: cute.Tensor,
+    foreground: cute.Tensor,
+    alpha: cute.Tensor,
+    accepted_final_transmittance: cute.Tensor,
+    last_ids: cute.Tensor,
+    tile_overflow: cute.Tensor,
+    capacity: int,
+    gaussian_count: int,
+    image_width: int,
+    image_height: int,
+    tile_width: int,
+    tile_count: int,
+    per_tile_bound: int,
+    channels: cutlass.Constexpr[int],
+    alpha_threshold: float,
+    transmittance_threshold: float,
+    segment_capacity: cutlass.Constexpr[int],
+):
+    tile, _, _ = cute.arch.block_idx()
+    thread, _, _ = cute.arch.thread_idx()
+    if tile < tile_count:
+        bounds = cutlass.utils.SmemAllocator().allocate_tensor(
+            cutlass.Int32, 4
+        )
+        if thread == 0:
+            count = _bounded_effective_count(
+                keys, declared_valid_count, capacity
+            )
+            start = _tile_lower_bound(keys, count, tile)
+            end = _tile_lower_bound(keys, count, tile + 1)
+            bounds[0] = count
+            bounds[1] = start
+            bounds[2] = end
+            offsets[tile] = start
+            if tile == 0:
+                effective_valid_count[0] = count
+                bounds[3] = 0
+        cute.arch.sync_threads()
+        count = bounds[0]
+        start = bounds[1]
+        end = bounds[2]
+        segment_count = end - start
+        # CTA 0 publishes the fallback predicate without a JAX reduction launch.
+        if tile == 0:
+            for check_tile in cutlass.range(
+                cutlass.Int32(thread), tile_count, _BLOCK_SIZE
+            ):
+                check_start = _tile_lower_bound(keys, count, check_tile)
+                check_end = _tile_lower_bound(keys, count, check_tile + 1)
+                cute.arch.atomic_max(
+                    bounds.iterator + 3,
+                    check_end - check_start,
+                    sem="relaxed",
+                    scope="cta",
+                )
+            cute.arch.sync_threads()
+            if thread == 0:
+                max_segment_count[0] = bounds[3]
+        cute.arch.sync_threads()
+
+        if segment_count <= segment_capacity:
+            _sort_depth_segment(
+                keys,
+                values,
+                output_gaussians,
+                output_tiles,
+                start,
+                segment_count,
+                tile,
+                segment_capacity,
+            )
+            cute.arch.sync_threads()
+
+            tail_index = count + tile * _BLOCK_SIZE + thread
+            tail_stride = tile_count * _BLOCK_SIZE
+            while tail_index < capacity:
+                output_gaussians[tail_index] = -1
+                output_tiles[tail_index] = -1
+                tail_index = tail_index + tail_stride
+            cute.arch.sync_threads()
+
+            _composite_tile_forward(
+                means,
+                conics,
+                colors,
+                opacities,
+                output_gaussians,
+                foreground,
+                alpha,
+                accepted_final_transmittance,
+                last_ids,
+                tile_overflow,
+                tile,
+                thread,
+                start,
+                end,
+                gaussian_count,
+                image_width,
+                image_height,
+                tile_width,
+                per_tile_bound,
+                channels,
+                _MEGA_COMPOSITOR_BATCH_CAPACITY,
+                alpha_threshold,
+                transmittance_threshold,
+            )
+
+
+@cute.jit
+def _launch_tail_mega(
+    stream: cuda.CUstream,
+    keys: cute.Tensor,
+    values: cute.Tensor,
+    declared_valid_count: cute.Tensor,
+    means: cute.Tensor,
+    conics: cute.Tensor,
+    colors: cute.Tensor,
+    opacities: cute.Tensor,
+    output_gaussians: cute.Tensor,
+    output_tiles: cute.Tensor,
+    offsets: cute.Tensor,
+    effective_valid_count: cute.Tensor,
+    max_segment_count: cute.Tensor,
+    foreground: cute.Tensor,
+    alpha: cute.Tensor,
+    accepted_final_transmittance: cute.Tensor,
+    last_ids: cute.Tensor,
+    tile_overflow: cute.Tensor,
+    *,
+    capacity: cutlass.Constexpr[int],
+    gaussian_count: cutlass.Constexpr[int],
+    image_width: int,
+    image_height: int,
+    tile_width: int,
+    tile_count: cutlass.Constexpr[int],
+    per_tile_bound: int,
+    channels: cutlass.Constexpr[int],
+    alpha_threshold: float,
+    transmittance_threshold: float,
+    segment_capacity: cutlass.Constexpr[int],
+):
+    _tail_mega_kernel(
+        keys,
+        values,
+        declared_valid_count,
+        means,
+        conics,
+        colors,
+        opacities,
+        output_gaussians,
+        output_tiles,
+        offsets,
+        effective_valid_count,
+        max_segment_count,
+        foreground,
+        alpha,
+        accepted_final_transmittance,
+        last_ids,
+        tile_overflow,
+        capacity,
+        gaussian_count,
+        image_width,
+        image_height,
+        tile_width,
+        tile_count,
+        per_tile_bound,
+        channels,
+        alpha_threshold,
+        transmittance_threshold,
         segment_capacity,
     ).launch(
         grid=[tile_count, 1, 1],
@@ -1204,6 +1432,90 @@ def _launch_finalize_sorted_outputs(
     )
 
 
+def _run_tail_mega_forward(
+    grouped_keys: jax.Array,
+    grouped_values: jax.Array,
+    declared_valid_count: jax.Array,
+    means2d: jax.Array,
+    conics: jax.Array,
+    colors: jax.Array,
+    opacities: jax.Array,
+    *,
+    tile_width: int,
+    tile_height: int,
+    image_width: int,
+    image_height: int,
+    per_tile_bound: int,
+    alpha_threshold: float,
+    transmittance_threshold: float,
+):
+    capacity = grouped_keys.shape[0]
+    gaussian_count = means2d.shape[0]
+    tile_count = tile_width * tile_height
+    channels = colors.shape[-1]
+    call = cjax.cutlass_call(
+        _launch_tail_mega,
+        output_shape_dtype=(
+            jax.ShapeDtypeStruct((capacity,), jnp.int32),
+            jax.ShapeDtypeStruct((capacity,), jnp.int32),
+            jax.ShapeDtypeStruct((tile_count,), jnp.int32),
+            jax.ShapeDtypeStruct((1,), jnp.int32),
+            jax.ShapeDtypeStruct((1,), jnp.int32),
+            jax.ShapeDtypeStruct(
+                (image_height, image_width, channels), jnp.float32
+            ),
+            jax.ShapeDtypeStruct((image_height, image_width), jnp.float32),
+            jax.ShapeDtypeStruct((image_height, image_width), jnp.float32),
+            jax.ShapeDtypeStruct((image_height, image_width), jnp.int32),
+            jax.ShapeDtypeStruct((tile_count,), jnp.uint8),
+        ),
+        use_static_tensors=True,
+        capacity=capacity,
+        gaussian_count=gaussian_count,
+        image_width=image_width,
+        image_height=image_height,
+        tile_width=tile_width,
+        tile_count=tile_count,
+        per_tile_bound=per_tile_bound,
+        channels=channels,
+        alpha_threshold=alpha_threshold,
+        transmittance_threshold=transmittance_threshold,
+        segment_capacity=per_tile_bound,
+    )
+    (
+        gaussian_ids,
+        tile_ids,
+        offsets,
+        effective_count,
+        max_segment_count,
+        foreground,
+        alpha,
+        accepted,
+        last_ids,
+        tile_overflow,
+    ) = call(
+        grouped_keys,
+        grouped_values,
+        declared_valid_count.reshape((1,)),
+        means2d,
+        conics,
+        colors,
+        opacities,
+    )
+    return (
+        gaussian_ids,
+        tile_ids,
+        offsets,
+        effective_count[0],
+        max_segment_count[0],
+        foreground,
+        alpha,
+        accepted,
+        last_ids,
+        tile_overflow.astype(jnp.bool_),
+    )
+
+
 def _prepare_sort_keys(
     gaussian_ids: jax.Array,
     tile_ids: jax.Array,
@@ -1276,12 +1588,11 @@ def _tile_radix_scatter_from_histogram(
         output_shape_dtype=(
             jax.ShapeDtypeStruct(histogram.shape, jnp.int32),
             jax.ShapeDtypeStruct((_TILE_RADIX_SIZE,), jnp.int32),
-            jax.ShapeDtypeStruct((_TILE_RADIX_SIZE,), jnp.int32),
         ),
         use_static_tensors=True,
         block_count=block_count,
     )
-    block_prefix, _, bucket_base = scan_call(histogram)
+    block_prefix, bucket_totals = scan_call(histogram)
     scatter_call = cjax.cutlass_call(
         _launch_tile_radix_scatter,
         output_shape_dtype=(
@@ -1294,7 +1605,7 @@ def _tile_radix_scatter_from_histogram(
         shift=shift,
     )
     return scatter_call(
-        keys, values, block_prefix, bucket_base, local_ranks
+        keys, values, block_prefix, bucket_totals, local_ranks
     )
 
 
@@ -1366,12 +1677,11 @@ def _tile_radix_pass(
         output_shape_dtype=(
             jax.ShapeDtypeStruct(histogram.shape, jnp.int32),
             jax.ShapeDtypeStruct((_TILE_RADIX_SIZE,), jnp.int32),
-            jax.ShapeDtypeStruct((_TILE_RADIX_SIZE,), jnp.int32),
         ),
         use_static_tensors=True,
         block_count=block_count,
     )
-    block_prefix, _, bucket_base = scan_call(histogram)
+    block_prefix, bucket_totals = scan_call(histogram)
     scatter_call = cjax.cutlass_call(
         _launch_tile_radix_scatter,
         output_shape_dtype=(
@@ -1384,7 +1694,7 @@ def _tile_radix_pass(
         shift=shift,
     )
     return scatter_call(
-        keys, values, block_prefix, bucket_base, local_ranks
+        keys, values, block_prefix, bucket_totals, local_ranks
     )
 
 
@@ -1411,6 +1721,51 @@ def _tile_radix_sort(
     for shift in range(32, 32 + tile_bits, _RADIX_BITS):
         keys, values = _radix_pass(keys, values, shift=shift)
     return keys, values
+
+
+def _prepare_grouped_sort_keys(
+    gaussian_ids: jax.Array,
+    tile_ids: jax.Array,
+    depths: jax.Array,
+    valid_count: jax.Array,
+    *,
+    tile_count: int,
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    fuse_first_tile_histogram = (
+        _RADIX_BITS < tile_count.bit_length() <= 2 * _TILE_RADIX_BITS
+    )
+    if fuse_first_tile_histogram:
+        keys, values, first_histogram, first_local_ranks = (
+            _prepare_sort_keys_tile_histogram(
+                gaussian_ids,
+                tile_ids,
+                depths,
+                valid_count,
+                tile_count=tile_count,
+            )
+        )
+        grouped_keys, grouped_values = _tile_radix_scatter_from_histogram(
+            keys,
+            values,
+            first_histogram,
+            first_local_ranks,
+            shift=32,
+        )
+        grouped_keys, grouped_values = _tile_radix_pass(
+            grouped_keys, grouped_values, shift=32 + _TILE_RADIX_BITS
+        )
+    else:
+        keys, values = _prepare_sort_keys(
+            gaussian_ids,
+            tile_ids,
+            depths,
+            valid_count,
+            tile_count=tile_count,
+        )
+        grouped_keys, grouped_values = _tile_radix_sort(
+            keys, values, tile_count=tile_count
+        )
+    return keys, values, grouped_keys, grouped_values
 
 
 def intersection_sort_offsets_cute(
@@ -1446,28 +1801,6 @@ def intersection_sort_offsets_cute(
     if valid_count.shape != () or valid_count.dtype != jnp.int32:
         raise ValueError("valid_count must be an int32 scalar")
     _cute_device()
-    fuse_first_tile_histogram = (
-        segment_capacity is not None
-        and _RADIX_BITS < tile_count.bit_length() <= 2 * _TILE_RADIX_BITS
-    )
-    if fuse_first_tile_histogram:
-        keys, values, first_histogram, first_local_ranks = (
-            _prepare_sort_keys_tile_histogram(
-                gaussian_ids,
-                tile_ids,
-                depths,
-                valid_count,
-                tile_count=tile_count,
-            )
-        )
-    else:
-        keys, values = _prepare_sort_keys(
-            gaussian_ids,
-            tile_ids,
-            depths,
-            valid_count,
-            tile_count=tile_count,
-        )
     capacity = gaussian_ids.shape[0]
     block_count = (capacity + _BLOCK_SIZE - 1) // _BLOCK_SIZE
 
@@ -1489,6 +1822,13 @@ def intersection_sort_offsets_cute(
         return call(sort_keys, sort_values, valid_count.reshape((1,)))
 
     if segment_capacity is None:
+        keys, values = _prepare_sort_keys(
+            gaussian_ids,
+            tile_ids,
+            depths,
+            valid_count,
+            tile_count=tile_count,
+        )
         keys, values = _radix_sort(keys, values, end_bit=32)
         keys, values = _tile_radix_sort(
             keys, values, tile_count=tile_count
@@ -1498,21 +1838,13 @@ def intersection_sort_offsets_cute(
         )
         return sorted_gaussians, sorted_tiles, offsets, effective_count[0]
 
-    if fuse_first_tile_histogram:
-        grouped_keys, grouped_values = _tile_radix_scatter_from_histogram(
-            keys,
-            values,
-            first_histogram,
-            first_local_ranks,
-            shift=32,
-        )
-        grouped_keys, grouped_values = _tile_radix_pass(
-            grouped_keys, grouped_values, shift=32 + _TILE_RADIX_BITS
-        )
-    else:
-        grouped_keys, grouped_values = _tile_radix_sort(
-            keys, values, tile_count=tile_count
-        )
+    keys, values, grouped_keys, grouped_values = _prepare_grouped_sort_keys(
+        gaussian_ids,
+        tile_ids,
+        depths,
+        valid_count,
+        tile_count=tile_count,
+    )
     _, _, grouped_offsets, grouped_count, max_segment_count = finalize(
         grouped_keys, grouped_values
     )
@@ -2224,28 +2556,124 @@ def _run_raw_intersection_compositor_forward(
         capacity=capacity,
         tile_width=tile_width,
     )
-    gaussian_ids, tile_ids, offsets, count = intersection_sort_offsets_cute(
+    tile_count = tile_width * tile_height
+
+    def staged_sort_composite(_):
+        (
+            sorted_gaussian_ids,
+            sorted_tile_ids,
+            sorted_offsets,
+            sorted_count,
+        ) = intersection_sort_offsets_cute(
+            gaussian_ids,
+            tile_ids,
+            depths,
+            count,
+            tile_count=tile_count,
+            segment_capacity=None,
+        )
+        (
+            staged_foreground,
+            staged_alpha,
+            staged_accepted,
+            staged_last_ids,
+            staged_tile_overflow,
+        ) = _run_forward(
+            means2d,
+            conics,
+            colors,
+            opacities,
+            sorted_offsets.reshape((tile_height, tile_width)),
+            sorted_gaussian_ids,
+            sorted_count,
+            image_width=image_width,
+            image_height=image_height,
+            per_tile_bound=per_tile_bound,
+            alpha_threshold=alpha_threshold,
+            transmittance_threshold=transmittance_threshold,
+        )
+        return (
+            sorted_gaussian_ids,
+            sorted_tile_ids,
+            sorted_offsets,
+            sorted_count,
+            staged_foreground,
+            staged_alpha,
+            staged_accepted,
+            staged_last_ids,
+            staged_tile_overflow,
+        )
+
+    if per_tile_bound <= 2048:
+        _, _, grouped_keys, grouped_values = _prepare_grouped_sort_keys(
+            gaussian_ids,
+            tile_ids,
+            depths,
+            count,
+            tile_count=tile_count,
+        )
+        mega_outputs = _run_tail_mega_forward(
+            grouped_keys,
+            grouped_values,
+            count,
+            means2d,
+            conics,
+            colors,
+            opacities,
+            tile_width=tile_width,
+            tile_height=tile_height,
+            image_width=image_width,
+            image_height=image_height,
+            per_tile_bound=per_tile_bound,
+            alpha_threshold=alpha_threshold,
+            transmittance_threshold=transmittance_threshold,
+        )
+        (
+            mega_gaussian_ids,
+            mega_tile_ids,
+            mega_offsets,
+            mega_count,
+            max_segment_count,
+            mega_foreground,
+            mega_alpha,
+            mega_accepted,
+            mega_last_ids,
+            mega_tile_overflow,
+        ) = mega_outputs
+
+        def use_mega(_):
+            return (
+                mega_gaussian_ids,
+                mega_tile_ids,
+                mega_offsets,
+                mega_count,
+                mega_foreground,
+                mega_alpha,
+                mega_accepted,
+                mega_last_ids,
+                mega_tile_overflow,
+            )
+
+        outputs = jax.lax.cond(
+            max_segment_count <= per_tile_bound,
+            use_mega,
+            staged_sort_composite,
+            operand=None,
+        )
+    else:
+        outputs = staged_sort_composite(None)
+
+    (
         gaussian_ids,
         tile_ids,
-        depths,
+        offsets,
         count,
-        tile_count=tile_width * tile_height,
-        segment_capacity=per_tile_bound,
-    )
-    foreground, alpha, accepted, last_ids, tile_overflow = _run_forward(
-        means2d,
-        conics,
-        colors,
-        opacities,
-        offsets.reshape((tile_height, tile_width)),
-        gaussian_ids,
-        count,
-        image_width=image_width,
-        image_height=image_height,
-        per_tile_bound=per_tile_bound,
-        alpha_threshold=alpha_threshold,
-        transmittance_threshold=transmittance_threshold,
-    )
+        foreground,
+        alpha,
+        accepted,
+        last_ids,
+        tile_overflow,
+    ) = outputs
     return (
         gaussian_ids,
         tile_ids,
