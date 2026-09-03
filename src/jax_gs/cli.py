@@ -16,7 +16,9 @@ from flax import nnx
 from .checkpoints import (
     is_distributed_checkpoint,
     load_checkpoint_appearance_image_names,
+    load_checkpoint_candidate_bound,
     load_checkpoint_config,
+    load_checkpoint_intersection_capacity,
     load_checkpoint_scene_transform,
     load_checkpoint_storage_capacity,
     load_distributed_inference_checkpoint,
@@ -361,6 +363,22 @@ def _render_command(args: argparse.Namespace) -> None:
             "the camera transform cannot be inferred from a shard set"
         )
     config, model, appearance, step = _load_training_objects(checkpoint)
+    saved_intersections = load_checkpoint_intersection_capacity(checkpoint)
+    saved_candidates = load_checkpoint_candidate_bound(checkpoint)
+    if args.max_intersections is None and saved_intersections is not None:
+        config = replace(
+            config,
+            rasterizer=replace(
+                config.rasterizer, max_intersections=saved_intersections
+            ),
+        )
+    if args.max_candidates_per_tile is None and saved_candidates is not None:
+        config = replace(
+            config,
+            rasterizer=replace(
+                config.rasterizer, max_candidates_per_tile=saved_candidates
+            ),
+        )
     if args.max_gaussians_per_tile is not None:
         config = replace(
             config,
