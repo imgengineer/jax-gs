@@ -1,18 +1,19 @@
+# pyright: reportMissingImports=false
+
 """COLMAP scene metadata and Grain-compatible image loading."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import operator
-from pathlib import Path, PurePosixPath
 import struct
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal, SupportsIndex
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .colmap import ColmapModel, find_colmap_model_dir, read_colmap_model
-
 
 Split = Literal["train", "test", "val", "all"]
 Size = int | tuple[int, int]
@@ -95,12 +96,11 @@ class ColmapScene:
         if not self.images:
             return 0.0
         centers = self.camtoworlds[:, :3, 3]
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         return float(np.linalg.norm(centers - centers.mean(axis=0), axis=1).max())
 
 
-def _stack_or_empty(
-    arrays: Any, empty_shape: tuple[int, ...]
-) -> NDArray[np.float64]:
+def _stack_or_empty(arrays: Any, empty_shape: tuple[int, ...]) -> NDArray[np.float64]:
     values = tuple(arrays)
     if not values:
         return np.empty(empty_shape, dtype=np.float64)
@@ -164,9 +164,7 @@ def _index_image_files(
         relative = path.relative_to(image_dir).as_posix()
         exact[relative.casefold()] = path
         by_stem_lists.setdefault(_image_key(relative), []).append(path)
-    by_stem = {
-        key: tuple(sorted(paths)) for key, paths in by_stem_lists.items()
-    }
+    by_stem = {key: tuple(sorted(paths)) for key, paths in by_stem_lists.items()}
     return exact, by_stem
 
 
@@ -235,6 +233,7 @@ def _jpeg_size(path: Path) -> tuple[int, int]:
                 if len(frame_header) != 5:
                     break
                 height, width = struct.unpack(">HH", frame_header[1:])
+                # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
                 return int(width), int(height)
             file.seek(segment_length - 2, 1)
     raise ValueError(f"could not read JPEG dimensions: {path}")
@@ -248,11 +247,13 @@ def image_size(path: str | Path) -> tuple[int, int]:
         header = file.read(32)
     if header.startswith(b"\x89PNG\r\n\x1a\n") and len(header) >= 24:
         width, height = struct.unpack(">II", header[16:24])
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         return int(width), int(height)
     if header.startswith(b"\xff\xd8"):
         return _jpeg_size(image_path)
     if header[:6] in {b"GIF87a", b"GIF89a"} and len(header) >= 10:
         width, height = struct.unpack("<HH", header[6:10])
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         return int(width), int(height)
 
     try:
@@ -262,6 +263,7 @@ def image_size(path: str | Path) -> tuple[int, int]:
             f"Pillow is required to inspect this image format: {image_path}"
         ) from error
     with PilImage.open(image_path) as image:
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         return int(image.width), int(image.height)
 
 
@@ -359,6 +361,8 @@ class ColmapDataSource:
         resize: Size | None = None,
         image_dir: str | Path | None = None,
         factor: int = 1,
+        cache_images: bool = False,
+        uint8: bool = False,
     ) -> None:
         if not isinstance(scene, ColmapScene):
             scene = load_colmap_scene(
@@ -370,7 +374,13 @@ class ColmapDataSource:
         self.indices = scene.indices(split, test_every)
         self.crop_size = _normalize_size(crop_size, "crop_size")
         self.resize = _normalize_size(resize, "resize")
+        self.cache_images = bool(cache_images)
+        self.uint8 = bool(uint8)
+        self._cache: dict[int, dict[str, Any]] | None = (
+            {} if self.cache_images else None
+        )
 
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         selected = [scene.images[int(index)] for index in self.indices]
         shape_source = selected if selected else list(scene.images)
         if self.crop_size is not None:
@@ -392,15 +402,19 @@ class ColmapDataSource:
                     "selected images have different sizes; provide crop_size or resize"
                 )
             cropped_shape = next(iter(source_shapes))
-        self.image_shape = (*((self.resize or cropped_shape)), 3)
+        self.image_shape = (*(self.resize or cropped_shape), 3)
 
     def __len__(self) -> int:
         return len(self.indices)
 
     def __getitem__(self, index: SupportsIndex) -> dict[str, Any]:
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         item_index = operator.index(index)
         if item_index < 0 or item_index >= len(self):
             raise IndexError(f"index {item_index} out of range for {len(self)} images")
+        if self._cache is not None and item_index in self._cache:
+            return self._cache[item_index]
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         scene_index = int(self.indices[item_index])
         metadata = self.scene.images[scene_index]
 
@@ -426,16 +440,21 @@ class ColmapDataSource:
                 target_height, target_width = self.resize
                 scale_x = target_width / image.width
                 scale_y = target_height / image.height
-                image = image.resize((target_width, target_height), PilImage.Resampling.BILINEAR)
+                image = image.resize(
+                    (target_width, target_height), PilImage.Resampling.BILINEAR
+                )
                 K[0, :] *= scale_x
                 K[1, :] *= scale_y
-            pixels = np.asarray(image, dtype=np.float32) / np.float32(255.0)
+            if self.uint8:
+                pixels = np.asarray(image, dtype=np.uint8)
+            else:
+                pixels = np.asarray(image, dtype=np.float32) / np.float32(255.0)
 
         if pixels.shape != self.image_shape:
             raise ValueError(
                 f"expected static image shape {self.image_shape}, got {pixels.shape}"
             )
-        return {
+        result = {
             "image": pixels,
             "K": K.astype(np.float32),
             "w2c": metadata.w2c.astype(np.float32),
@@ -447,6 +466,9 @@ class ColmapDataSource:
             "camera_id": np.int64(metadata.camera_id),
             "camera_index": np.int32(metadata.camera_index),
         }
+        if self._cache is not None:
+            self._cache[item_index] = result
+        return result
 
     def __repr__(self) -> str:
         return (
@@ -464,6 +486,8 @@ def create_grain_dataset(
     resize: Size | None = None,
     image_dir: str | Path | None = None,
     factor: int = 1,
+    cache_images: bool = False,
+    uint8: bool = False,
     shuffle: bool = False,
     seed: int = 0,
     repeat: bool = False,
@@ -475,7 +499,9 @@ def create_grain_dataset(
     try:
         import grain
     except ImportError as error:  # pragma: no cover - dependency is declared
-        raise ImportError("install the 'grain' package to create a MapDataset") from error
+        raise ImportError(
+            "install the 'grain' package to create a MapDataset"
+        ) from error
 
     source = ColmapDataSource(
         scene,
@@ -485,6 +511,8 @@ def create_grain_dataset(
         resize=resize,
         image_dir=image_dir,
         factor=factor,
+        cache_images=cache_images,
+        uint8=uint8,
     )
     dataset = grain.MapDataset.source(source)
     if shuffle:

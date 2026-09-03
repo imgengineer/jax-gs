@@ -4,19 +4,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Hashable
-from dataclasses import dataclass
+import concurrent.futures
 import gc
 import operator
-from pathlib import Path
 import sys
 import time
+from collections.abc import Hashable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 from PIL import Image
 
 from ..capacity import _shrink_compacted_training_state
@@ -27,7 +28,11 @@ from ..strategy import (
     MCMCStrategy,
     reset_opacities,
 )
-from ._data import _infinite_batches
+from ._data import (
+    PrecomputedCameraPoses,
+    StepKeyGenerator,
+    _infinite_batches,
+)
 from ._memory import (
     _candidate_bound_for_occupancy,
     _check_evaluation_memory_budget,
@@ -85,9 +90,7 @@ class TrainingResult:
 def _clear_obsolete_train_step_cache(train_step: Any) -> None:
     """Evict only an obsolete train-step plan, never unrelated JAX caches."""
 
-    clear_cache = getattr(
-        getattr(train_step, "jitted_fn", None), "clear_cache", None
-    )
+    clear_cache = getattr(getattr(train_step, "jitted_fn", None), "clear_cache", None)
     if callable(clear_cache):
         clear_cache()
 
@@ -107,7 +110,9 @@ def _prewarm_train_step(
     started = time.perf_counter()
     lowered = lower(*args, **kwargs)
     lowered_at = time.perf_counter()
-    lowered.compile()
+    compile_fn = getattr(lowered, "compile", None)
+    if callable(compile_fn):
+        compile_fn()
     finished = time.perf_counter()
     signature_text = f" {signature}" if signature else ""
     print(
@@ -132,9 +137,7 @@ def make_render_step(config: TrainConfig, width: int, height: int):
         appearance_module: AppearanceOptModule | None = None,
     ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
         if model.has_appearance != config.app_opt:
-            raise ValueError(
-                "model color representation must match config.app_opt"
-            )
+            raise ValueError("model color representation must match config.app_opt")
         parameters = model.activated(
             split_sh=config.model_type == "3dgs" and not config.app_opt
         )
@@ -144,10 +147,7 @@ def make_render_step(config: TrainConfig, width: int, height: int):
                     "app_opt=True requires appearance_module for rendering"
                 )
             camtoworld = _invert_rigid_transforms(viewmat[None, ...])
-            directions = (
-                parameters["means"][None, :, :]
-                - camtoworld[:, None, :3, 3]
-            )
+            directions = parameters["means"][None, :, :] - camtoworld[:, None, :3, 3]
             corrections = appearance_module(
                 parameters["features"], None, directions, sh_degree
             )
@@ -237,16 +237,12 @@ def make_distributed_render_step(
     if axis_name is None or not isinstance(axis_name, Hashable):
         raise TypeError("axis_name must be hashable")
     _validate_2dgs_mode(config)
-    if (
-        config.with_ut
-        or config.with_eval3d
-        or config.camera_model != "pinhole"
-    ):
+    if config.with_ut or config.with_eval3d or config.camera_model != "pinhole":
         raise NotImplementedError(
-            "distributed rendering supports standard pinhole EWA "
-            "rasterization only"
+            "distributed rendering supports standard pinhole EWA rasterization only"
         )
     if config.model_type == "2dgs":
+
         @nnx.jit
         def render_step_2dgs(
             model: GaussianModel,
@@ -259,9 +255,7 @@ def make_distributed_render_step(
             del appearance_module
             parameters = model.activated(split_sh=True)
             parameters = jax.tree.map(
-                lambda value: jax.lax.all_gather(
-                    value, axis_name, axis=0, tiled=True
-                ),
+                lambda value: jax.lax.all_gather(value, axis_name, axis=0, tiled=True),
                 parameters,
             )
             (
@@ -306,9 +300,7 @@ def make_distributed_render_step(
         appearance_module: AppearanceOptModule | None = None,
     ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
         if model.has_appearance != config.app_opt:
-            raise ValueError(
-                "model color representation must match config.app_opt"
-            )
+            raise ValueError("model color representation must match config.app_opt")
         parameters = model.activated(split_sh=not config.app_opt)
         raster_distributed = True
         if config.app_opt:
@@ -317,16 +309,11 @@ def make_distributed_render_step(
                     "app_opt=True requires appearance_module for rendering"
                 )
             parameters = jax.tree.map(
-                lambda value: jax.lax.all_gather(
-                    value, axis_name, axis=0, tiled=True
-                ),
+                lambda value: jax.lax.all_gather(value, axis_name, axis=0, tiled=True),
                 parameters,
             )
             camtoworld = _invert_rigid_transforms(viewmat[None, ...])
-            directions = (
-                parameters["means"][None, :, :]
-                - camtoworld[:, None, :3, 3]
-            )
+            directions = parameters["means"][None, :, :] - camtoworld[:, None, :3, 3]
             corrections = appearance_module(
                 parameters["features"], None, directions, sh_degree
             )
@@ -385,9 +372,7 @@ def reduce_distributed_render(
     if stacked.ndim < 1 or stacked.shape[0] < 1:
         raise ValueError("expected a rank-major stack of renders")
     if not 0 <= rank < stacked.shape[0]:
-        raise IndexError(
-            f"rank {rank} is outside the world of {stacked.shape[0]}"
-        )
+        raise IndexError(f"rank {rank} is outside the world of {stacked.shape[0]}")
     reference = stacked[rank]
     for other in range(stacked.shape[0]):
         if other == rank:
@@ -459,22 +444,21 @@ def train(
         scene_scale = _training_scene_scale(
             scene, transform, global_scale=config.global_scale
         )
-    uses_camera_modules = (
-        config.pose_opt or config.pose_noise > 0.0 or config.app_opt
+    uses_camera_modules = config.pose_opt or config.pose_noise > 0.0 or config.app_opt
+    camera_poses = PrecomputedCameraPoses(
+        scene, transform, uses_camera_modules=uses_camera_modules
     )
     camera_image_names: tuple[str, ...] | None = None
     camera_count = 0
     if uses_camera_modules:
         camera_indices = scene.indices("train", config.data.test_every)
         camera_image_names = tuple(
-            scene.images[np.asarray(index).item()].name
-            for index in camera_indices
+            scene.images[np.asarray(index).item()].name for index in camera_indices
         )
         camera_count = len(camera_image_names)
         if camera_count == 0:
             raise ValueError(
-                "camera-conditioned optimization requires a non-empty "
-                "training split"
+                "camera-conditioned optimization requires a non-empty training split"
             )
     points: np.ndarray | None = None
     if resume_from is None:
@@ -530,9 +514,7 @@ def train(
             return runtime
         return _training_config_with_candidate_bound(runtime, candidate_bound)
 
-    runtime_config = _runtime_training_config(
-        intersection_capacity, candidate_bound
-    )
+    runtime_config = _runtime_training_config(intersection_capacity, candidate_bound)
     _training._check_memory_budget(
         runtime_config,
         physical_capacity=storage_capacity,
@@ -548,13 +530,9 @@ def train(
             config.model,
             physical_capacity=storage_capacity,
             num_workers=config.data.num_workers,
-            appearance_feature_dim=(
-                APPEARANCE_FEATURE_DIM if config.app_opt else None
-            ),
+            appearance_feature_dim=(APPEARANCE_FEATURE_DIM if config.app_opt else None),
             feature_key=(
-                jax.random.fold_in(
-                    jax.random.key(config.seed), 0x41505046
-                )
+                jax.random.fold_in(jax.random.key(config.seed), 0x41505046)
                 if config.app_opt
                 else None
             ),
@@ -563,21 +541,15 @@ def train(
         model = GaussianModel.empty(
             config.model,
             physical_capacity=storage_capacity,
-            appearance_feature_dim=(
-                APPEARANCE_FEATURE_DIM if config.app_opt else None
-            ),
+            appearance_feature_dim=(APPEARANCE_FEATURE_DIM if config.app_opt else None),
         )
-    optimizer = _create_training_optimizer(
-        model, config, scene_scale=scene_scale
-    )
+    optimizer = _create_training_optimizer(model, config, scene_scale=scene_scale)
     pose_adjust = None
     pose_optimizer = None
     if config.pose_opt:
         pose_adjust = CameraOptModule(
             camera_count,
-            rngs=nnx.Rngs(
-                jax.random.fold_in(jax.random.key(config.seed), 0x504F5345)
-            ),
+            rngs=nnx.Rngs(jax.random.fold_in(jax.random.key(config.seed), 0x504F5345)),
         )
         pose_adjust.zero_init()
         pose_optimizer = _training._create_pose_optimizer(pose_adjust, config)
@@ -585,9 +557,7 @@ def train(
     if config.pose_noise > 0.0:
         pose_perturb = CameraOptModule(
             camera_count,
-            rngs=nnx.Rngs(
-                jax.random.fold_in(jax.random.key(config.seed), 0x4E4F4953)
-            ),
+            rngs=nnx.Rngs(jax.random.fold_in(jax.random.key(config.seed), 0x4E4F4953)),
         )
         pose_perturb.random_init(config.pose_noise)
     appearance_module = None
@@ -598,11 +568,7 @@ def train(
             APPEARANCE_FEATURE_DIM,
             config.app_embed_dim,
             config.model.sh_degree,
-            rngs=nnx.Rngs(
-                jax.random.fold_in(
-                    jax.random.key(config.seed), 0x4150504D
-                )
-            ),
+            rngs=nnx.Rngs(jax.random.fold_in(jax.random.key(config.seed), 0x4150504D)),
         )
         appearance_optimizer = _training.create_appearance_optimizer(
             appearance_module, config
@@ -630,9 +596,7 @@ def train(
             ),
             appearance_module=appearance_module,
             appearance_optimizer=appearance_optimizer,
-            appearance_image_names=(
-                camera_image_names if config.app_opt else None
-            ),
+            appearance_image_names=(camera_image_names if config.app_opt else None),
         )
         if start_step > config.steps:
             raise ValueError(
@@ -661,6 +625,9 @@ def train(
         scene,
         split="train",
         test_every=config.data.test_every,
+        image_dir=config.data.image_dir,
+        cache_images=config.data.cache_images,
+        uint8=config.data.uint8,
         shuffle=True,
         seed=config.data.shuffle_seed,
         repeat=True,
@@ -679,6 +646,12 @@ def train(
     last_metrics: dict[str, float] = {}
     last_checkpoint: Path | None = None
     last_checkpoint_step: int | None = None
+    checkpoint_executor = (
+        concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        if config.async_checkpoint
+        else None
+    )
+    pending_checkpoint_future: concurrent.futures.Future[Path] | None = None
     start_time = time.monotonic()
 
     evaluation_example = None
@@ -783,8 +756,8 @@ def train(
                 config.rasterizer.max_gaussians_per_tile,
             )
             candidate_bound = tuned_bound
-        max_overflow_tiles, intersection_overflow_seen = (
-            _training_overflow_status(safety_state)
+        max_overflow_tiles, intersection_overflow_seen = _training_overflow_status(
+            safety_state
         )
         while max_overflow_tiles > 0 or intersection_overflow_seen:
             # Whatever the overflow turns out to be, its rebuild carries the
@@ -807,10 +780,7 @@ def train(
                 next_candidate_bound = _candidate_bound_for_occupancy(
                     overflow.required, config.rasterizer.max_gaussians_per_tile
                 )
-                if (
-                    candidate_bound is None
-                    or next_candidate_bound <= candidate_bound
-                ):
+                if candidate_bound is None or next_candidate_bound <= candidate_bound:
                     # Nothing larger to ask for: the loop was already sized
                     # for the worst tile the shapes admit, so the input claims
                     # a tile holds more candidates than it has slots to
@@ -897,8 +867,8 @@ def train(
                         else jax.device_put(record.image_ids)
                     ),
                 )
-            max_overflow_tiles, intersection_overflow_seen = (
-                _training_overflow_status(safety_state)
+            max_overflow_tiles, intersection_overflow_seen = _training_overflow_status(
+                safety_state
             )
         if tuned_bound is not None:
             # The pending steps ran with the looser bound, which renders them
@@ -917,30 +887,65 @@ def train(
         pending_steps.clear()
         return latest_metrics
 
-    for step in range(start_step + 1, config.steps + 1):
-        batch = next(batches)
-        images_np = np.asarray(batch["image"], dtype=np.float32)
-        intrinsics_np = np.asarray(batch["K"], dtype=np.float32)
-        viewmats_np = transform.world_to_camera(
-            np.asarray(batch["w2c"], dtype=np.float32)
+    def prepare_batch(raw_batch):
+        images_raw = raw_batch["image"]
+        if getattr(images_raw, "dtype", None) == np.uint8:
+            images_np = np.asarray(images_raw, dtype=np.uint8)
+        else:
+            images_np = np.asarray(images_raw, dtype=np.float32)
+        intrinsics_np = np.asarray(raw_batch["K"], dtype=np.float32)
+        viewmats_np, camtoworlds_np = camera_poses.get_poses(
+            raw_batch["w2c"], raw_batch.get("image_index")
         )
-        camtoworlds_np = None
-        image_ids_np = None
-        if uses_camera_modules:
-            camtoworlds_np = np.linalg.inv(viewmats_np).astype(np.float32)
-            image_ids_np = np.asarray(batch["dataset_index"], dtype=np.int32)
+        image_ids_np = (
+            np.asarray(raw_batch["dataset_index"], dtype=np.int32)
+            if uses_camera_modules
+            else None
+        )
         images = jax.device_put(images_np)
         intrinsics = jax.device_put(intrinsics_np)
         viewmats = jax.device_put(viewmats_np)
-        camtoworlds = (
-            None if camtoworlds_np is None else jax.device_put(camtoworlds_np)
+        camtoworlds = None if camtoworlds_np is None else jax.device_put(camtoworlds_np)
+        image_ids = None if image_ids_np is None else jax.device_put(image_ids_np)
+        return (
+            images,
+            intrinsics,
+            viewmats,
+            camtoworlds,
+            image_ids,
+            images_np,
+            intrinsics_np,
+            viewmats_np,
+            camtoworlds_np,
+            image_ids_np,
         )
-        image_ids = (
-            None if image_ids_np is None else jax.device_put(image_ids_np)
-        )
-        step_key, strategy_key = jax.random.split(
-            jax.random.fold_in(training_key, step), 2
-        )
+
+    key_generator = StepKeyGenerator(training_key)
+    next_batch_data = (
+        prepare_batch(next(batches)) if start_step < config.steps else None
+    )
+
+    for step in range(start_step + 1, config.steps + 1):
+        if next_batch_data is None:
+            raise RuntimeError("missing prepared batch data")
+        (
+            images,
+            intrinsics,
+            viewmats,
+            camtoworlds,
+            image_ids,
+            images_np,
+            intrinsics_np,
+            viewmats_np,
+            camtoworlds_np,
+            image_ids_np,
+        ) = next_batch_data
+        if step < config.steps:
+            next_batch_data = prepare_batch(next(batches))
+        else:
+            next_batch_data = None
+
+        step_key, strategy_key = key_generator.get(step)
         do_refine = strategy.should_refine(step)
         do_reset = strategy.should_reset(step)
         sh_degree = jnp.minimum(
@@ -951,9 +956,7 @@ def train(
             # Refinement is part of the atomic device commit below. Resolve any
             # older overflow before changing the physical storage bucket.
             synchronize_pending_steps()
-            active_count = np.asarray(
-                jax.device_get(model.active_count)
-            ).item()
+            active_count = np.asarray(jax.device_get(model.active_count)).item()
             required_capacity = _mcmc_required_capacity(active_count, config)
             bounded_required = min(required_capacity, model.max_capacity)
             target_capacity = max(
@@ -1003,8 +1006,7 @@ def train(
         )
         do_log = step == 1 or step % 10 == 0
         do_checkpoint = (
-            config.checkpoint_every > 0
-            and step % config.checkpoint_every == 0
+            config.checkpoint_every > 0 and step % config.checkpoint_every == 0
         )
         do_evaluate = (
             evaluation_example is not None
@@ -1077,9 +1079,7 @@ def train(
             )
 
         if do_refine:
-            active_count = np.asarray(
-                jax.device_get(model.active_count)
-            ).item()
+            active_count = np.asarray(jax.device_get(model.active_count)).item()
             compaction_required = min(
                 model.max_capacity,
                 max(
@@ -1087,9 +1087,7 @@ def train(
                     active_count + config.strategy.max_new_per_refine,
                 ),
             )
-            compact_capacity = config.model.bucket_capacity(
-                compaction_required
-            )
+            compact_capacity = config.model.bucket_capacity(compaction_required)
             # ponytail: require a 4x drop to amortize migration and one
             # recompilation; revisit after multi-scene end-to-end profiles.
             if compact_capacity * 4 <= model.capacity:
@@ -1111,17 +1109,14 @@ def train(
                 compacted_count = np.asarray(compact_count).item()
                 if compacted_count != active_count:
                     raise RuntimeError(
-                        "active count changed while compacting the training "
-                        "bucket"
+                        "active count changed while compacting the training bucket"
                     )
-                model, optimizer, strategy_state = (
-                    _shrink_compacted_training_state(
-                        model,
-                        optimizer,
-                        strategy_state,
-                        compact_capacity,
-                        compacted_count,
-                    )
+                model, optimizer, strategy_state = _shrink_compacted_training_state(
+                    model,
+                    optimizer,
+                    strategy_state,
+                    compact_capacity,
+                    compacted_count,
                 )
                 _training._block_nnx_state(model, optimizer, strategy_state)
                 intersection_limit = _training_intersection_limit(
@@ -1208,30 +1203,46 @@ def train(
                 )
 
         if do_checkpoint:
-            last_checkpoint = _training._save_compacted_training_checkpoint(
+            if pending_checkpoint_future is not None:
+                last_checkpoint = pending_checkpoint_future.result()
+                pending_checkpoint_future = None
+            save_args = (
                 output_dir / "checkpoints",
                 model,
                 optimizer,
                 strategy_state,
-                step=step,
-                config=config,
-                intersection_capacity=intersection_capacity,
-                candidate_bound=candidate_bound,
-                scene_transform=transform,
-                scene_scale=scene_scale,
-                pose_adjust=pose_adjust,
-                pose_optimizer=pose_optimizer,
-                pose_image_names=(
+            )
+            save_kwargs = {
+                "step": step,
+                "config": config,
+                "intersection_capacity": intersection_capacity,
+                "candidate_bound": candidate_bound,
+                "scene_transform": transform,
+                "scene_scale": scene_scale,
+                "pose_adjust": pose_adjust,
+                "pose_optimizer": pose_optimizer,
+                "pose_image_names": (
                     camera_image_names
                     if config.pose_opt or config.pose_noise > 0.0
                     else None
                 ),
-                appearance_module=appearance_module,
-                appearance_optimizer=appearance_optimizer,
-                appearance_image_names=(
+                "appearance_module": appearance_module,
+                "appearance_optimizer": appearance_optimizer,
+                "appearance_image_names": (
                     camera_image_names if config.app_opt else None
                 ),
-            )
+            }
+            if checkpoint_executor is not None:
+                pending_checkpoint_future = checkpoint_executor.submit(
+                    _training._save_compacted_training_checkpoint,
+                    *save_args,
+                    **save_kwargs,
+                )
+            else:
+                last_checkpoint = _training._save_compacted_training_checkpoint(
+                    *save_args,
+                    **save_kwargs,
+                )
             last_checkpoint_step = step
 
         if do_evaluate:
@@ -1261,6 +1272,9 @@ def train(
                 print("evaluation intersection overflow", flush=True)
 
     if last_checkpoint_step != config.steps:
+        if pending_checkpoint_future is not None:
+            last_checkpoint = pending_checkpoint_future.result()
+            pending_checkpoint_future = None
         last_checkpoint = _training._save_compacted_training_checkpoint(
             output_dir / "checkpoints",
             model,
@@ -1281,10 +1295,13 @@ def train(
             ),
             appearance_module=appearance_module,
             appearance_optimizer=appearance_optimizer,
-            appearance_image_names=(
-                camera_image_names if config.app_opt else None
-            ),
+            appearance_image_names=(camera_image_names if config.app_opt else None),
         )
+    if pending_checkpoint_future is not None:
+        last_checkpoint = pending_checkpoint_future.result()
+        pending_checkpoint_future = None
+    if checkpoint_executor is not None:
+        checkpoint_executor.shutdown(wait=True)
     return TrainingResult(
         model=model,
         final_step=config.steps,

@@ -1,3 +1,5 @@
+# ruff: noqa: E402, I001, F401
+
 """JAX/Flax NNX Gaussian splatting.
 
 The public surface is migrating by subsystem to a pinned gsplat ``main``
@@ -47,6 +49,11 @@ from .checkpoints import (
 from .camera_wrappers import RootCameraModel, create_camera_model
 from .color_correct import color_correct_affine, color_correct_quadratic
 from .compression import PngCompression
+from .data import (
+    ColmapDataSource,
+    create_grain_dataset,
+    load_colmap_scene,
+)
 from .config import (
     DataConfig,
     MAX_MODEL_CAPACITY,
@@ -141,6 +148,11 @@ from .two_dgs import (
     rasterize_to_indices_in_range_2dgs,
     rasterize_to_pixels_2dgs,
 )
+from .training import (
+    TrainingResult,
+    train,
+    train_distributed,
+)
 from .visibility import (
     PaddedContributors,
     rasterize_contributing_gaussian_ids,
@@ -164,6 +176,12 @@ __all__ = [
     "DefaultStrategy",
     "FusedGaussianLosses",
     "CameraModel",
+    "ColmapDataSource",
+    "create_grain_dataset",
+    "load_colmap_scene",
+    "TrainingResult",
+    "train",
+    "train_distributed",
     "BivariateWindshieldModelParameters",
     "ExternalDistortionModelMeta",
     "ExternalDistortionModelParameters",

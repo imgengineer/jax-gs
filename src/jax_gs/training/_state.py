@@ -1,15 +1,17 @@
+# pyright: reportArgumentType=false, reportMissingImports=false, reportGeneralTypeIssues=false
+
 """Growing, compacting and checkpointing the model, optimizer and strategy together."""
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Hashable, Sequence
 from pathlib import Path
-import sys
 from typing import Any, NamedTuple
 
-from flax import nnx
 import jax
 import numpy as np
+from flax import nnx
 
 from ..capacity import (
     _distributed_local_capacity,
@@ -144,7 +146,7 @@ def make_distributed_resize_step(
     config: TrainConfig,
     *,
     axis_name: Hashable = "rank",
-    devices: Sequence[jax.Device] | None = None,
+    devices: Sequence[Any] | None = None,
 ) -> Callable[
     [GaussianModel, nnx.Optimizer, StrategyState, int],
     tuple[GaussianModel, nnx.Optimizer, StrategyState],
@@ -192,15 +194,13 @@ def synchronize_distributed_capacity(
     *,
     image_height: int | None = None,
     image_width: int | None = None,
-    devices: Sequence[jax.Device] | None = None,
+    devices: Sequence[Any] | None = None,
     resize_step: Callable[
         [GaussianModel, nnx.Optimizer, StrategyState, int],
         tuple[GaussianModel, nnx.Optimizer, StrategyState],
     ]
     | None = None,
-) -> tuple[
-    GaussianModel, nnx.Optimizer, StrategyState, DistributedCapacityDecision
-]:
+) -> tuple[GaussianModel, nnx.Optimizer, StrategyState, DistributedCapacityDecision]:
     """Grow every shard when a distributed step reports a capacity overflow.
 
     This is the host half of distributed refinement: the step synchronizes
@@ -230,19 +230,18 @@ def synchronize_distributed_capacity(
         np.any(np.asarray(metrics.get("refine_commit_overflow", False)))
     )
     if not skip_overflow and not commit_overflow:
-        return model, optimizer, strategy_state, DistributedCapacityDecision(
-            False, False, local_capacity, local_capacity
+        return (
+            model,
+            optimizer,
+            strategy_state,
+            DistributedCapacityDecision(False, False, local_capacity, local_capacity),
         )
 
+    # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
     required = max(
         int(np.max(np.asarray(metrics["refine_required_capacity"]))),
-        int(
-            np.max(
-                np.asarray(
-                    metrics.get("refine_commit_required_capacity", 0)
-                )
-            )
-        ),
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
+        int(np.max(np.asarray(metrics.get("refine_commit_required_capacity", 0)))),
     )
     if skip_overflow and required > model.max_capacity:
         raise RuntimeError(
@@ -261,8 +260,11 @@ def synchronize_distributed_capacity(
                 f"the bucket rule keeps capacity {local_capacity}; replaying "
                 "would fail the same way forever"
             )
-        return model, optimizer, strategy_state, DistributedCapacityDecision(
-            False, False, local_capacity, local_capacity
+        return (
+            model,
+            optimizer,
+            strategy_state,
+            DistributedCapacityDecision(False, False, local_capacity, local_capacity),
         )
 
     _training._check_distributed_bucket_transition_memory_budget(
@@ -288,6 +290,11 @@ def synchronize_distributed_capacity(
             model, optimizer, strategy_state, target_capacity
         )
     _training._block_nnx_state(model, optimizer, strategy_state)
-    return model, optimizer, strategy_state, DistributedCapacityDecision(
-        True, skip_overflow, local_capacity, target_capacity
+    return (
+        model,
+        optimizer,
+        strategy_state,
+        DistributedCapacityDecision(
+            True, skip_overflow, local_capacity, target_capacity
+        ),
     )

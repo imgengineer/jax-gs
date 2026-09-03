@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import json
 import math
 import os
-from pathlib import Path
-from typing import Any, Literal, Mapping
 import warnings
-
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Literal
 
 MAX_MODEL_CAPACITY = 10_000_000
 
@@ -40,9 +40,7 @@ class ModelConfig:
         if self.capacity <= 0:
             raise ValueError("capacity must be positive")
         if self.capacity > MAX_MODEL_CAPACITY:
-            raise ValueError(
-                f"capacity cannot exceed {MAX_MODEL_CAPACITY:,}"
-            )
+            raise ValueError(f"capacity cannot exceed {MAX_MODEL_CAPACITY:,}")
         if not 0 <= self.sh_degree <= 4:
             raise ValueError("sh_degree must be between 0 and 4")
         if not 0.0 < self.initial_opacity < 1.0:
@@ -55,6 +53,7 @@ class ModelConfig:
     def bucket_capacity(self, required: int = 0) -> int:
         """Return the smallest configured physical bucket covering ``required``."""
 
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         required = int(required)
         if required < 0:
             raise ValueError("required capacity cannot be negative")
@@ -132,9 +131,7 @@ class RasterizationConfig:
                 "'cuda_tile', or 'cute'"
             )
         if self.compositor_backend not in {"jax", "pallas", "cute"}:
-            raise ValueError(
-                "compositor_backend must be 'jax', 'pallas', or 'cute'"
-            )
+            raise ValueError("compositor_backend must be 'jax', 'pallas', or 'cute'")
         if (
             self.compositor_backend in {"pallas", "cute"}
             and self.backend == "reference"
@@ -143,9 +140,7 @@ class RasterizationConfig:
                 "the optimized compositors require the intersections backend"
             )
         if self.intersection_mode not in {"auto", "aabb", "accutile"}:
-            raise ValueError(
-                "intersection_mode must be 'auto', 'aabb', or 'accutile'"
-            )
+            raise ValueError("intersection_mode must be 'auto', 'aabb', or 'accutile'")
         if self.sort_backend not in {"auto", "jax"}:
             raise ValueError("sort_backend must be 'auto' or 'jax'")
         if self.tile_size <= 0:
@@ -158,9 +153,7 @@ class RasterizationConfig:
             self.max_candidates_per_tile is not None
             and self.max_candidates_per_tile <= 0
         ):
-            raise ValueError(
-                "max_candidates_per_tile must be positive when provided"
-            )
+            raise ValueError("max_candidates_per_tile must be positive when provided")
         if self.tile_batch_size <= 0:
             raise ValueError("tile_batch_size must be positive")
         if self.ut_chunk_size <= 0:
@@ -220,9 +213,8 @@ class StrategyConfig:
         if self.max_new_per_refine <= 0:
             raise ValueError("max_new_per_refine must be positive")
         if self.target_primitives is not None:
-            if (
-                not isinstance(self.target_primitives, int)
-                or isinstance(self.target_primitives, bool)
+            if not isinstance(self.target_primitives, int) or isinstance(
+                self.target_primitives, bool
             ):
                 raise TypeError("target_primitives must be an integer")
             if self.target_primitives <= 0:
@@ -232,9 +224,7 @@ class StrategyConfig:
                     "target_primitives is supported only by the default strategy"
                 )
         if self.key_for_gradient not in {"means2d", "gradient_2dgs"}:
-            raise ValueError(
-                "key_for_gradient must be 'means2d' or 'gradient_2dgs'"
-            )
+            raise ValueError("key_for_gradient must be 'means2d' or 'gradient_2dgs'")
         if self.cap_max <= 0:
             raise ValueError("cap_max must be positive")
         if self.noise_lr < 0.0:
@@ -252,6 +242,8 @@ class DataConfig:
     batch_size: int = 1
     shuffle_seed: int = 42
     num_workers: int = 4
+    cache_images: bool = False
+    uint8: bool = False
 
     def __post_init__(self) -> None:
         if self.num_workers <= 0:
@@ -305,6 +297,7 @@ class TrainConfig:
     with_eval3d: bool = False
     seed: int = 42
     checkpoint_every: int = 5_000
+    async_checkpoint: bool = False
     eval_every: int = 1_000
     # Set this at or above max_intersections to pin the intersection shape.
     intersection_bucket_min_capacity: int = 65_536
@@ -360,9 +353,7 @@ class TrainConfig:
         if self.model_type == "2dgs" and (
             self.opacity_reg != 0.0 or self.scale_reg != 0.0
         ):
-            raise ValueError(
-                "opacity_reg and scale_reg are available only for 3DGS"
-            )
+            raise ValueError("opacity_reg and scale_reg are available only for 3DGS")
         if self.normal_lambda < 0.0 or self.dist_lambda < 0.0:
             raise ValueError("2DGS regularization weights must be non-negative")
         if self.normal_start_iter < 0 or self.dist_start_iter < 0:
@@ -389,7 +380,7 @@ class TrainConfig:
         model_type: Literal["3dgs", "2dgs"],
         *,
         strategy_kind: Literal["default", "mcmc"] = "default",
-    ) -> "TrainConfig":
+    ) -> TrainConfig:
         """Create the current-main example profile for one Gaussian model."""
 
         if strategy_kind not in {"default", "mcmc"}:
@@ -406,9 +397,7 @@ class TrainConfig:
             return cls(model_type="3dgs")
         if model_type == "2dgs":
             if strategy_kind != "default":
-                raise ValueError(
-                    "2DGS training supports only the default strategy"
-                )
+                raise ValueError("2DGS training supports only the default strategy")
             return cls(
                 model_type="2dgs",
                 rasterizer=RasterizationConfig(
@@ -431,7 +420,7 @@ class TrainConfig:
         path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
 
     @classmethod
-    def from_dict(cls, values: Mapping[str, Any]) -> "TrainConfig":
+    def from_dict(cls, values: Mapping[str, Any]) -> TrainConfig:
         rasterizer_values = dict(values.get("rasterizer", {}))
         legacy_backends = {
             "backend": {"cuda_ffi": "jax"},
@@ -467,5 +456,5 @@ class TrainConfig:
         )
 
     @classmethod
-    def load(cls, path: str | Path) -> "TrainConfig":
+    def load(cls, path: str | Path) -> TrainConfig:
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))

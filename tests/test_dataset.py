@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
 import struct
+from pathlib import Path
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
 from jax_gs.data import (
     ColmapDataSource,
@@ -59,7 +59,9 @@ def synthetic_scene(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("factor", [1, 2, 4, 8])
-def test_supports_standard_image_directories(synthetic_scene: Path, factor: int) -> None:
+def test_supports_standard_image_directories(
+    synthetic_scene: Path, factor: int
+) -> None:
     scene = load_colmap_scene(synthetic_scene, factor=factor, load_points=False)
     expected_name = "images" if factor == 1 else f"images_{factor}"
     assert scene.image_dir.name == expected_name
@@ -172,15 +174,47 @@ def test_grain_repeat_precedes_static_batching_and_keeps_small_scenes_trainable(
         seed=0,
         repeat=True,
     )
-    first_epoch = tuple(
-        int(shuffled[index]["dataset_index"]) for index in range(2)
-    )
-    second_epoch = tuple(
-        int(shuffled[index]["dataset_index"]) for index in range(2, 4)
-    )
+    first_epoch = tuple(int(shuffled[index]["dataset_index"]) for index in range(2))
+    second_epoch = tuple(int(shuffled[index]["dataset_index"]) for index in range(2, 4))
     assert set(first_epoch) == {0, 1}
     assert set(second_epoch) == {0, 1}
     assert second_epoch != first_epoch
+
+
+def test_colmap_data_source_in_memory_cache(synthetic_scene: Path) -> None:
+    source_uncached = ColmapDataSource(
+        synthetic_scene, split="all", resize=(12, 16), cache_images=False
+    )
+    assert source_uncached._cache is None
+    item0_uncached = source_uncached[0]
+
+    source_cached = ColmapDataSource(
+        synthetic_scene, split="all", resize=(12, 16), cache_images=True
+    )
+    assert source_cached._cache is not None
+    item0_cached = source_cached[0]
+    assert 0 in source_cached._cache
+    # Second access returns cached object
+    assert source_cached[0] is item0_cached
+    np.testing.assert_allclose(item0_cached["image"], item0_uncached["image"])
+
+
+def test_colmap_data_source_uint8(synthetic_scene: Path) -> None:
+    source_f32 = ColmapDataSource(
+        synthetic_scene, split="all", resize=(12, 16), uint8=False
+    )
+    source_u8 = ColmapDataSource(
+        synthetic_scene, split="all", resize=(12, 16), uint8=True
+    )
+    item_f32 = source_f32[0]
+    item_u8 = source_u8[0]
+    assert item_u8["image"].dtype == np.uint8
+    assert item_f32["image"].dtype == np.float32
+    np.testing.assert_allclose(
+        item_u8["image"].astype(np.float32) / 255.0,
+        item_f32["image"],
+        atol=1.0 / 255.0,
+    )
 
 
 @pytest.mark.slow

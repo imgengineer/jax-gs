@@ -1,19 +1,19 @@
-# pyright: reportMissingImports=false
+# pyright: reportMissingImports=false, reportGeneralTypeIssues=false, reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
 
 """Strict float32 pinhole projection through CuTe DSL."""
 
 from __future__ import annotations
 
-from functools import partial
 import operator
+from functools import partial
+from typing import Any
 
-import jax
-import jax.numpy as jnp
-
+import cuda.bindings.driver as cuda
 import cutlass
 import cutlass.cute as cute
 import cutlass.jax as cjax
-import cuda.bindings.driver as cuda
+import jax
+import jax.numpy as jnp
 
 from .cameras import (
     _pinhole_mean_and_jacobian,
@@ -21,7 +21,6 @@ from .cameras import (
     world_to_cam,
 )
 from .math import quat_scale_to_covar_preci
-
 
 _BLOCK_SIZE = 256
 _FACTOR_PROJECTION_MIN_GAUSSIANS = 262_144
@@ -44,7 +43,7 @@ def _static_float(name: str, value: float) -> float:
         raise TypeError(f"{name} must be a static float") from exc
 
 
-def _cute_device() -> jax.Device:
+def _cute_device() -> Any:
     try:
         devices = jax.local_devices(backend="gpu")
     except RuntimeError as exc:
@@ -52,12 +51,8 @@ def _cute_device() -> jax.Device:
             "projection_backend='cute' requires an NVIDIA CUDA GPU"
         ) from exc
     if not devices or any("cuda" not in str(device).lower() for device in devices):
-        raise RuntimeError(
-            "projection_backend='cute' requires NVIDIA CUDA devices"
-        )
-    capabilities = {
-        getattr(device, "compute_capability", None) for device in devices
-    }
+        raise RuntimeError("projection_backend='cute' requires NVIDIA CUDA devices")
+    capabilities = {getattr(device, "compute_capability", None) for device in devices}
     if len(capabilities) != 1 or None in capabilities:
         raise RuntimeError(
             "projection_backend='cute' requires one shared compute capability"
@@ -69,6 +64,7 @@ def _cute_device() -> jax.Device:
 def _jax_max(left, right):
     result = left if left > right else right
     if cute.math.isnan(left) or cute.math.isnan(right):
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         result = cutlass.Float32(float("nan"))
     return result
 
@@ -77,6 +73,7 @@ def _jax_max(left, right):
 def _jax_min(left, right):
     result = left if left < right else right
     if cute.math.isnan(left) or cute.math.isnan(right):
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         result = cutlass.Float32(float("nan"))
     return result
 
@@ -124,9 +121,7 @@ def _projection_forward_kernel(
         mean_y = means_camera[camera_id, gaussian_id, 1]
         mean_z = means_camera[camera_id, gaussian_id, 2]
         z_safe = _safe_denominator(mean_z)
-        inverse_z = cute.math.div(
-            cutlass.Float32(1.0), z_safe, approx=True
-        )
+        inverse_z = cute.math.div(cutlass.Float32(1.0), z_safe, approx=True)
         inverse_z_squared = inverse_z * inverse_z
 
         fx = intrinsics[camera_id, 0, 0]
@@ -135,12 +130,8 @@ def _projection_forward_kernel(
         cy = intrinsics[camera_id, 1, 2]
         fx_safe = _safe_denominator(fx)
         fy_safe = _safe_denominator(fy)
-        inverse_fx = cute.math.div(
-            cutlass.Float32(1.0), fx_safe, approx=True
-        )
-        inverse_fy = cute.math.div(
-            cutlass.Float32(1.0), fy_safe, approx=True
-        )
+        inverse_fx = cute.math.div(cutlass.Float32(1.0), fx_safe, approx=True)
+        inverse_fy = cute.math.div(cutlass.Float32(1.0), fy_safe, approx=True)
         tan_fov_x = 0.5 * image_width * inverse_fx
         tan_fov_y = 0.5 * image_height * inverse_fy
         limit_x_positive = (image_width - cx) * inverse_fx + 0.3 * tan_fov_x
@@ -182,28 +173,20 @@ def _projection_forward_kernel(
         covariance_xy = p01 * j11 + p02 * j12
         covariance_yx = p10 * j00 + p12 * j02
         covariance_yy = p11 * j11 + p12 * j12 + eps2d
-        determinant = (
-            covariance_xx * covariance_yy - covariance_xy * covariance_yx
-        )
+        determinant = covariance_xx * covariance_yy - covariance_xy * covariance_yx
         reference_xx = reference_covariances_2d[camera_id, gaussian_id, 0, 0]
         reference_xy = reference_covariances_2d[camera_id, gaussian_id, 0, 1]
         reference_yx = reference_covariances_2d[camera_id, gaussian_id, 1, 0]
         reference_yy = reference_covariances_2d[camera_id, gaussian_id, 1, 1]
-        reference_determinant = reference_determinants[
-            camera_id, gaussian_id
-        ]
+        reference_determinant = reference_determinants[camera_id, gaussian_id]
         safe_determinant = _jax_max(reference_determinant, 1.0e-10)
-        conic_xx = cute.math.div(
-            reference_yy, safe_determinant, full=True
-        )
+        conic_xx = cute.math.div(reference_yy, safe_determinant, full=True)
         conic_xy = cute.math.div(
             -0.5 * (reference_xy + reference_yx),
             safe_determinant,
             full=True,
         )
-        conic_yy = cute.math.div(
-            reference_xx, safe_determinant, full=True
-        )
+        conic_yy = cute.math.div(reference_xx, safe_determinant, full=True)
         conics_out[camera_id, gaussian_id, 0] = conic_xx
         conics_out[camera_id, gaussian_id, 1] = conic_xy
         conics_out[camera_id, gaussian_id, 2] = conic_yy
@@ -217,12 +200,8 @@ def _projection_forward_kernel(
             _jax_max(2.0 * cute.math.log(opacity_ratio), 0.0)
         )
         extend = _jax_min(3.33, opacity_extend)
-        radius_x = cute.math.ceil(
-            extend * cute.math.sqrt(_jax_max(covariance_xx, 0.0))
-        )
-        radius_y = cute.math.ceil(
-            extend * cute.math.sqrt(_jax_max(covariance_yy, 0.0))
-        )
+        radius_x = cute.math.ceil(extend * cute.math.sqrt(_jax_max(covariance_xx, 0.0)))
+        radius_y = cute.math.ceil(extend * cute.math.sqrt(_jax_max(covariance_yy, 0.0)))
 
         mean2d_x = means2d[camera_id, gaussian_id, 0]
         mean2d_y = means2d[camera_id, gaussian_id, 1]
@@ -390,9 +369,7 @@ def _run_forward(
         compute_preci=False,
     )
     assert covariances is not None
-    means_camera, covariances_camera = world_to_cam(
-        means, covariances, viewmats
-    )
+    means_camera, covariances_camera = world_to_cam(means, covariances, viewmats)
     means2d, jacobian = _pinhole_mean_and_jacobian(
         means_camera,
         intrinsics,
@@ -417,15 +394,9 @@ def _run_forward(
     call = cjax.cutlass_call(
         _launch_projection_forward,
         output_shape_dtype=(
-            jax.ShapeDtypeStruct(
-                (camera_count, gaussian_count, 2), jnp.int32
-            ),
-            jax.ShapeDtypeStruct(
-                (camera_count, gaussian_count, 3), jnp.float32
-            ),
-            jax.ShapeDtypeStruct(
-                (camera_count, gaussian_count), jnp.uint8
-            ),
+            jax.ShapeDtypeStruct((camera_count, gaussian_count, 2), jnp.int32),
+            jax.ShapeDtypeStruct((camera_count, gaussian_count, 3), jnp.float32),
+            jax.ShapeDtypeStruct((camera_count, gaussian_count), jnp.uint8),
         ),
         use_static_tensors=True,
         camera_count=camera_count,
@@ -591,9 +562,7 @@ def _projection_bwd(
     residuals,
     cotangents,
 ):
-    means, quaternions, scales, opacities, active_mask, viewmats, intrinsics = (
-        residuals
-    )
+    means, quaternions, scales, opacities, active_mask, viewmats, intrinsics = residuals
     (
         _,
         means2d_cotangent,
@@ -642,7 +611,7 @@ def _projection_bwd(
     return (*gradients[:4], None, *gradients[4:])
 
 
-getattr(_projection, "defvjp")(_projection_fwd, _projection_bwd)
+_projection.defvjp(_projection_fwd, _projection_bwd)  # type: ignore
 
 
 def fully_fused_projection_cute(
@@ -689,10 +658,7 @@ def fully_fused_projection_cute(
         viewmats,
         intrinsics,
     )
-    if (
-        calc_compensations
-        or means.shape[0] >= _FACTOR_PROJECTION_MIN_GAUSSIANS
-    ):
+    if calc_compensations or means.shape[0] >= _FACTOR_PROJECTION_MIN_GAUSSIANS:
         return fully_fused_projection(
             means,
             viewmats,

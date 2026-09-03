@@ -1,17 +1,18 @@
+# pyright: reportMissingImports=false
+
 """Differentiable image, regularization, depth, and normal losses."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
 import os
-from typing import Literal, Optional
+from collections.abc import Callable, Sequence
+from typing import Any, Literal
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from .math import safe_normalize
-
 
 Reduction = Literal["mean", "sum", "none"]
 
@@ -22,7 +23,7 @@ ENFORCE_CONTRACTS = (
 )
 
 
-def _reduce(values: Array, reduction: Reduction, mask: Optional[Array] = None) -> Array:
+def _reduce(values: Array, reduction: Reduction, mask: Array | None = None) -> Array:
     values = jnp.asarray(values)
     if mask is not None:
         mask_array = jnp.asarray(mask, dtype=values.dtype)
@@ -69,7 +70,7 @@ def psnr(
     prediction: Array,
     target: Array,
     data_range: float = 1.0,
-    mask: Optional[Array] = None,
+    mask: Array | None = None,
     eps: float = 1e-8,
 ) -> Array:
     """Peak signal-to-noise ratio in decibels."""
@@ -83,12 +84,31 @@ def psnr(
 def _gaussian_window(size: int, sigma: float, dtype: jnp.dtype) -> Array:
     coordinates = jnp.arange(size, dtype=dtype) - (size - 1) * 0.5
     weights = jnp.exp(-(coordinates * coordinates) / (2.0 * sigma * sigma))
-    weights = weights / jnp.sum(weights)
-    return weights[:, None] * weights[None, :]
+    return weights / jnp.sum(weights)
 
 
 def _channelwise_filter(images: Array, window: Array) -> Array:
     channels = images.shape[-1]
+    if window.ndim == 1:
+        size = window.shape[0]
+        kernel_h = jnp.broadcast_to(window[:, None, None, None], (size, 1, 1, channels))
+        out_h = jax.lax.conv_general_dilated(
+            images,
+            kernel_h,
+            window_strides=(1, 1),
+            padding="SAME",
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+        )
+        kernel_w = jnp.broadcast_to(window[None, :, None, None], (1, size, 1, channels))
+        return jax.lax.conv_general_dilated(
+            out_h,
+            kernel_w,
+            window_strides=(1, 1),
+            padding="SAME",
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+        )
     kernel = jnp.broadcast_to(window[..., None, None], window.shape + (1, channels))
     return jax.lax.conv_general_dilated(
         images,
@@ -157,16 +177,14 @@ def _gaussian_kernel_1d(
     dtype: jnp.dtype = jnp.float32,
 ) -> Array:
     coordinates = jnp.arange(window_size, dtype=dtype)
-    weights = jnp.exp(
-        -jnp.square(coordinates - window_size // 2) / (2.0 * sigma**2)
-    )
+    weights = jnp.exp(-jnp.square(coordinates - window_size // 2) / (2.0 * sigma**2))
     return weights / jnp.sum(weights)
 
 
 def create_ssim_window(
     window_size: int,
     channel: int,
-    device: jax.Device | None = None,
+    device: Any = None,
 ) -> Array:
     """Create the current-main channel-first SSIM convolution window."""
 
@@ -229,14 +247,12 @@ def ssim_loss(
             raise AssertionError("img2 must be in [0, 1]")
     channel = img1.shape[1]
     window = create_ssim_window(window_size, channel).astype(img1.dtype)
-    return 1.0 - jnp.mean(
-        torch_ssim_loss(img1, img2, window, window_size, channel)
-    )
+    return 1.0 - jnp.mean(torch_ssim_loss(img1, img2, window, window_size, channel))
 
 
 def total_variation_loss(
     x: Array,
-    axes: Optional[Sequence[int]] = None,
+    axes: Sequence[int] | None = None,
     squared: bool = True,
 ) -> Array:
     """Normalized total variation regularizer.
@@ -271,7 +287,7 @@ tv_loss = total_variation_loss
 def depth_loss(
     prediction: Array,
     target: Array,
-    mask: Optional[Array] = None,
+    mask: Array | None = None,
     inverse_depth: bool = False,
     scale: float = 1.0,
 ) -> Array:
@@ -280,7 +296,9 @@ def depth_loss(
     prediction = jnp.asarray(prediction)
     target = jnp.asarray(target)
     if inverse_depth:
-        prediction = jnp.where(prediction > 0.0, 1.0 / jnp.maximum(prediction, 1e-8), 0.0)
+        prediction = jnp.where(
+            prediction > 0.0, 1.0 / jnp.maximum(prediction, 1e-8), 0.0
+        )
         target = jnp.where(target > 0.0, 1.0 / jnp.maximum(target, 1e-8), 0.0)
     loss = _reduce(l1_loss(prediction, target), "mean", mask)
     return jnp.asarray(scale, prediction.dtype) * loss
@@ -444,7 +462,7 @@ depth_to_normal = depth_to_normals
 def normal_loss(
     prediction: Array,
     target: Array,
-    mask: Optional[Array] = None,
+    mask: Array | None = None,
 ) -> Array:
     """Cosine normal-consistency loss ``mean(1 - dot(n1, n2))``."""
 
@@ -462,7 +480,7 @@ def depth_normal_loss(
     rendered_normals: Array,
     camtoworlds: Array,
     Ks: Array,
-    alpha: Optional[Array] = None,
+    alpha: Array | None = None,
     z_depth: bool = True,
 ) -> Array:
     """Auxiliary consistency loss between rendered and depth-derived normals."""
@@ -483,17 +501,13 @@ depth_normal_consistency_loss = depth_normal_loss
 # ---------------------------------------------------------------------------
 
 
-def opacity_reg_loss(
-    opacities: Array, mask: Optional[Array] = None
-) -> Array:
+def opacity_reg_loss(opacities: Array, mask: Array | None = None) -> Array:
     """Mean sigmoid-activated raw opacity logits over selected Gaussians."""
 
     return _reduce(jax.nn.sigmoid(opacities), "mean", mask)
 
 
-def scale_reg_loss(
-    log_scales: Array, mask: Optional[Array] = None
-) -> Array:
+def scale_reg_loss(log_scales: Array, mask: Array | None = None) -> Array:
     """Mean exponentiated raw log-scales over selected Gaussians."""
 
     return _reduce(jnp.exp(log_scales), "mean", mask)
@@ -562,9 +576,7 @@ def depth_inverse_mse(
 ) -> Array:
     """Unreduced squared error in reciprocal-depth space."""
 
-    return jnp.square(
-        1.0 / jnp.maximum(pred, eps) - 1.0 / jnp.maximum(target, eps)
-    )
+    return jnp.square(1.0 / jnp.maximum(pred, eps) - 1.0 / jnp.maximum(target, eps))
 
 
 def log_l1(pred: Array, target: Array) -> Array:
@@ -608,9 +620,7 @@ def identity_distance(
 ) -> Array:
     """Frobenius distance between affine-grid channels and identity."""
 
-    reshaped = grid.reshape(
-        (grid.shape[0], num_rows, num_cols) + tuple(grid.shape[2:])
-    )
+    reshaped = grid.reshape((grid.shape[0], num_rows, num_cols) + tuple(grid.shape[2:]))
     identity = jnp.eye(num_rows, num_cols, dtype=grid.dtype).reshape(
         (1, num_rows, num_cols) + (1,) * (grid.ndim - 2)
     )
@@ -639,13 +649,9 @@ class LinearLambdaScheduler:
         update_frequency: int = 1,
     ) -> None:
         if update_frequency <= 0:
-            raise ValueError(
-                f"update_frequency must be > 0, got {update_frequency}"
-            )
+            raise ValueError(f"update_frequency must be > 0, got {update_frequency}")
         if end <= start:
-            raise ValueError(
-                f"end must be > start, got start={start}, end={end}"
-            )
+            raise ValueError(f"end must be > start, got start={start}, end={end}")
         total_stages = (end - start) // update_frequency
         if total_stages <= 0:
             raise ValueError(
@@ -685,6 +691,7 @@ def reduce_quantile(value: Array, quantile: float) -> Array:
 
     assert 0 < quantile <= 1, "quantile must be in (0, 1]"
     flattened = value.reshape(-1)
+    # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
     count = int(flattened.size * quantile)
     if count == 0:
         return jnp.zeros((), dtype=value.dtype)
@@ -755,10 +762,7 @@ def bilateral_grid_drift_loss(
     if not grids:
         return jnp.empty((0,), dtype=jnp.float32)
     return jnp.concatenate(
-        [
-            identity_distance(grid, num_rows, num_cols).reshape(-1)
-            for grid in grids
-        ]
+        [identity_distance(grid, num_rows, num_cols).reshape(-1) for grid in grids]
     )
 
 

@@ -1,15 +1,17 @@
+# pyright: reportMissingImports=false
+
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import importlib.util
 import json
+from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
-from typing import Sequence
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from .checkpoints import (
     is_distributed_checkpoint,
@@ -78,15 +80,11 @@ def _load_training_objects(checkpoint: Path):
     model = GaussianModel.empty(
         config.model,
         physical_capacity=storage_capacity,
-        appearance_feature_dim=(
-            APPEARANCE_FEATURE_DIM if config.app_opt else None
-        ),
+        appearance_feature_dim=(APPEARANCE_FEATURE_DIM if config.app_opt else None),
     )
     restore_kwargs = {}
     if appearance is not None:
-        appearance_optimizer = create_appearance_optimizer(
-            appearance, config
-        )
+        appearance_optimizer = create_appearance_optimizer(appearance, config)
         restore_kwargs = {
             "appearance_module": appearance,
             "appearance_optimizer": appearance_optimizer,
@@ -100,21 +98,14 @@ def _native_training_defaults_available() -> bool:
     try:
         devices = jax.local_devices(backend="gpu")
         capabilities = {
-            float(getattr(device, "compute_capability", 0.0))
-            for device in devices
+            float(getattr(device, "compute_capability", 0.0)) for device in devices
         }
         cute_available = importlib.util.find_spec("cutlass.jax") is not None
     except (ImportError, ModuleNotFoundError, RuntimeError, TypeError, ValueError):
         return False
-    if not devices or any(
-        "cuda" not in str(device).lower() for device in devices
-    ):
+    if not devices or any("cuda" not in str(device).lower() for device in devices):
         return False
-    return (
-        len(capabilities) == 1
-        and min(capabilities) >= 9.0
-        and cute_available
-    )
+    return len(capabilities) == 1 and min(capabilities) >= 9.0 and cute_available
 
 
 def _apply_training_defaults(
@@ -208,24 +199,22 @@ def _train_command(args: argparse.Namespace) -> None:
     if args.data is not None:
         config = replace(config, data=replace(config.data, root=args.data))
     if args.image_dir is not None:
-        config = replace(
-            config, data=replace(config.data, image_dir=args.image_dir)
-        )
+        config = replace(config, data=replace(config.data, image_dir=args.image_dir))
     if args.capacity is not None:
-        config = replace(
-            config, model=replace(config.model, capacity=args.capacity)
-        )
+        config = replace(config, model=replace(config.model, capacity=args.capacity))
     if args.bucket_min_capacity is not None:
         config = replace(
             config,
-            model=replace(
-                config.model, bucket_min_capacity=args.bucket_min_capacity
-            ),
+            model=replace(config.model, bucket_min_capacity=args.bucket_min_capacity),
         )
     if args.patch_size is not None:
-        config = replace(
-            config, data=replace(config.data, patch_size=args.patch_size)
-        )
+        config = replace(config, data=replace(config.data, patch_size=args.patch_size))
+    if getattr(args, "cache_images", False):
+        config = replace(config, data=replace(config.data, cache_images=True))
+    if getattr(args, "uint8", False):
+        config = replace(config, data=replace(config.data, uint8=True))
+    if getattr(args, "async_checkpoint", False):
+        config = replace(config, async_checkpoint=True)
     if args.num_workers is not None:
         config = replace(
             config, data=replace(config.data, num_workers=args.num_workers)
@@ -256,16 +245,12 @@ def _train_command(args: argparse.Namespace) -> None:
     if args.intersection_bucket_min_capacity is not None:
         config = replace(
             config,
-            intersection_bucket_min_capacity=(
-                args.intersection_bucket_min_capacity
-            ),
+            intersection_bucket_min_capacity=(args.intersection_bucket_min_capacity),
         )
     if args.rasterizer_backend is not None:
         config = replace(
             config,
-            rasterizer=replace(
-                config.rasterizer, backend=args.rasterizer_backend
-            ),
+            rasterizer=replace(config.rasterizer, backend=args.rasterizer_backend),
         )
     if args.projection_backend is not None:
         config = replace(
@@ -306,9 +291,7 @@ def _train_command(args: argparse.Namespace) -> None:
     if args.tile_batch_size is not None:
         config = replace(
             config,
-            rasterizer=replace(
-                config.rasterizer, tile_batch_size=args.tile_batch_size
-            ),
+            rasterizer=replace(config.rasterizer, tile_batch_size=args.tile_batch_size),
         )
     if args.steps is not None:
         config = replace(
@@ -319,9 +302,7 @@ def _train_command(args: argparse.Namespace) -> None:
     if args.output is not None:
         config = replace(config, output_dir=args.output)
     if args.strategy is not None:
-        config = replace(
-            config, strategy=replace(config.strategy, kind=args.strategy)
-        )
+        config = replace(config, strategy=replace(config.strategy, kind=args.strategy))
     strategy_overrides = {
         name: getattr(args, name)
         for name in (
@@ -403,9 +384,7 @@ def _render_command(args: argparse.Namespace) -> None:
     if args.rasterizer_backend is not None:
         config = replace(
             config,
-            rasterizer=replace(
-                config.rasterizer, backend=args.rasterizer_backend
-            ),
+            rasterizer=replace(config.rasterizer, backend=args.rasterizer_backend),
         )
     if args.projection_backend is not None:
         config = replace(
@@ -446,9 +425,7 @@ def _render_command(args: argparse.Namespace) -> None:
     if args.tile_batch_size is not None:
         config = replace(
             config,
-            rasterizer=replace(
-                config.rasterizer, tile_batch_size=args.tile_batch_size
-            ),
+            rasterizer=replace(config.rasterizer, tile_batch_size=args.tile_batch_size),
         )
     scene = load_colmap_scene(
         args.data or config.data.root,
@@ -554,15 +531,11 @@ def _init_config_command(args: argparse.Namespace) -> None:
 def _estimate_command(args: argparse.Namespace) -> None:
     config = TrainConfig.load(args.config) if args.config else TrainConfig()
     if args.capacity is not None:
-        config = replace(
-            config, model=replace(config.model, capacity=args.capacity)
-        )
+        config = replace(config, model=replace(config.model, capacity=args.capacity))
     if args.bucket_min_capacity is not None:
         config = replace(
             config,
-            model=replace(
-                config.model, bucket_min_capacity=args.bucket_min_capacity
-            ),
+            model=replace(config.model, bucket_min_capacity=args.bucket_min_capacity),
         )
     active_target = 0 if args.active_target is None else int(args.active_target)
     storage_capacity = config.model.bucket_capacity(active_target)
@@ -664,6 +637,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument("--patch-size", type=int)
     train_parser.add_argument(
+        "--cache-images",
+        action="store_true",
+        help="cache decoded images in host RAM to avoid per-step disk I/O and PIL decode",
+    )
+    train_parser.add_argument(
+        "--uint8",
+        action="store_true",
+        help="transfer uint8 images over PCIe and normalize on GPU to save bandwidth",
+    )
+    train_parser.add_argument(
+        "--async-checkpoint",
+        action="store_true",
+        help="use Orbax AsyncCheckpointer for non-blocking background checkpoint persistence",
+    )
+    train_parser.add_argument(
         "--num-workers",
         type=int,
         help=(
@@ -752,7 +740,9 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("checkpoint", type=str)
     render_parser.add_argument("--data", type=str)
     render_parser.add_argument("--image-dir", type=str)
-    render_parser.add_argument("--split", choices=("train", "test", "all"), default="test")
+    render_parser.add_argument(
+        "--split", choices=("train", "test", "all"), default="test"
+    )
     render_parser.add_argument("--index", type=int, default=0)
     render_parser.add_argument("--output", type=str, default="render.png")
     render_parser.add_argument("--alpha", type=str)
@@ -812,7 +802,8 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser.set_defaults(func=_init_config_command)
 
     estimate_parser = subparsers.add_parser(
-        "estimate-memory", help="estimate peak training memory without allocating a model"
+        "estimate-memory",
+        help="estimate peak training memory without allocating a model",
     )
     estimate_parser.add_argument("--config", type=Path)
     estimate_parser.add_argument(

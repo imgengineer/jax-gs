@@ -35,8 +35,9 @@ _TILE_RADIX_BITS = 5
 _TILE_RADIX_SIZE = 1 << _TILE_RADIX_BITS
 _WARPS_PER_BLOCK = _BLOCK_SIZE // 32
 _UINT64_MAX = (1 << 64) - 1
-# Keep the production RGB mega kernel below 50 KiB so two CTAs fit per SM.
-_MEGA_COMPOSITOR_BATCH_CAPACITY = 128
+# Uint8 warp-local radix counts leave enough shared memory for two CTAs per SM
+# with a 256-candidate production RGB compositor batch.
+_MEGA_COMPOSITOR_BATCH_CAPACITY = 256
 
 
 @cute.jit
@@ -889,7 +890,7 @@ def _sort_depth_segment(
     histogram = smem.allocate_tensor(cutlass.Int32, _RADIX_SIZE)
     bucket_base = smem.allocate_tensor(cutlass.Int32, _RADIX_SIZE)
     warp_histogram = smem.allocate_tensor(
-        cutlass.Int32,
+        cutlass.Uint8,
         cute.make_layout(
             (_WARPS_PER_BLOCK, _RADIX_SIZE),
             stride=(_RADIX_SIZE, 1),
@@ -959,7 +960,7 @@ def _sort_depth_segment(
             cutlass.Int32(0), segment_count, _BLOCK_SIZE
         ):
             for current_warp in cutlass.range_constexpr(_WARPS_PER_BLOCK):
-                warp_histogram[current_warp, thread] = 0
+                warp_histogram[current_warp, thread] = cutlass.Uint8(0)
             cute.arch.sync_threads()
 
             local_index = chunk_start + thread
@@ -973,35 +974,32 @@ def _sort_depth_segment(
                 digit = cutlass.Int32(
                     (key >> shift) & cutlass.Uint32(_RADIX_SIZE - 1)
                 )
-                cute.arch.atomic_add(
-                    warp_histogram.iterator
-                    + warp * _RADIX_SIZE
-                    + digit,
-                    cutlass.Int32(1),
-                    sem="relaxed",
-                    scope="cta",
-                )
             active_mask = cutlass.Uint32(cute.arch.vote_ballot_sync(active))
             matches = cutlass.Uint32(0)
             if active_mask != 0:
                 matches = cute.arch.match_sync(active_mask, digit)
             lower_lanes = (cutlass.Uint32(1) << lane) - cutlass.Uint32(1)
             rank = cutlass.Int32(cute.arch.popc(matches & lower_lanes))
+            if active:
+                if rank == 0:
+                    warp_histogram[warp, digit] = cutlass.Uint8(
+                        cute.arch.popc(matches)
+                    )
             cute.arch.sync_threads()
             if active:
-                for previous_warp in cutlass.range_constexpr(
-                    _WARPS_PER_BLOCK
-                ):
+                for previous_warp in cutlass.range_constexpr(_WARPS_PER_BLOCK):
                     if previous_warp < warp:
-                        rank = rank + warp_histogram[previous_warp, digit]
+                        rank = rank + cutlass.Int32(
+                            warp_histogram[previous_warp, digit]
+                        )
                 target = bucket_base[digit] + rank
                 target_keys[target] = key
                 target_values[target] = item_value
             cute.arch.sync_threads()
             chunk_count = cutlass.Int32(0)
             for current_warp in cutlass.range_constexpr(_WARPS_PER_BLOCK):
-                chunk_count = (
-                    chunk_count + warp_histogram[current_warp, thread]
+                chunk_count = chunk_count + cutlass.Int32(
+                    warp_histogram[current_warp, thread]
                 )
             bucket_base[thread] = bucket_base[thread] + chunk_count
             cute.arch.sync_threads()

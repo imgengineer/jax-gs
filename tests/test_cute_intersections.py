@@ -247,6 +247,101 @@ def test_cute_raw_fused_matches_staged_jax_forward_and_gradients(
         )
 
 
+def test_cute_raw_fused_crosses_mega_compositor_batch_boundary():
+    if not _supports_cute():
+        pytest.skip("CuTe intersections require an NVIDIA CUDA GPU")
+    count = 257
+    means = jnp.full((count, 2), 8.0, jnp.float32)
+    radii = jnp.full((count, 2), 12, jnp.int32)
+    depths = jnp.linspace(1.0, 2.0, count, dtype=jnp.float32)
+    conics = jnp.tile(
+        jnp.asarray([[0.01, 0.0, 0.01]], jnp.float32), (count, 1)
+    )
+    colors = jnp.linspace(0.1, 0.9, count * 3, dtype=jnp.float32).reshape(
+        (count, 3)
+    )
+    opacities = jnp.full((count,), 0.02, jnp.float32)
+    valid = jnp.ones((count,), jnp.bool_)
+    background = jnp.asarray([0.1, 0.2, 0.3], jnp.float32)
+
+    def reference(colors_, opacities_):
+        rendered, alpha = rasterize_to_pixels(
+            means[None, ...],
+            conics[None, ...],
+            colors_[None, ...],
+            opacities_[None, ...],
+            16,
+            16,
+            16,
+            jnp.zeros((1, 1, 1), jnp.int32),
+            jnp.arange(count, dtype=jnp.int32),
+            backgrounds=background[None, ...],
+            valid_count=jnp.asarray(count, jnp.int32),
+            max_gaussians_per_tile=128,
+            max_candidates_per_tile=count,
+        )
+        return rendered[0], alpha[0]
+
+    def fused(colors_, opacities_):
+        return rasterize_accutile_cute_raw_fused(
+            radii,
+            depths,
+            means,
+            conics,
+            colors_,
+            opacities_,
+            valid,
+            capacity=512,
+            tile_size=16,
+            tile_width=1,
+            tile_height=1,
+            image_width=16,
+            image_height=16,
+            background=background,
+            max_gaussians_per_tile=128,
+            max_candidates_per_tile=count,
+            alpha_threshold=1 / 255,
+            transmittance_threshold=1e-4,
+        )
+
+    expected = jax.jit(reference)(colors, opacities)
+    actual = jax.jit(fused)(colors, opacities)
+    np.testing.assert_allclose(actual[0], expected[0], rtol=3e-5, atol=3e-6)
+    np.testing.assert_allclose(actual[1], expected[1], rtol=3e-5, atol=3e-6)
+    np.testing.assert_array_equal(
+        actual[2]["gaussian_ids"][:count], np.arange(count, dtype=np.int32)
+    )
+    assert int(actual[2]["valid_count"]) == count
+
+    def loss(function, colors_, opacities_):
+        rendered, alpha = function(colors_, opacities_)[:2]
+        return jnp.mean(rendered) + jnp.mean(alpha)
+
+    expected_gradient = jax.jit(
+        jax.value_and_grad(
+            lambda colors_, opacities_: loss(
+                reference, colors_, opacities_
+            ),
+            argnums=(0, 1),
+        )
+    )(colors, opacities)
+    actual_gradient = jax.jit(
+        jax.value_and_grad(
+            lambda colors_, opacities_: loss(fused, colors_, opacities_),
+            argnums=(0, 1),
+        )
+    )(colors, opacities)
+    np.testing.assert_allclose(
+        actual_gradient[0], expected_gradient[0], rtol=3e-5, atol=3e-6
+    )
+    for actual_value, expected_value in zip(
+        actual_gradient[1], expected_gradient[1], strict=True
+    ):
+        np.testing.assert_allclose(
+            actual_value, expected_value, rtol=2e-4, atol=2e-5
+        )
+
+
 def test_cute_intersection_sort_offsets_preserves_ties_and_padding():
     if not _supports_cute():
         pytest.skip("CuTe intersections require an NVIDIA CUDA GPU")
@@ -278,8 +373,13 @@ def test_cute_intersection_sort_offsets_preserves_ties_and_padding():
         np.testing.assert_array_equal(actual_value, expected_value)
 
 
-@pytest.mark.parametrize("tile_count", [17, 97])
-def test_cute_intersection_sort_offsets_is_stable_across_blocks(tile_count):
+@pytest.mark.parametrize(
+    ("tile_count", "segment_capacity"),
+    ((4, 2048), (17, 512), (97, 512)),
+)
+def test_cute_intersection_sort_offsets_is_stable_across_blocks(
+    tile_count, segment_capacity
+):
     if not _supports_cute():
         pytest.skip("CuTe intersections require an NVIDIA CUDA GPU")
     capacity = 4097
@@ -315,7 +415,7 @@ def test_cute_intersection_sort_offsets_is_stable_across_blocks(tile_count):
                 depths,
                 count,
                 tile_count=tile_count,
-                segment_capacity=512,
+                segment_capacity=segment_capacity,
             )
         )
     )

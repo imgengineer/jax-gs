@@ -1,19 +1,21 @@
 """The jitted training step, single-process and distributed."""
 
+# pyright: reportArgumentType=false, reportMissingImports=false
+
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable
-from dataclasses import dataclass
-from functools import partial
 import math
 import operator
 import sys
+from collections.abc import Callable, Hashable
+from dataclasses import dataclass
+from functools import partial
 from typing import Any, NamedTuple
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 
 from ..config import RasterizationConfig, TrainConfig
 from ..losses import l1_loss, opacity_reg_loss, psnr, scale_reg_loss, ssim
@@ -96,9 +98,7 @@ def _unpack_training_projection_metadata(
     gaussian_ids = jnp.asarray(info["gaussian_ids"], dtype=jnp.int32)
     radii = jnp.asarray(info["radii"])
     valid = jnp.asarray(info["valid"], dtype=jnp.bool_)
-    valid_count = jnp.asarray(
-        info["projection_valid_count"], dtype=jnp.int32
-    )
+    valid_count = jnp.asarray(info["projection_valid_count"], dtype=jnp.int32)
     packed_capacity = gaussian_ids.shape[0]
     if camera_ids.shape != (packed_capacity,):
         raise ValueError("packed camera_ids must have shape [P]")
@@ -122,10 +122,10 @@ def _unpack_training_projection_metadata(
     )
     safe_camera_ids = jnp.clip(camera_ids, 0, camera_count - 1)
     safe_gaussian_ids = jnp.clip(gaussian_ids, 0, gaussian_count - 1)
-    dense_radii = jnp.zeros(
-        (camera_count, gaussian_count, 2), dtype=radii.dtype
-    ).at[safe_camera_ids, safe_gaussian_ids].max(
-        jnp.where(packed_valid[:, None], radii, 0)
+    dense_radii = (
+        jnp.zeros((camera_count, gaussian_count, 2), dtype=radii.dtype)
+        .at[safe_camera_ids, safe_gaussian_ids]
+        .max(jnp.where(packed_valid[:, None], radii, 0))
     )
     dense_valid = (
         jnp.zeros((camera_count, gaussian_count), dtype=jnp.int32)
@@ -155,12 +155,8 @@ def _two_dgs_regularization_losses(
             jnp.asarray(config.normal_lambda, rendered_normals.dtype),
             zero,
         )
-        alpha_weighted_normals = normals_from_depth * jax.lax.stop_gradient(
-            alphas
-        )
-        normal_error = 1.0 - jnp.sum(
-            rendered_normals * alpha_weighted_normals, axis=-1
-        )
+        alpha_weighted_normals = normals_from_depth * jax.lax.stop_gradient(alphas)
+        normal_error = 1.0 - jnp.sum(rendered_normals * alpha_weighted_normals, axis=-1)
         normal_loss_value = normal_weight * jnp.mean(normal_error)
 
     distortion_loss_value = zero
@@ -206,8 +202,7 @@ def _skip_topology_update(
             current_strategy_state.last_pruned_count[...],
         )
         current_strategy_state.capacity_overflow[...] = (
-            current_strategy_state.capacity_overflow[...]
-            | strategy_capacity_overflow
+            current_strategy_state.capacity_overflow[...] | strategy_capacity_overflow
         )
     return uncommitted_topology
 
@@ -258,6 +253,7 @@ def _apply_topology_update(
             current_model.normalize_quaternions()
         if config.strategy.kind == "mcmc":
             step_number = current_optimizer.step[...]
+
             def refine(_model, _optimizer, _state):
                 assert plan.mcmc_strategy is not None
                 commit_required = jnp.asarray(0, dtype=jnp.int32)
@@ -280,12 +276,14 @@ def _apply_topology_update(
                     refine_result["capacity_overflow"],
                     commit_required,
                 )
+
             def skip_refine(_model, _optimizer, _state):
                 del _model, _optimizer, _state
                 return (
                     jnp.asarray(False),
                     jnp.asarray(0, dtype=jnp.int32),
                 )
+
             mcmc_commit_overflow, mcmc_commit_required = nnx.cond(
                 mcmc_should_refine,
                 refine,
@@ -294,6 +292,7 @@ def _apply_topology_update(
                 current_optimizer,
                 current_strategy_state,
             )
+            # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
             schedule_progress = step_number.astype(jnp.float32) / float(
                 max(config.optimizer.max_steps, 1)
             )
@@ -314,9 +313,8 @@ def _apply_topology_update(
             )
             noise_stop = config.strategy.noise_injection_stop_iter
             should_inject = (
-                ((noise_stop < 0) | (step_number < noise_stop))
-                & ~mcmc_commit_overflow
-            )
+                (noise_stop < 0) | (step_number < noise_stop)
+            ) & ~mcmc_commit_overflow
             current_model.means[...] = jnp.where(
                 should_inject, perturbed_means, current_model.means[...]
             )
@@ -355,6 +353,7 @@ def _apply_topology_update(
     # step's statistics, so the owner-local commit recomputes its own
     # events here instead of replaying the pre-update preflight.
     with jax.named_scope("topology_commit"):
+
         def commit_refine(_model, _optimizer, _state):
             assert plan.distributed_plan_strategy is not None
             commit_plan = plan.distributed_plan_strategy.plan_refine(
@@ -377,9 +376,11 @@ def _apply_topology_update(
                 refine_result["capacity_overflow"],
                 commit_plan["required_capacity"],
             )
+
         def skip_commit_refine(_model, _optimizer, _state):
             del _model, _optimizer, _state
             return uncommitted_refine
+
         new_count, pruned_count, commit_overflow, commit_required = nnx.cond(
             refine_scheduled,
             commit_refine,
@@ -388,6 +389,7 @@ def _apply_topology_update(
             current_optimizer,
             current_strategy_state,
         )
+
         def commit_reset(_model, _optimizer):
             reset_opacities(
                 _model,
@@ -395,9 +397,11 @@ def _apply_topology_update(
                 maximum_opacity=config.strategy.reset_opacity,
             )
             return jnp.asarray(True)
+
         def skip_commit_reset(_model, _optimizer):
             del _model, _optimizer
             return jnp.asarray(False)
+
         # An owner that could not grow keeps its statistics for the
         # next refinement, so it must not reset opacities either.
         opacity_reset = nnx.cond(
@@ -466,18 +470,12 @@ def _training_loss(
         adjusted_camtoworlds = _apply_camera_pose_modules(
             batch.camtoworlds,
             batch.image_ids,
-            pose_adjust=(
-                current_pose_adjust if config.pose_opt else None
-            ),
+            pose_adjust=(current_pose_adjust if config.pose_opt else None),
             pose_perturb=batch.pose_perturb,
         )
-        render_viewmats = _invert_rigid_transforms(
-            adjusted_camtoworlds
-        )
+        render_viewmats = _invert_rigid_transforms(adjusted_camtoworlds)
     parameters = current_model.activated(
-        split_sh=(
-            config.model_type == "3dgs" and not config.app_opt
-        )
+        split_sh=(config.model_type == "3dgs" and not config.app_opt)
     )
     raster_distributed = plan.distributed
     if plan.distributed and (config.app_opt or config.model_type == "2dgs"):
@@ -494,8 +492,7 @@ def _training_loss(
         assert adjusted_camtoworlds is not None
         assert batch.image_ids is not None
         directions = (
-            parameters["means"][None, :, :]
-            - adjusted_camtoworlds[:, None, :3, 3]
+            parameters["means"][None, :, :] - adjusted_camtoworlds[:, None, :3, 3]
         )
         corrections = current_appearance_module(
             parameters["features"],
@@ -503,9 +500,7 @@ def _training_loss(
             directions,
             batch.sh_degree,
         )
-        render_colors = jax.nn.sigmoid(
-            parameters["colors"][None, :, :] + corrections
-        )
+        render_colors = jax.nn.sigmoid(parameters["colors"][None, :, :] + corrections)
         raster_sh_degree = None
     else:
         render_colors = parameters["sh_coeffs"]
@@ -549,15 +544,13 @@ def _training_loss(
                 else None
             ),
         )
-        normal_loss_value, distortion_loss_value = (
-            _two_dgs_regularization_losses(
-                rendered_normals,
-                normals_from_depth,
-                alphas,
-                render_distort,
-                batch.training_step,
-                config,
-            )
+        normal_loss_value, distortion_loss_value = _two_dgs_regularization_losses(
+            rendered_normals,
+            normals_from_depth,
+            alphas,
+            render_distort,
+            batch.training_step,
+            config,
         )
     else:
         renders, _, info = _training.rasterization(
@@ -605,9 +598,7 @@ def _training_loss(
     photometric_loss = (1.0 - plan.ssim_lambda) * l1_value + plan.ssim_lambda * (
         1.0 - ssim_value
     )
-    opacity_reg_loss_value = jnp.zeros(
-        (), dtype=photometric_loss.dtype
-    )
+    opacity_reg_loss_value = jnp.zeros((), dtype=photometric_loss.dtype)
     if config.opacity_reg > 0.0:
         opacity_reg_loss_value = jnp.asarray(
             config.opacity_reg, dtype=photometric_loss.dtype
@@ -615,9 +606,7 @@ def _training_loss(
             current_model.opacity_logits[...],
             mask=current_model.active_mask[...],
         )
-    scale_reg_loss_value = jnp.zeros(
-        (), dtype=photometric_loss.dtype
-    )
+    scale_reg_loss_value = jnp.zeros((), dtype=photometric_loss.dtype)
     if config.scale_reg > 0.0:
         scale_reg_loss_value = jnp.asarray(
             config.scale_reg, dtype=photometric_loss.dtype
@@ -636,9 +625,7 @@ def _training_loss(
     if config.pose_opt and config.pose_noise > 0.0:
         assert adjusted_camtoworlds is not None
         assert batch.camtoworlds is not None
-        pose_error_value = jnp.mean(
-            jnp.abs(adjusted_camtoworlds - batch.camtoworlds)
-        )
+        pose_error_value = jnp.mean(jnp.abs(adjusted_camtoworlds - batch.camtoworlds))
     return loss, (
         l1_value,
         ssim_value,
@@ -682,8 +669,7 @@ def _plan_train_step(
     _validate_2dgs_mode(config)
     if config.with_eval3d and config.strategy.kind != "mcmc":
         raise NotImplementedError(
-            "screen-space densification statistics do not yet support "
-            "with_eval3d=True"
+            "screen-space densification statistics do not yet support with_eval3d=True"
         )
     distributed = distributed_world_size > 1
     return _TrainStepPlan(
@@ -698,9 +684,7 @@ def _plan_train_step(
         # only collected when something will read them.
         collect_screen_stats=config.strategy.kind != "mcmc",
         mcmc_strategy=(
-            MCMCStrategy(config.strategy)
-            if config.strategy.kind == "mcmc"
-            else None
+            MCMCStrategy(config.strategy) if config.strategy.kind == "mcmc" else None
         ),
         # Distributed refinement has no host callback, so the owner-local
         # default strategy must plan inside the step to preflight every shard
@@ -717,11 +701,7 @@ def _plan_train_step(
             "safety_state",
         )
         + (("pose_adjust", "pose_optimizer") if config.pose_opt else ())
-        + (
-            ("appearance_module", "appearance_optimizer")
-            if config.app_opt
-            else ()
-        ),
+        + (("appearance_module", "appearance_optimizer") if config.app_opt else ()),
     )
 
 
@@ -756,22 +736,17 @@ def _make_train_step(
             )
         if config.model_type != "3dgs":
             raise NotImplementedError(
-                f"{compositor_name} compositor training currently supports "
-                "3DGS only"
+                f"{compositor_name} compositor training currently supports 3DGS only"
             )
         if config.strategy.absgrad:
             raise NotImplementedError(
-                f"{compositor_name} compositor training does not yet support "
-                "AbsGrad"
+                f"{compositor_name} compositor training does not yet support AbsGrad"
             )
         if config.with_eval3d:
             raise NotImplementedError(
-                f"{compositor_name} compositor training does not yet support "
-                "Eval3D"
+                f"{compositor_name} compositor training does not yet support Eval3D"
             )
-    plan = _plan_train_step(
-        config, distributed_world_size=distributed_world_size
-    )
+    plan = _plan_train_step(config, distributed_world_size=distributed_world_size)
     # Bound by name rather than unpacked, so the step body reads the same as
     # before the plan existed and adding a field cannot silently shift these.
     # The fields only the loss and the commit stage read stay on the plan and
@@ -808,18 +783,10 @@ def _make_train_step(
         optimizer_step = optimizer.step[...]
         state_values: tuple[jax.Array, ...] = ()
         if distributed:
-            optimizer_batch_size = getattr(
-                optimizer, "_jax_gs_batch_size", None
-            )
-            optimizer_world_size = getattr(
-                optimizer, "_jax_gs_world_size", None
-            )
-            optimizer_scene_scale = getattr(
-                optimizer, "_jax_gs_scene_scale", None
-            )
-            optimizer_config = getattr(
-                optimizer, "_jax_gs_optimizer_config", None
-            )
+            optimizer_batch_size = getattr(optimizer, "_jax_gs_batch_size", None)
+            optimizer_world_size = getattr(optimizer, "_jax_gs_world_size", None)
+            optimizer_scene_scale = getattr(optimizer, "_jax_gs_scene_scale", None)
+            optimizer_config = getattr(optimizer, "_jax_gs_optimizer_config", None)
             if (
                 optimizer_batch_size != config.data.batch_size
                 or optimizer_world_size != distributed_world_size
@@ -846,24 +813,17 @@ def _make_train_step(
             config.pose_opt or config.pose_noise > 0.0 or config.app_opt
         )
         if model.has_appearance != config.app_opt:
-            raise ValueError(
-                "model color representation must match config.app_opt"
-            )
+            raise ValueError("model color representation must match config.app_opt")
         if config.pose_opt and (pose_adjust is None or pose_optimizer is None):
-            raise ValueError(
-                "pose_opt=True requires pose_adjust and pose_optimizer"
-            )
+            raise ValueError("pose_opt=True requires pose_adjust and pose_optimizer")
         if config.app_opt and (
             appearance_module is None or appearance_optimizer is None
         ):
             raise ValueError(
-                "app_opt=True requires appearance_module and "
-                "appearance_optimizer"
+                "app_opt=True requires appearance_module and appearance_optimizer"
             )
         if uses_camera_modules and (camtoworlds is None or image_ids is None):
-            raise ValueError(
-                "camera modules require camtoworlds and image_ids"
-            )
+            raise ValueError("camera modules require camtoworlds and image_ids")
         if config.pose_noise > 0.0 and pose_perturb is None:
             raise ValueError("pose_noise > 0 requires pose_perturb")
         if distributed and config.pose_opt:
@@ -876,9 +836,7 @@ def _make_train_step(
                 config.pose_opt_reg,
             )
             if (
-                getattr(
-                    pose_optimizer, "_jax_gs_pose_contract", None
-                )
+                getattr(pose_optimizer, "_jax_gs_pose_contract", None)
                 != expected_pose_contract
             ):
                 raise ValueError(
@@ -888,9 +846,8 @@ def _make_train_step(
                 )
             pose_optimizer_step = pose_optimizer.step[...]
             state_values += (pose_optimizer_step,)
-            distributed_state_mismatch = (
-                distributed_state_mismatch
-                | (pose_optimizer_step != optimizer_step)
+            distributed_state_mismatch = distributed_state_mismatch | (
+                pose_optimizer_step != optimizer_step
             )
         if distributed and config.app_opt:
             assert distributed_axis_name is not None
@@ -916,9 +873,8 @@ def _make_train_step(
                 )
             appearance_optimizer_step = appearance_optimizer.step[...]
             state_values += (appearance_optimizer_step,)
-            distributed_state_mismatch = (
-                distributed_state_mismatch
-                | (appearance_optimizer_step != optimizer_step)
+            distributed_state_mismatch = distributed_state_mismatch | (
+                appearance_optimizer_step != optimizer_step
             )
         if distributed:
             assert distributed_axis_name is not None
@@ -931,9 +887,8 @@ def _make_train_step(
             gathered_state = jax.lax.all_gather(
                 packed_state, distributed_axis_name, axis=0
             )
-            distributed_state_mismatch = (
-                distributed_state_mismatch
-                | jnp.any(gathered_state != gathered_state[:1])
+            distributed_state_mismatch = distributed_state_mismatch | jnp.any(
+                gathered_state != gathered_state[:1]
             )
         patch_key, background_key = jax.random.split(key)
         if strategy_key is None:
@@ -948,12 +903,17 @@ def _make_train_step(
         targets, patch_intrinsics = _sample_patches(
             images, intrinsics, patch_key, patch_size
         )
+        if images.dtype == jnp.uint8:
+            targets = targets.astype(jnp.float32) / jnp.float32(255.0)
+            background_dtype = jnp.float32
+        else:
+            background_dtype = images.dtype
         if random_background:
             backgrounds = jax.random.uniform(
-                background_key, (images.shape[0], 3), dtype=images.dtype
+                background_key, (images.shape[0], 3), dtype=background_dtype
             )
         else:
-            backgrounds = jnp.zeros((images.shape[0], 3), dtype=images.dtype)
+            backgrounds = jnp.zeros((images.shape[0], 3), dtype=background_dtype)
         # The host training loop is one-based while optimizer.step is incremented
         # after this loss. Match the host/upstream iteration used by start_iter.
         training_step = optimizer.step[...] + jnp.asarray(
@@ -971,9 +931,7 @@ def _make_train_step(
             if collect_screen_stats
             else ()
         )
-        screen_probe = jnp.zeros(
-            screen_probe_shape, dtype=model.means[...].dtype
-        )
+        screen_probe = jnp.zeros(screen_probe_shape, dtype=model.means[...].dtype)
 
         batch = _ResolvedBatch(
             targets=targets,
@@ -1001,12 +959,13 @@ def _make_train_step(
         with jax.named_scope("loss_and_backward"):
             if config.pose_opt and config.app_opt:
                 result, gradients = nnx.value_and_grad(
-                    lambda current_model, current_pose, current_appearance,
-                    current_screen: loss_fn(
-                        current_model,
-                        current_pose,
-                        current_screen,
-                        current_appearance,
+                    lambda current_model, current_pose, current_appearance, current_screen: (
+                        loss_fn(
+                            current_model,
+                            current_pose,
+                            current_screen,
+                            current_appearance,
+                        )
                     ),
                     argnums=(0, 1, 2, 3),
                     has_aux=True,
@@ -1025,13 +984,11 @@ def _make_train_step(
                 appearance_grads = None
             elif config.app_opt:
                 result, gradients = nnx.value_and_grad(
-                    lambda current_model, current_appearance, current_screen: (
-                        loss_fn(
-                            current_model,
-                            None,
-                            current_screen,
-                            current_appearance,
-                        )
+                    lambda current_model, current_appearance, current_screen: loss_fn(
+                        current_model,
+                        None,
+                        current_screen,
+                        current_appearance,
                     ),
                     argnums=(0, 1, 2),
                     has_aux=True,
@@ -1049,16 +1006,19 @@ def _make_train_step(
                 grads, screen_grad = gradients
                 pose_grads = None
                 appearance_grads = None
-            loss, (
-                l1_value,
-                ssim_value,
-                normal_loss_value,
-                distortion_loss_value,
-                opacity_reg_loss_value,
-                scale_reg_loss_value,
-                pose_error_value,
-                rgb,
-                info,
+            (
+                loss,
+                (
+                    l1_value,
+                    ssim_value,
+                    normal_loss_value,
+                    distortion_loss_value,
+                    opacity_reg_loss_value,
+                    scale_reg_loss_value,
+                    pose_error_value,
+                    rgb,
+                    info,
+                ),
             ) = result
         if distributed and config.pose_opt:
             assert distributed_axis_name is not None
@@ -1073,26 +1033,20 @@ def _make_train_step(
             # The appearance module is replicated with DDP semantics. Its
             # Gaussian feature inputs remain owner-sharded and are already
             # sum-scattered by the all-gather transpose above.
-            appearance_grads = jax.lax.pmean(
-                appearance_grads, distributed_axis_name
-            )
+            appearance_grads = jax.lax.pmean(appearance_grads, distributed_axis_name)
         active_mask = model.active_mask[...]
         with jax.named_scope("inactive_grad_mask"):
             grads = jax.lax.cond(
                 jnp.all(active_mask),
                 lambda current: current,
-                lambda current: mask_inactive_gradients(
-                    current, active_mask
-                ),
+                lambda current: mask_inactive_gradients(current, active_mask),
                 grads,
             )
         owner_start = None
         global_active_mask = active_mask
         if distributed:
             assert distributed_axis_name is not None
-            owner_start = (
-                jax.lax.axis_index(distributed_axis_name) * model.capacity
-            )
+            owner_start = jax.lax.axis_index(distributed_axis_name) * model.capacity
             global_active_mask = info.get("distributed_active_mask")
             if global_active_mask is None:
                 global_active_mask = jax.lax.all_gather(
@@ -1101,16 +1055,11 @@ def _make_train_step(
                     axis=0,
                     tiled=True,
                 )
-            global_active_mask = jnp.asarray(
-                global_active_mask, dtype=jnp.bool_
-            )
-            expected_mask_shape = (
-                model.capacity * distributed_world_size,
-            )
+            global_active_mask = jnp.asarray(global_active_mask, dtype=jnp.bool_)
+            expected_mask_shape = (model.capacity * distributed_world_size,)
             if global_active_mask.shape != expected_mask_shape:
                 raise ValueError(
-                    "distributed_active_mask must have shape "
-                    f"{expected_mask_shape}"
+                    f"distributed_active_mask must have shape {expected_mask_shape}"
                 )
         if config.packed:
             # Packed ids index the gathered scene; after unpacking, visibility
@@ -1127,10 +1076,7 @@ def _make_train_step(
             if distributed:
                 assert distributed_axis_name is not None
                 visible = (
-                    jax.lax.pmax(
-                        visible.astype(jnp.int32), distributed_axis_name
-                    )
-                    > 0
+                    jax.lax.pmax(visible.astype(jnp.int32), distributed_axis_name) > 0
                 )
                 visible = jax.lax.dynamic_slice_in_dim(
                     visible,
@@ -1210,14 +1156,12 @@ def _make_train_step(
         overflow_tiles = jnp.count_nonzero(info["tile_overflow"])
         intersection_overflow = jnp.any(info["intersection_overflow"])
         previous_max_overflow_tiles = safety_state.max_overflow_tiles[...]
-        previous_intersection_overflow_seen = (
-            safety_state.intersection_overflow_seen[...]
-        )
+        previous_intersection_overflow_seen = safety_state.intersection_overflow_seen[
+            ...
+        ]
         if distributed:
             assert distributed_axis_name is not None
-            overflow_tiles = jax.lax.psum(
-                overflow_tiles, distributed_axis_name
-            )
+            overflow_tiles = jax.lax.psum(overflow_tiles, distributed_axis_name)
             intersection_overflow = (
                 jax.lax.pmax(
                     intersection_overflow.astype(jnp.int32),
@@ -1235,9 +1179,7 @@ def _make_train_step(
                 )
                 > 0
             )
-        max_overflow_tiles = jnp.maximum(
-            previous_max_overflow_tiles, overflow_tiles
-        )
+        max_overflow_tiles = jnp.maximum(previous_max_overflow_tiles, overflow_tiles)
         intersection_overflow_seen = (
             previous_intersection_overflow_seen | intersection_overflow
         )
@@ -1389,9 +1331,7 @@ def _make_train_step(
             )
             # Only scalar summaries cross ranks, and the collectives remain
             # unconditional so every step preserves one collective order.
-            planned_new_count = jax.lax.psum(
-                owner_new_count, distributed_axis_name
-            )
+            planned_new_count = jax.lax.psum(owner_new_count, distributed_axis_name)
             planned_pruned_count = jax.lax.psum(
                 owner_pruned_count, distributed_axis_name
             )
@@ -1405,9 +1345,7 @@ def _make_train_step(
                 )
                 > 0
             )
-            strategy_capacity_overflow = (
-                refine_scheduled & any_rank_capacity_overflow
-            )
+            strategy_capacity_overflow = refine_scheduled & any_rank_capacity_overflow
             plan_metrics = {
                 "refine_scheduled": refine_scheduled,
                 "reset_scheduled": reset_scheduled,
@@ -1589,9 +1527,7 @@ def _make_train_step(
         # that bound instead of guessing at it.
         busiest_tile_candidates = jnp.max(info["candidate_counts"])
         intersection_count = jnp.sum(info["intersection_count"])
-        intersection_required_count = jnp.max(
-            info["intersection_required_count"]
-        )
+        intersection_required_count = jnp.max(info["intersection_required_count"])
         host_control_metrics = {}
         if distributed:
             assert distributed_axis_name is not None
@@ -1603,9 +1539,7 @@ def _make_train_step(
             busiest_tile_candidates = jax.lax.pmax(
                 busiest_tile_candidates, distributed_axis_name
             )
-            intersection_count = jax.lax.psum(
-                intersection_count, distributed_axis_name
-            )
+            intersection_count = jax.lax.psum(intersection_count, distributed_axis_name)
             intersection_required_count = jax.lax.pmax(
                 intersection_required_count, distributed_axis_name
             )
@@ -1739,11 +1673,7 @@ def make_distributed_train_step(
         raise NotImplementedError(
             "current-main distributed rendering does not support AbsGrad"
         )
-    if (
-        config.with_ut
-        or config.with_eval3d
-        or config.camera_model != "pinhole"
-    ):
+    if config.with_ut or config.with_eval3d or config.camera_model != "pinhole":
         raise NotImplementedError(
             "the first distributed training slice supports standard pinhole "
             "EWA rasterization only"

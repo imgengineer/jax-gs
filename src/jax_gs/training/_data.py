@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """Dataset iteration and patch sampling for the training loop."""
 
 from __future__ import annotations
@@ -6,6 +8,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 
@@ -24,9 +27,7 @@ def _grain_iter_dataset(dataset: Any, num_workers: int) -> Any:
     )
 
 
-def _infinite_batches(
-    dataset: Any, *, num_workers: int
-) -> Iterator[dict[str, Any]]:
+def _infinite_batches(dataset: Any, *, num_workers: int) -> Iterator[dict[str, Any]]:
     dataset = _grain_iter_dataset(dataset, num_workers)
     while True:
         yield from iter(dataset)
@@ -62,9 +63,7 @@ def _sample_patches(
     return jax.vmap(sample)(images, intrinsics, keys)
 
 
-def shard_camera_batch(
-    batch: dict[str, Any], world_size: int
-) -> dict[str, Any]:
+def shard_camera_batch(batch: dict[str, Any], world_size: int) -> dict[str, Any]:
     """Deal one host batch of ``world_size * B`` cameras out to the ranks.
 
     Upstream's distributed trainer gives every rank its own shuffled loader,
@@ -101,7 +100,106 @@ def shard_camera_batch(
                 f"batch field {name!r} carries {leading} cameras while other "
                 f"fields carry {per_rank * world_size}"
             )
-        sharded[name] = value.reshape(
-            (world_size, per_rank) + tuple(value.shape[1:])
-        )
+        assert per_rank is not None
+        sharded[name] = value.reshape((world_size, per_rank) + tuple(value.shape[1:]))
     return sharded
+
+
+class StepKeyGenerator:
+    """Vectorized on-device PRNG key generator for single-card and distributed loops."""
+
+    def __init__(
+        self,
+        base_key: jax.Array,
+        *,
+        world_size: int = 1,
+        chunk_size: int = 1024,
+    ) -> None:
+        self.base_key = base_key
+        self.world_size = world_size
+        self.chunk_size = chunk_size
+        self._cached_step_keys: jax.Array | None = None
+        self._cached_strat_keys: jax.Array | None = None
+        self._cached_start: int = -1
+
+    def get(self, step: int) -> tuple[jax.Array, jax.Array]:
+        offset = step - self._cached_start
+        if self._cached_step_keys is None or offset < 0 or offset >= self.chunk_size:
+            self._cached_start = step
+            steps_vec = step + jnp.arange(self.chunk_size, dtype=jnp.int32)
+            if self.world_size == 1:
+
+                def make_pair(s):
+                    pair = jax.random.split(jax.random.fold_in(self.base_key, s), 2)
+                    return pair[0], pair[1]
+
+                self._cached_step_keys, self._cached_strat_keys = jax.vmap(make_pair)(
+                    steps_vec
+                )
+            else:
+                ranks_vec = jnp.arange(self.world_size, dtype=jnp.int32)
+
+                def make_step(s):
+                    def make_rank(r):
+                        k = jax.random.fold_in(jax.random.fold_in(self.base_key, s), r)
+                        pair = jax.random.split(k, 2)
+                        return pair[0], pair[1]
+
+                    return jax.vmap(make_rank)(ranks_vec)
+
+                self._cached_step_keys, self._cached_strat_keys = jax.vmap(make_step)(
+                    steps_vec
+                )
+            offset = 0
+        if self._cached_step_keys is None or self._cached_strat_keys is None:
+            raise RuntimeError("failed to generate step keys")
+        return self._cached_step_keys[offset], self._cached_strat_keys[offset]
+
+
+class PrecomputedCameraPoses:
+    """Precomputed normalized camera matrices for fast O(1) batch slicing."""
+
+    def __init__(
+        self,
+        scene: Any,
+        transform: Any,
+        *,
+        uses_camera_modules: bool = False,
+    ) -> None:
+        self.transform = transform
+        self.uses_camera_modules = uses_camera_modules
+        self.viewmats: np.ndarray | None = None
+        self.camtoworlds: np.ndarray | None = None
+
+        if (
+            hasattr(scene, "worldtocams")
+            and hasattr(scene, "images")
+            and len(scene.images) > 0
+        ):
+            self.viewmats = transform.world_to_camera(scene.worldtocams).astype(
+                np.float32
+            )
+            if uses_camera_modules and hasattr(scene, "camtoworlds"):
+                self.camtoworlds = transform.camera_to_world(scene.camtoworlds).astype(
+                    np.float32
+                )
+
+    def get_poses(
+        self,
+        raw_w2c: Any,
+        image_indices: Any | None = None,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        w2c_np = np.asarray(raw_w2c, dtype=np.float32)
+        if self.viewmats is not None and image_indices is not None:
+            viewmats_np = self.viewmats[np.asarray(image_indices)]
+        else:
+            viewmats_np = self.transform.world_to_camera(w2c_np)
+
+        camtoworlds_np = None
+        if self.uses_camera_modules:
+            if self.camtoworlds is not None and image_indices is not None:
+                camtoworlds_np = self.camtoworlds[np.asarray(image_indices)]
+            else:
+                camtoworlds_np = np.linalg.inv(viewmats_np).astype(np.float32)
+
+        return viewmats_np, camtoworlds_np

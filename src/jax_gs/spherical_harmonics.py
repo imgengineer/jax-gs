@@ -1,33 +1,36 @@
+# pyright: reportMissingImports=false
+
 """Real spherical harmonics in the ordering used by gsplat."""
 
 from __future__ import annotations
-
-from typing import Optional
 
 import jax.numpy as jnp
 from jax import Array
 
 from .math import safe_normalize
 
-
 MAX_SH_DEGREE = 4
 MAX_SH_BASES = 25
 
 
-def _all_sh_bases(dirs: Array) -> Array:
-    """Evaluate all real SH bases through degree four."""
+def _sh_bases(dirs: Array, max_bases: int = MAX_SH_BASES) -> Array:
+    """Evaluate real SH bases up through the required number of basis terms."""
 
     x, y, z = jnp.moveaxis(dirs, -1, 0)
-    z2 = z * z
+    degree0 = (jnp.full_like(x, 0.2820947917738781),)
+    if max_bases <= 1:
+        return jnp.stack(degree0, axis=-1)
 
     f_tmp_a1 = -0.48860251190292
-    degree0 = (jnp.full_like(x, 0.2820947917738781),)
     degree1 = (
         f_tmp_a1 * y,
         -f_tmp_a1 * z,
         f_tmp_a1 * x,
     )
+    if max_bases <= 4:
+        return jnp.stack(degree0 + degree1, axis=-1)
 
+    z2 = z * z
     f_tmp_b2 = -1.092548430592079 * z
     f_tmp_a2 = 0.5462742152960395
     f_c1 = x * x - y * y
@@ -39,6 +42,8 @@ def _all_sh_bases(dirs: Array) -> Array:
         f_tmp_b2 * x,
         f_tmp_a2 * f_c1,
     )
+    if max_bases <= 9:
+        return jnp.stack(degree0 + degree1 + degree2, axis=-1)
 
     f_tmp_c3 = -2.285228997322329 * z2 + 0.4570457994644658
     f_tmp_b3 = 1.445305721320277 * z
@@ -54,6 +59,8 @@ def _all_sh_bases(dirs: Array) -> Array:
         f_tmp_b3 * f_c1,
         f_tmp_a3 * f_c2,
     )
+    if max_bases <= 16:
+        return jnp.stack(degree0 + degree1 + degree2 + degree3, axis=-1)
 
     f_tmp_d4 = z * (-4.683325804901025 * z2 + 2.007139630671868)
     f_tmp_c4 = 3.31161143515146 * z2 - 0.47308734787878
@@ -66,11 +73,8 @@ def _all_sh_bases(dirs: Array) -> Array:
         f_tmp_b4 * f_s2,
         f_tmp_c4 * f_s1,
         f_tmp_d4 * y,
-        1.984313483298443
-        * z2
-        * (1.865881662950577 * z2 - 1.119528997770346)
-        - 1.006230589874905
-        * (0.9461746957575601 * z2 - 0.3153915652525201),
+        1.984313483298443 * z2 * (1.865881662950577 * z2 - 1.119528997770346)
+        - 1.006230589874905 * (0.9461746957575601 * z2 - 0.3153915652525201),
         f_tmp_d4 * x,
         f_tmp_c4 * f_c1,
         f_tmp_b4 * f_c2,
@@ -79,20 +83,27 @@ def _all_sh_bases(dirs: Array) -> Array:
     return jnp.stack(degree0 + degree1 + degree2 + degree3 + degree4, axis=-1)
 
 
+def _all_sh_bases(dirs: Array) -> Array:
+    """Evaluate all real SH bases through degree four."""
+
+    return _sh_bases(dirs, MAX_SH_BASES)
+
+
 def eval_sh_bases(degree: int, dirs: Array) -> Array:
     """Evaluate real SH bases through a static degree in ``[0, 4]``."""
 
     if degree < 0 or degree > MAX_SH_DEGREE:
         raise ValueError(f"degree must be in [0, {MAX_SH_DEGREE}], got {degree}")
     dirs = safe_normalize(jnp.asarray(dirs), axis=-1)
-    return _all_sh_bases(dirs)[..., : (degree + 1) ** 2]
+    basis_count = (degree + 1) ** 2
+    return _sh_bases(dirs, basis_count)[..., :basis_count]
 
 
 def spherical_harmonics(
     degrees_to_use: int | Array,
     dirs: Array,
     coeffs: Array,
-    masks: Optional[Array] = None,
+    masks: Array | None = None,
 ) -> Array:
     """Evaluate RGB spherical harmonics with gsplat-compatible ordering.
 
@@ -106,7 +117,7 @@ def spherical_harmonics(
     basis_count = coeffs.shape[-2]
     if basis_count > MAX_SH_BASES:
         raise ValueError(f"At most {MAX_SH_BASES} SH coefficients are supported")
-    bases = _all_sh_bases(dirs)[..., :basis_count]
+    bases = _sh_bases(dirs, basis_count)[..., :basis_count]
     requested_count = (jnp.asarray(degrees_to_use) + 1) ** 2
     degree_mask = jnp.arange(basis_count) < requested_count
     result = jnp.sum(bases[..., :, None] * coeffs * degree_mask[:, None], axis=-2)

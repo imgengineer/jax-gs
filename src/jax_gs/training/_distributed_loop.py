@@ -1,20 +1,21 @@
-# pyright: reportMissingImports=false
+# pyright: reportMissingImports=false, reportGeneralTypeIssues=false
 
 """Single-process, multi-device host orchestration for sharded training."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import concurrent.futures
 import gc
-from pathlib import Path
 import sys
 import time
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 
 from ..capacity import (
     _distributed_local_capacity,
@@ -29,7 +30,12 @@ from ..config import TrainConfig
 from ..init_utils import knn_scale_init
 from ..model import GaussianModel
 from ..strategy import DefaultStrategy, MCMCStrategy
-from ._data import _infinite_batches, shard_camera_batch
+from ._data import (
+    PrecomputedCameraPoses,
+    StepKeyGenerator,
+    _infinite_batches,
+    shard_camera_batch,
+)
 from ._loop import (
     TrainingResult,
     _save_render,
@@ -66,7 +72,6 @@ from .appearance import (
 )
 from .pose import CameraOptModule
 
-
 if __package__ is None:
     raise RuntimeError("training package context is unavailable")
 _training = sys.modules[__package__]
@@ -74,8 +79,8 @@ _RANK_AXIS = "rank"
 
 
 def _resolve_local_distributed_devices(
-    devices: Sequence[jax.Device] | None,
-) -> tuple[jax.Device, ...]:
+    devices: Sequence[Any] | None,
+) -> tuple[Any, ...]:
     """Resolve the fully addressable pmap world before any side effect."""
 
     if jax.process_count() != 1:
@@ -86,9 +91,7 @@ def _resolve_local_distributed_devices(
         )
     resolved = tuple(jax.local_devices() if devices is None else devices)
     if len(resolved) < 2:
-        raise ValueError(
-            "distributed training requires at least two local devices"
-        )
+        raise ValueError("distributed training requires at least two local devices")
     if len({device.id for device in resolved}) != len(resolved):
         raise ValueError("distributed training devices must be unique")
     process_index = jax.process_index()
@@ -99,9 +102,7 @@ def _resolve_local_distributed_devices(
     return resolved
 
 
-def _point_cloud_log_scales(
-    points: np.ndarray, initial_scale: float
-) -> np.ndarray:
+def _point_cloud_log_scales(points: np.ndarray, initial_scale: float) -> np.ndarray:
     """Compute KNN scales before the point cloud is divided among owners."""
 
     count = len(points)
@@ -128,18 +129,15 @@ def _strategy_state(config: TrainConfig, capacity: int, scene_scale: float):
 
 def _stack_bundles(bundles):
     return tuple(
-        _stack_graphs([bundle[index] for bundle in bundles])
-        for index in range(4)
+        _stack_graphs([bundle[index] for bundle in bundles]) for index in range(4)
     )
 
 
-def _place_distributed_state(nodes, devices: Sequence[jax.Device]):
+def _place_distributed_state(nodes, devices: Sequence[Any]):
     """Put every stacked Variable on the pmap rank partition explicitly."""
 
     mesh = jax.sharding.Mesh(np.asarray(devices), (_RANK_AXIS,))
-    sharding = jax.sharding.NamedSharding(
-        mesh, jax.sharding.PartitionSpec(_RANK_AXIS)
-    )
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec(_RANK_AXIS))
     placed = []
     for node in nodes:
         graphdef, state = nnx.split(node)
@@ -176,13 +174,9 @@ def _initialize_distributed_training_state(
             f"per-shard logical capacity is {config.model.capacity}"
         )
     local_capacity = config.model.bucket_capacity(busiest)
-    initial_log_scales = _point_cloud_log_scales(
-        points, config.model.initial_scale
-    )
+    initial_log_scales = _point_cloud_log_scales(points, config.model.initial_scale)
     bundles = []
-    appearance_feature_key = jax.random.fold_in(
-        jax.random.key(config.seed), 0x41505046
-    )
+    appearance_feature_key = jax.random.fold_in(jax.random.key(config.seed), 0x41505046)
     for rank, indices in enumerate(owner_indices):
         model = GaussianModel.from_point_cloud(
             points[indices],
@@ -190,9 +184,7 @@ def _initialize_distributed_training_state(
             config.model,
             physical_capacity=local_capacity,
             num_workers=config.data.num_workers,
-            appearance_feature_dim=(
-                APPEARANCE_FEATURE_DIM if config.app_opt else None
-            ),
+            appearance_feature_dim=(APPEARANCE_FEATURE_DIM if config.app_opt else None),
             feature_key=(
                 jax.random.fold_in(appearance_feature_key, rank)
                 if config.app_opt
@@ -229,9 +221,7 @@ def _empty_distributed_training_state(
         model = GaussianModel.empty(
             config.model,
             physical_capacity=local_capacity,
-            appearance_feature_dim=(
-                APPEARANCE_FEATURE_DIM if config.app_opt else None
-            ),
+            appearance_feature_dim=(APPEARANCE_FEATURE_DIM if config.app_opt else None),
         )
         optimizer = _create_training_optimizer(
             model,
@@ -264,9 +254,7 @@ def _initialize_distributed_pose_state(
             module = CameraOptModule(
                 camera_count,
                 rngs=nnx.Rngs(
-                    jax.random.fold_in(
-                        jax.random.key(config.seed), 0x504F5345
-                    )
+                    jax.random.fold_in(jax.random.key(config.seed), 0x504F5345)
                 ),
             )
             module.zero_init()
@@ -281,9 +269,7 @@ def _initialize_distributed_pose_state(
             module = CameraOptModule(
                 camera_count,
                 rngs=nnx.Rngs(
-                    jax.random.fold_in(
-                        jax.random.key(config.seed), 0x4E4F4953
-                    )
+                    jax.random.fold_in(jax.random.key(config.seed), 0x4E4F4953)
                 ),
             )
             module.random_init(config.pose_noise)
@@ -307,11 +293,7 @@ def _initialize_distributed_appearance_state(
             APPEARANCE_FEATURE_DIM,
             config.app_embed_dim,
             config.model.sh_degree,
-            rngs=nnx.Rngs(
-                jax.random.fold_in(
-                    jax.random.key(config.seed), 0x4150504D
-                )
-            ),
+            rngs=nnx.Rngs(jax.random.fold_in(jax.random.key(config.seed), 0x4150504D)),
         )
         pairs.append((module, create_appearance_optimizer(module, config)))
     return (
@@ -325,13 +307,9 @@ def _runtime_training_config(
     intersection_capacity: int,
     candidate_bound: int | None,
 ) -> TrainConfig:
-    runtime = _training_config_with_intersection_capacity(
-        config, intersection_capacity
-    )
+    runtime = _training_config_with_intersection_capacity(config, intersection_capacity)
     if candidate_bound is not None:
-        runtime = _training_config_with_candidate_bound(
-            runtime, candidate_bound
-        )
+        runtime = _training_config_with_candidate_bound(runtime, candidate_bound)
     return runtime
 
 
@@ -358,13 +336,10 @@ def _mapped_step_status(
         "refine_capacity_overflow",
         "refine_commit_overflow",
     )
-    values = np.asarray(
-        jax.device_get(metrics["distributed_host_control"])
-    ).reshape(-1, len(names))[0]
-    return {
-        name: value.item()
-        for name, value in zip(names, values, strict=True)
-    }
+    values = np.asarray(jax.device_get(metrics["distributed_host_control"])).reshape(
+        -1, len(names)
+    )[0]
+    return {name: value.item() for name, value in zip(names, values, strict=True)}
 
 
 def _mapped_raster_overflow(
@@ -414,9 +389,7 @@ def _distributed_metric_summary(
         "psnr",
     }
     count_metrics = {"active_count", "visible_count"}
-    names = tuple(
-        name for name in metrics if name != "distributed_host_control"
-    )
+    names = tuple(name for name in metrics if name != "distributed_host_control")
     values = jax.device_get(tuple(metrics[name] for name in names))
     result: dict[str, float] = {}
     for name, value in zip(names, values, strict=True):
@@ -434,7 +407,7 @@ def train_distributed(
     config: TrainConfig,
     *,
     resume_from: str | Path | None = None,
-    devices: Sequence[jax.Device] | None = None,
+    devices: Sequence[Any] | None = None,
 ) -> TrainingResult:
     """Train Gaussian owner shards on one process's local devices.
 
@@ -446,9 +419,7 @@ def train_distributed(
 
     devices = _resolve_local_distributed_devices(devices)
     world_size = len(devices)
-    uses_camera_modules = (
-        config.pose_opt or config.pose_noise > 0.0 or config.app_opt
-    )
+    uses_camera_modules = config.pose_opt or config.pose_noise > 0.0 or config.app_opt
     if config.data.batch_size * world_size > 10:
         raise ValueError(
             "current-main Adam requires distributed effective batch size <= 10"
@@ -481,8 +452,7 @@ def train_distributed(
     if uses_camera_modules:
         camera_indices = scene.indices("train", config.data.test_every)
         camera_image_names = tuple(
-            scene.images[np.asarray(index).item()].name
-            for index in camera_indices
+            scene.images[np.asarray(index).item()].name for index in camera_indices
         )
         camera_count = len(camera_image_names)
         if camera_count == 0:
@@ -508,20 +478,19 @@ def train_distributed(
         scene_scale = _training_scene_scale(
             scene, transform, global_scale=config.global_scale
         )
-
-    pose_adjust, pose_optimizer, pose_perturb = (
-        _initialize_distributed_pose_state(
-            config,
-            world_size=world_size,
-            camera_count=camera_count,
-        )
+    camera_poses = PrecomputedCameraPoses(
+        scene, transform, uses_camera_modules=uses_camera_modules
     )
-    appearance_module, appearance_optimizer = (
-        _initialize_distributed_appearance_state(
-            config,
-            world_size=world_size,
-            camera_count=camera_count,
-        )
+
+    pose_adjust, pose_optimizer, pose_perturb = _initialize_distributed_pose_state(
+        config,
+        world_size=world_size,
+        camera_count=camera_count,
+    )
+    appearance_module, appearance_optimizer = _initialize_distributed_appearance_state(
+        config,
+        world_size=world_size,
+        camera_count=camera_count,
     )
     if resume_manifest is None:
         model, optimizer, strategy_state, safety_state = (
@@ -537,9 +506,7 @@ def train_distributed(
     else:
         if resume_from is None:
             raise RuntimeError("distributed resume path is unavailable")
-        local_capacity = np.asarray(
-            resume_manifest["local_capacity"]
-        ).item()
+        local_capacity = np.asarray(resume_manifest["local_capacity"]).item()
         model, optimizer, strategy_state, safety_state = (
             _empty_distributed_training_state(
                 config,
@@ -564,9 +531,7 @@ def train_distributed(
             ),
             appearance_module=appearance_module,
             appearance_optimizer=appearance_optimizer,
-            appearance_image_names=(
-                camera_image_names if config.app_opt else None
-            ),
+            appearance_image_names=(camera_image_names if config.app_opt else None),
         )
         if start_step > config.steps:
             raise ValueError(
@@ -574,19 +539,15 @@ def train_distributed(
                 f"steps {config.steps}"
             )
 
-    model, optimizer, strategy_state, safety_state = (
-        _place_distributed_state(
-            (model, optimizer, strategy_state, safety_state), devices
-        )
+    model, optimizer, strategy_state, safety_state = _place_distributed_state(
+        (model, optimizer, strategy_state, safety_state), devices
     )
     if pose_adjust is not None:
         pose_adjust, pose_optimizer = _place_distributed_state(
             (pose_adjust, pose_optimizer), devices
         )
     if pose_perturb is not None:
-        (pose_perturb,) = _place_distributed_state(
-            (pose_perturb,), devices
-        )
+        (pose_perturb,) = _place_distributed_state((pose_perturb,), devices)
     if appearance_module is not None:
         appearance_module, appearance_optimizer = _place_distributed_state(
             (appearance_module, appearance_optimizer), devices
@@ -642,6 +603,9 @@ def train_distributed(
         scene,
         split="train",
         test_every=config.data.test_every,
+        image_dir=config.data.image_dir,
+        cache_images=config.data.cache_images,
+        uint8=config.data.uint8,
         shuffle=True,
         seed=config.data.shuffle_seed,
         repeat=True,
@@ -702,6 +666,12 @@ def train_distributed(
     last_metrics: dict[str, float] = {}
     last_checkpoint: Path | None = None
     last_checkpoint_step: int | None = None
+    checkpoint_executor = (
+        concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        if config.async_checkpoint
+        else None
+    )
+    pending_checkpoint_future: concurrent.futures.Future[Path] | None = None
     start_time = time.monotonic()
 
     evaluation_example = None
@@ -763,7 +733,7 @@ def train_distributed(
             safety_state.intersection_overflow_seen[...]
         )
 
-    def resolve_raster_overflow(metrics, replay):
+    def resolve_raster_overflow(metrics, device_inputs, camera_inputs):
         nonlocal candidate_bound
         nonlocal intersection_capacity
         nonlocal mapped_train_step
@@ -773,8 +743,7 @@ def train_distributed(
             status = _mapped_step_status(metrics)
             if bool(status["distributed_state_mismatch"]):
                 raise RuntimeError(
-                    "distributed optimizer state or SH degree differs across "
-                    "ranks"
+                    "distributed optimizer state or SH degree differs across ranks"
                 )
             overflow_tiles = status["max_overflow_tiles"]
             intersection_seen = bool(status["intersection_overflow_seen"])
@@ -792,9 +761,8 @@ def train_distributed(
             overflow = _mapped_raster_overflow(metrics)
             candidate_overflow = overflow["overflow_tiles"] > 0
             intersection_overflow = bool(overflow["intersection_overflow"])
-            if (
-                (overflow_tiles > 0 and not candidate_overflow)
-                or (intersection_seen and not intersection_overflow)
+            if (overflow_tiles > 0 and not candidate_overflow) or (
+                intersection_seen and not intersection_overflow
             ):
                 _raise_training_overflow(
                     np.asarray(overflow_tiles), np.asarray(intersection_seen)
@@ -870,31 +838,63 @@ def train_distributed(
             runtime_config = next_runtime_config
             mapped_train_step = make_mapped_train_step(runtime_config)
             reset_safety_state()
-            metrics = replay()
+            metrics = run_device_step(device_inputs, camera_inputs)
+
+    def run_device_step(device_in, camera_in):
+        return mapped_train_step(
+            model,
+            optimizer,
+            strategy_state,
+            safety_state,
+            *device_in,
+            *camera_in,
+        )
+
+    def prepare_distributed_batch(raw_batch):
+        sharded = shard_camera_batch(raw_batch, world_size)
+        images_raw = sharded["image"]
+        if getattr(images_raw, "dtype", None) == np.uint8:
+            images_np = np.asarray(images_raw, dtype=np.uint8)
+        else:
+            images_np = np.asarray(images_raw, dtype=np.float32)
+        intrinsics_np = np.asarray(sharded["K"], dtype=np.float32)
+        viewmats_np, camtoworlds_np = camera_poses.get_poses(
+            sharded["w2c"], sharded.get("image_index")
+        )
+        image_ids_np = (
+            np.asarray(sharded["dataset_index"], dtype=np.int32)
+            if uses_camera_modules
+            else None
+        )
+        return (
+            images_np,
+            intrinsics_np,
+            viewmats_np,
+            camtoworlds_np,
+            image_ids_np,
+        )
+
+    key_generator = StepKeyGenerator(training_key, world_size=world_size)
+    next_batch_data = (
+        prepare_distributed_batch(next(batches)) if start_step < config.steps else None
+    )
 
     for step in range(start_step + 1, config.steps + 1):
-        sharded = shard_camera_batch(next(batches), world_size)
-        images_np = np.asarray(sharded["image"], dtype=np.float32)
-        intrinsics_np = np.asarray(sharded["K"], dtype=np.float32)
-        viewmats_np = transform.world_to_camera(
-            np.asarray(sharded["w2c"], dtype=np.float32)
-        )
-        camtoworlds_np = None
-        image_ids_np = None
-        if uses_camera_modules:
-            camtoworlds_np = np.linalg.inv(viewmats_np).astype(np.float32)
-            image_ids_np = np.asarray(
-                sharded["dataset_index"], dtype=np.int32
-            )
-        rank_keys = [
-            jax.random.fold_in(
-                jax.random.fold_in(training_key, step), rank
-            )
-            for rank in range(world_size)
-        ]
-        split_keys = [jax.random.split(key, 2) for key in rank_keys]
-        step_keys = jnp.stack([keys[0] for keys in split_keys])
-        strategy_keys = jnp.stack([keys[1] for keys in split_keys])
+        if next_batch_data is None:
+            raise RuntimeError("missing prepared batch data")
+        (
+            images_np,
+            intrinsics_np,
+            viewmats_np,
+            camtoworlds_np,
+            image_ids_np,
+        ) = next_batch_data
+        if step < config.steps:
+            next_batch_data = prepare_distributed_batch(next(batches))
+        else:
+            next_batch_data = None
+
+        step_keys, strategy_keys = key_generator.get(step)
         sh_degrees = jnp.full(
             (world_size,),
             min(
@@ -923,20 +923,10 @@ def train_distributed(
                 appearance_optimizer,
             )
 
-        def run_step():
-            return mapped_train_step(
-                model,
-                optimizer,
-                strategy_state,
-                safety_state,
-                *device_inputs,
-                *camera_inputs,
-            )
-
         with jax.profiler.StepTraceAnnotation("train", step_num=step):
-            metrics = run_step()
+            metrics = run_device_step(device_inputs, camera_inputs)
         metrics, status, tuned_candidate_bound = resolve_raster_overflow(
-            metrics, run_step
+            metrics, device_inputs, camera_inputs
         )
 
         if tuned_candidate_bound is not None:
@@ -986,12 +976,13 @@ def train_distributed(
             )
         if capacity_decision is not None and capacity_decision.replay_required:
             metrics, status, replay_tuned_bound = resolve_raster_overflow(
-                run_step(), run_step
+                run_device_step(device_inputs, camera_inputs),
+                device_inputs,
+                camera_inputs,
             )
             if replay_tuned_bound is not None:
                 raise RuntimeError(
-                    "candidate tuning unexpectedly repeated during capacity "
-                    "replay"
+                    "candidate tuning unexpectedly repeated during capacity replay"
                 )
             replay_decision = None
             if bool(status["refine_capacity_overflow"]) or bool(
@@ -1027,8 +1018,7 @@ def train_distributed(
 
         do_log = step == 1 or step % 10 == 0
         do_checkpoint = (
-            config.checkpoint_every > 0
-            and step % config.checkpoint_every == 0
+            config.checkpoint_every > 0 and step % config.checkpoint_every == 0
         )
         do_evaluate = (
             evaluation_example is not None
@@ -1055,31 +1045,47 @@ def train_distributed(
             )
 
         if do_checkpoint:
-            last_checkpoint = save_distributed_checkpoint(
+            if pending_checkpoint_future is not None:
+                last_checkpoint = pending_checkpoint_future.result()
+                pending_checkpoint_future = None
+            save_args = (
                 output_dir / "checkpoints",
                 model,
                 optimizer,
                 strategy_state,
                 safety_state,
-                step=step,
-                config=config,
-                intersection_capacity=intersection_capacity,
-                candidate_bound=candidate_bound,
-                scene_transform=transform.matrix,
-                scene_scale=scene_scale,
-                pose_module=pose_adjust,
-                pose_optimizer=pose_optimizer,
-                pose_image_names=(
+            )
+            save_kwargs = {
+                "step": step,
+                "config": config,
+                "intersection_capacity": intersection_capacity,
+                "candidate_bound": candidate_bound,
+                "scene_transform": transform.matrix,
+                "scene_scale": scene_scale,
+                "pose_module": pose_adjust,
+                "pose_optimizer": pose_optimizer,
+                "pose_image_names": (
                     camera_image_names
                     if config.pose_opt or config.pose_noise > 0.0
                     else None
                 ),
-                appearance_module=appearance_module,
-                appearance_optimizer=appearance_optimizer,
-                appearance_image_names=(
+                "appearance_module": appearance_module,
+                "appearance_optimizer": appearance_optimizer,
+                "appearance_image_names": (
                     camera_image_names if config.app_opt else None
                 ),
-            )
+            }
+            if checkpoint_executor is not None:
+                pending_checkpoint_future = checkpoint_executor.submit(
+                    save_distributed_checkpoint,
+                    *save_args,
+                    **save_kwargs,
+                )
+            else:
+                last_checkpoint = save_distributed_checkpoint(
+                    *save_args,
+                    **save_kwargs,
+                )
             last_checkpoint_step = step
 
         if do_evaluate:
@@ -1106,23 +1112,20 @@ def train_distributed(
                 jnp.asarray(config.model.sh_degree, jnp.int32),
             )
             image = reduce_distributed_render(rendered)
-            _save_render(
-                output_dir / "renders" / f"step_{step:08d}.png", image
-            )
-            overflow_count = np.count_nonzero(
-                np.asarray(jax.device_get(overflow))
-            )
+            _save_render(output_dir / "renders" / f"step_{step:08d}.png", image)
+            overflow_count = np.count_nonzero(np.asarray(jax.device_get(overflow)))
             if overflow_count:
                 print(
                     f"distributed evaluation tile overflow: {overflow_count}",
                     flush=True,
                 )
-            if bool(
-                np.any(np.asarray(jax.device_get(intersection_overflow)))
-            ):
+            if bool(np.any(np.asarray(jax.device_get(intersection_overflow)))):
                 print("distributed evaluation intersection overflow", flush=True)
 
     if last_checkpoint_step != config.steps:
+        if pending_checkpoint_future is not None:
+            last_checkpoint = pending_checkpoint_future.result()
+            pending_checkpoint_future = None
         last_checkpoint = save_distributed_checkpoint(
             output_dir / "checkpoints",
             model,
@@ -1144,10 +1147,13 @@ def train_distributed(
             ),
             appearance_module=appearance_module,
             appearance_optimizer=appearance_optimizer,
-            appearance_image_names=(
-                camera_image_names if config.app_opt else None
-            ),
+            appearance_image_names=(camera_image_names if config.app_opt else None),
         )
+    if pending_checkpoint_future is not None:
+        last_checkpoint = pending_checkpoint_future.result()
+        pending_checkpoint_future = None
+    if checkpoint_executor is not None:
+        checkpoint_executor.shutdown(wait=True)
 
     # Large mapped executables are not reusable once this world leaves scope.
     jax.effects_barrier()
