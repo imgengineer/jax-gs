@@ -161,6 +161,7 @@ def _train_command(args: argparse.Namespace) -> None:
         config = TrainConfig.for_model_type(
             args.model_type or "3dgs",
             strategy_kind=args.strategy or "default",
+            fast=bool(getattr(args, "fast", False)),
         )
     training_overrides = {
         name: getattr(args, name)
@@ -215,6 +216,8 @@ def _train_command(args: argparse.Namespace) -> None:
         config = replace(config, data=replace(config.data, uint8=True))
     if getattr(args, "async_checkpoint", False):
         config = replace(config, async_checkpoint=True)
+    if getattr(args, "pin_shapes", False):
+        config = replace(config, pin_shapes=True)
     if args.num_workers is not None:
         config = replace(
             config, data=replace(config.data, num_workers=args.num_workers)
@@ -650,6 +653,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--async-checkpoint",
         action="store_true",
         help="use Orbax AsyncCheckpointer for non-blocking background checkpoint persistence",
+    )
+    train_parser.add_argument(
+        "--pin-shapes",
+        action="store_true",
+        help="MaxText-style static high-water pinning: locks model, intersection, and candidate shapes to eliminate mid-training JIT recompilations",
+    )
+    train_parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="FastGS-style rapid reconstruction: 10k steps, density regulation, pinned shapes, cached uint8",
     )
     train_parser.add_argument(
         "--num-workers",

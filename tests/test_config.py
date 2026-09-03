@@ -68,14 +68,10 @@ def test_projection_backend_accepts_cute_and_rejects_removed_cuda_path():
     with pytest.raises(ValueError, match="projection_backend"):
         RasterizationConfig(projection_backend="invalid")
     with pytest.raises(ValueError, match="intersections backend"):
-        RasterizationConfig(
-            backend="reference", projection_backend="cute"
-        )
+        RasterizationConfig(backend="reference", projection_backend="cute")
 
 
-@pytest.mark.parametrize(
-    "backend", ["pallas", "cuda_tile", "cute"]
-)
+@pytest.mark.parametrize("backend", ["pallas", "cuda_tile", "cute"])
 def test_intersection_backend_accepts_explicit_gpu_paths(backend):
     config = RasterizationConfig(intersection_backend=backend)
     assert config.intersection_backend == backend
@@ -174,9 +170,7 @@ def test_appearance_optimization_config_round_trips_through_json(tmp_path):
         ("app_opt_reg", -1.0e-6, "app_opt_reg"),
     ],
 )
-def test_appearance_optimization_config_rejects_invalid_values(
-    name, value, match
-):
+def test_appearance_optimization_config_rejects_invalid_values(name, value, match):
     with pytest.raises(ValueError, match=match):
         TrainConfig(**{name: value})
 
@@ -316,9 +310,7 @@ def test_selective_training_flags_round_trip(tmp_path):
         ),
     ],
 )
-def test_selective_training_config_rejects_unsupported_combinations(
-    kwargs, match
-):
+def test_selective_training_config_rejects_unsupported_combinations(kwargs, match):
     with pytest.raises(ValueError, match=match):
         TrainConfig(**kwargs)
 
@@ -328,3 +320,23 @@ def test_2dgs_accepts_packed_sparse_training():
 
     assert config.packed
     assert config.sparse_grad
+
+
+def test_pin_shapes_locks_capacities_for_single_jit():
+    config = TrainConfig(pin_shapes=True)
+    assert config.pin_shapes
+    assert config.model.bucket_min_capacity == config.model.capacity
+    assert config.intersection_bucket_min_capacity >= 1_048_576
+    assert (config.rasterizer.max_candidates_per_tile or 0) >= 2048
+
+
+def test_fast_training_preset_matches_profile():
+    config = TrainConfig.for_model_type("3dgs", fast=True)
+    assert config.steps == 10_000
+    assert config.optimizer.max_steps == 10_000
+    assert config.pin_shapes
+    assert config.data.cache_images
+    assert config.data.uint8
+    assert config.strategy.target_primitives == 800_000
+    assert config.strategy.refine_stop == 7_000
+    assert config.strategy.prune_opacity == 0.01

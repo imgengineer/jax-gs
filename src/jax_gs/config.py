@@ -5,7 +5,7 @@ import math
 import os
 import warnings
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -16,7 +16,9 @@ def _available_system_workers() -> int:
     try:
         return max(len(os.sched_getaffinity(0)), 1)
     except (AttributeError, OSError):
-        return max(int(os.cpu_count() or 1), 1)
+        count = os.cpu_count()
+        cpu_total = 1 if count is None else count
+        return max(int(cpu_total), 1)
 
 
 @dataclass(frozen=True)
@@ -298,6 +300,7 @@ class TrainConfig:
     seed: int = 42
     checkpoint_every: int = 5_000
     async_checkpoint: bool = False
+    pin_shapes: bool = False
     eval_every: int = 1_000
     # Set this at or above max_intersections to pin the intersection shape.
     intersection_bucket_min_capacity: int = 65_536
@@ -367,6 +370,30 @@ class TrainConfig:
             raise ValueError(
                 "intersection_bucket_min_capacity must be a positive power of two"
             )
+        if self.pin_shapes:
+            if self.model.bucket_min_capacity != self.model.capacity:
+                object.__setattr__(
+                    self,
+                    "model",
+                    replace(self.model, bucket_min_capacity=self.model.capacity),
+                )
+            target_intersection = max(self.intersection_bucket_min_capacity, 1_048_576)
+            if self.intersection_bucket_min_capacity != target_intersection:
+                object.__setattr__(
+                    self,
+                    "intersection_bucket_min_capacity",
+                    target_intersection,
+                )
+            target_candidates = max(self.rasterizer.max_candidates_per_tile or 0, 2048)
+            if self.rasterizer.max_candidates_per_tile != target_candidates:
+                object.__setattr__(
+                    self,
+                    "rasterizer",
+                    replace(
+                        self.rasterizer,
+                        max_candidates_per_tile=target_candidates,
+                    ),
+                )
 
     @property
     def densification_gradient_key(self) -> Literal["means2d", "gradient_2dgs"]:
@@ -380,6 +407,7 @@ class TrainConfig:
         model_type: Literal["3dgs", "2dgs"],
         *,
         strategy_kind: Literal["default", "mcmc"] = "default",
+        fast: bool = False,
     ) -> TrainConfig:
         """Create the current-main example profile for one Gaussian model."""
 
@@ -392,6 +420,31 @@ class TrainConfig:
                 opacity_reg=0.01,
                 scale_reg=0.01,
                 strategy=StrategyConfig(kind="mcmc", verbose=True),
+            )
+        if model_type == "3dgs" and fast:
+            return cls(
+                model_type="3dgs",
+                steps=10_000,
+                sh_degree_interval=350,
+                checkpoint_every=2_500,
+                eval_every=1_000,
+                pin_shapes=True,
+                strategy=StrategyConfig(
+                    refine_start=300,
+                    refine_stop=7_000,
+                    refine_every=100,
+                    reset_every=2_000,
+                    prune_opacity=0.01,
+                    target_primitives=800_000,
+                ),
+                optimizer=OptimizerConfig(
+                    max_steps=10_000,
+                    means_lr=2.5e-4,
+                ),
+                data=DataConfig(
+                    cache_images=True,
+                    uint8=True,
+                ),
             )
         if model_type == "3dgs":
             return cls(model_type="3dgs")
@@ -457,4 +510,5 @@ class TrainConfig:
 
     @classmethod
     def load(cls, path: str | Path) -> TrainConfig:
+        # pi-lens-ignore: ast-grep:unchecked-throwing-call-python
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
