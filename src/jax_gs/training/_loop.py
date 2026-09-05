@@ -33,9 +33,9 @@ from ._data import (
     StepKeyGenerator,
     _infinite_batches,
 )
+from ._evaluation import _EvaluationRenderer
 from ._memory import (
     _candidate_bound_for_occupancy,
-    _check_evaluation_memory_budget,
     _intersection_bucket_capacity,
     _mcmc_required_capacity,
     _pending_overflow_suffix,
@@ -124,7 +124,24 @@ def _prewarm_train_step(
     )
 
 
-def make_render_step(config: TrainConfig, width: int, height: int):
+def _render_step_output(renders, alphas, info, *, return_info: bool):
+    output = (
+        renders[0, ..., :3],
+        alphas[0],
+        info["tile_overflow"][0],
+        info["intersection_overflow"][0],
+    )
+    if return_info:
+        return output + (
+            info["intersection_required_count"][0],
+            jnp.max(info["candidate_counts"][0]),
+        )
+    return output
+
+
+def make_render_step(
+    config: TrainConfig, width: int, height: int, *, _return_info: bool = False
+):
     _validate_2dgs_mode(config)
 
     @nnx.jit
@@ -135,7 +152,7 @@ def make_render_step(config: TrainConfig, width: int, height: int):
         sh_degree: jax.Array,
         *,
         appearance_module: AppearanceOptModule | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    ) -> tuple[jax.Array, ...]:
         if model.has_appearance != config.app_opt:
             raise ValueError("model color representation must match config.app_opt")
         parameters = model.activated(
@@ -193,11 +210,8 @@ def make_render_step(config: TrainConfig, width: int, height: int):
                 with_eval3d=config.with_eval3d,
                 config=config.rasterizer,
             )
-        return (
-            renders[0, ..., :3],
-            alphas[0],
-            info["tile_overflow"][0],
-            info["intersection_overflow"][0],
+        return _render_step_output(
+            renders, alphas, info, return_info=_return_info
         )
 
     return render_step
@@ -210,6 +224,7 @@ def make_distributed_render_step(
     *,
     world_size: int,
     axis_name: Hashable = "rank",
+    _return_info: bool = False,
 ):
     """Create the evaluation counterpart of :func:`make_distributed_train_step`.
 
@@ -251,7 +266,7 @@ def make_distributed_render_step(
             sh_degree: jax.Array,
             *,
             appearance_module: AppearanceOptModule | None = None,
-        ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+        ) -> tuple[jax.Array, ...]:
             del appearance_module
             parameters = model.activated(split_sh=True)
             parameters = jax.tree.map(
@@ -281,11 +296,8 @@ def make_distributed_render_step(
                 render_mode="RGB",
                 config=config.rasterizer,
             )
-            return (
-                renders[0, ..., :3],
-                alphas[0],
-                info["tile_overflow"][0],
-                info["intersection_overflow"][0],
+            return _render_step_output(
+                renders, alphas, info, return_info=_return_info
             )
 
         return render_step_2dgs
@@ -298,7 +310,7 @@ def make_distributed_render_step(
         sh_degree: jax.Array,
         *,
         appearance_module: AppearanceOptModule | None = None,
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    ) -> tuple[jax.Array, ...]:
         if model.has_appearance != config.app_opt:
             raise ValueError("model color representation must match config.app_opt")
         parameters = model.activated(split_sh=not config.app_opt)
@@ -343,11 +355,8 @@ def make_distributed_render_step(
             distributed_axis_name=axis_name,
             config=config.rasterizer,
         )
-        return (
-            renders[0, ..., :3],
-            alphas[0],
-            info["tile_overflow"][0],
-            info["intersection_overflow"][0],
+        return _render_step_output(
+            renders, alphas, info, return_info=_return_info
         )
 
     return render_step
@@ -634,10 +643,9 @@ def train(
         batch_size=config.data.batch_size,
         drop_remainder=True,
     )
-    batches = _infinite_batches(dataset, num_workers=config.data.num_workers)
-    if start_step < config.steps:
-        for _ in range(start_step):
-            next(batches)
+    batches = _infinite_batches(
+        dataset, num_workers=config.data.num_workers, start_batch=start_step,
+    )
     train_step = _training.make_train_step(runtime_config)
     train_step_prewarm_reason: str | None = "initial"
     safety_state = TrainingSafetyState()
@@ -668,7 +676,12 @@ def train(
         )
         evaluation_example = evaluation_source[0]
         eval_height, eval_width = evaluation_example["image"].shape[:2]
-        evaluation_render_step = make_render_step(config, eval_width, eval_height)
+        evaluation_render_step = _EvaluationRenderer(
+            config, eval_width, eval_height,
+            lambda current: make_render_step(
+                current, eval_width, eval_height, _return_info=True
+            ),
+        )
 
     def run_device_train_step(
         images: jax.Array,
@@ -1147,11 +1160,12 @@ def train(
                     flush=True,
                 )
 
-        if do_log:
+        if do_log or step == config.steps:
             last_metrics = {
-                name: np.asarray(jax.device_get(value)).item()
-                for name, value in metrics.items()
+                name: np.asarray(value).item()
+                for name, value in jax.device_get(metrics).items()
             }
+        if do_log:
             elapsed = time.monotonic() - start_time
             bytes_in_use, bytes_limit = _training._device_memory_usage()
             memory_text = (
@@ -1233,10 +1247,10 @@ def train(
                 ),
             }
             if checkpoint_executor is not None:
-                pending_checkpoint_future = checkpoint_executor.submit(
-                    _training._save_compacted_training_checkpoint,
+                pending_checkpoint_future = _training._save_compacted_training_checkpoint(
                     *save_args,
                     **save_kwargs,
+                    _executor=checkpoint_executor,
                 )
             else:
                 last_checkpoint = _training._save_compacted_training_checkpoint(
@@ -1248,28 +1262,18 @@ def train(
         if do_evaluate:
             assert eval_width is not None and eval_height is not None
             assert evaluation_render_step is not None and evaluation_example is not None
-            _check_evaluation_memory_budget(
-                config,
-                physical_capacity=model.capacity,
-                width=eval_width,
-                height=eval_height,
-            )
             normalized_viewmat = transform.world_to_camera(evaluation_example["w2c"])
-            rendered, _, overflow, intersection_overflow = evaluation_render_step(
+            rendered, _, _, _ = evaluation_render_step(
                 model,
                 jax.device_put(normalized_viewmat),
                 jax.device_put(evaluation_example["K"]),
                 jnp.asarray(config.model.sh_degree),
+                physical_capacity=model.capacity,
+                intersection_capacity=intersection_capacity,
+                candidate_bound=candidate_bound,
                 appearance_module=appearance_module,
             )
             _save_render(output_dir / "renders" / f"step_{step:08d}.png", rendered)
-            overflow_count = np.asarray(
-                jax.device_get(jnp.count_nonzero(overflow))
-            ).item()
-            if overflow_count:
-                print(f"evaluation tile overflow: {overflow_count}", flush=True)
-            if bool(jax.device_get(intersection_overflow)):
-                print("evaluation intersection overflow", flush=True)
 
     if last_checkpoint_step != config.steps:
         if pending_checkpoint_future is not None:

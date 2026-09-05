@@ -36,6 +36,7 @@ from ._data import (
     _infinite_batches,
     shard_camera_batch,
 )
+from ._evaluation import _EvaluationRenderer
 from ._loop import (
     TrainingResult,
     _save_render,
@@ -44,7 +45,6 @@ from ._loop import (
 )
 from ._memory import (
     _candidate_bound_for_occupancy,
-    _check_evaluation_memory_budget,
     _intersection_bucket_capacity,
     _raise_training_overflow,
     _training_config_with_candidate_bound,
@@ -612,10 +612,9 @@ def train_distributed(
         batch_size=world_size * config.data.batch_size,
         drop_remainder=True,
     )
-    batches = _infinite_batches(dataset, num_workers=config.data.num_workers)
-    if start_step < config.steps:
-        for _ in range(start_step):
-            next(batches)
+    batches = _infinite_batches(
+        dataset, num_workers=config.data.num_workers, start_batch=start_step,
+    )
 
     def make_mapped_train_step(current_config: TrainConfig):
         device_step = _training.make_distributed_train_step(
@@ -688,42 +687,31 @@ def train_distributed(
         )
         evaluation_example = evaluation_source[0]
         eval_height, eval_width = evaluation_example["image"].shape[:2]
-        render_step = make_distributed_render_step(
-            config,
-            eval_width,
-            eval_height,
-            world_size=world_size,
-            axis_name=_RANK_AXIS,
-        )
-
-        @nnx.pmap(
-            in_axes=(
-                0,
-                0 if config.app_opt else None,
-                None,
-                None,
-                None,
-            ),
-            out_axes=0,
-            axis_name=_RANK_AXIS,
-            devices=devices,
-        )
-        def configured_render_step(
-            current_model,
-            current_appearance,
-            viewmat,
-            K,
-            sh_degree,
-        ):
-            return render_step(
-                current_model,
-                viewmat,
-                K,
-                sh_degree,
-                appearance_module=current_appearance,
+        def make_mapped_render_step(current_config):
+            render_step = make_distributed_render_step(
+                current_config, eval_width, eval_height,
+                world_size=world_size, axis_name=_RANK_AXIS, _return_info=True,
             )
 
-        mapped_render_step = configured_render_step
+            @nnx.pmap(
+                in_axes=(0, 0 if config.app_opt else None, None, None, None),
+                out_axes=0,
+                axis_name=_RANK_AXIS,
+                devices=devices,
+            )
+            def configured_render_step(
+                current_model, current_appearance, viewmat, K, sh_degree,
+            ):
+                return render_step(
+                    current_model, viewmat, K, sh_degree,
+                    appearance_module=current_appearance,
+                )
+
+            return configured_render_step
+
+        mapped_render_step = _EvaluationRenderer(
+            config, eval_width, eval_height, make_mapped_render_step, devices=devices,
+        )
 
     def reset_safety_state() -> None:
         safety_state.max_overflow_tiles[...] = jnp.zeros_like(
@@ -1026,8 +1014,9 @@ def train_distributed(
             and config.eval_every > 0
             and step % config.eval_every == 0
         )
-        if do_log:
+        if do_log or step == config.steps:
             last_metrics = _distributed_metric_summary(metrics)
+        if do_log:
             elapsed = time.monotonic() - start_time
             print(
                 f"step={step:06d} loss={last_metrics['loss']:.6f} "
@@ -1076,10 +1065,10 @@ def train_distributed(
                 ),
             }
             if checkpoint_executor is not None:
-                pending_checkpoint_future = checkpoint_executor.submit(
-                    save_distributed_checkpoint,
+                pending_checkpoint_future = save_distributed_checkpoint(
                     *save_args,
                     **save_kwargs,
+                    _executor=checkpoint_executor,
                 )
             else:
                 last_checkpoint = save_distributed_checkpoint(
@@ -1096,31 +1085,19 @@ def train_distributed(
                 or eval_height is None
             ):
                 raise RuntimeError("distributed evaluation was not initialized")
-            _check_evaluation_memory_budget(
-                config,
-                physical_capacity=world_size * local_capacity,
-                width=eval_width,
-                height=eval_height,
-                devices=devices,
-            )
             viewmat = transform.world_to_camera(evaluation_example["w2c"])
-            rendered, _, overflow, intersection_overflow = mapped_render_step(
+            rendered, _, _, _ = mapped_render_step(
                 model,
                 appearance_module,
                 jnp.asarray(viewmat),
                 jnp.asarray(evaluation_example["K"]),
                 jnp.asarray(config.model.sh_degree, jnp.int32),
+                physical_capacity=world_size * local_capacity,
+                intersection_capacity=intersection_capacity,
+                candidate_bound=candidate_bound,
             )
             image = reduce_distributed_render(rendered)
             _save_render(output_dir / "renders" / f"step_{step:08d}.png", image)
-            overflow_count = np.count_nonzero(np.asarray(jax.device_get(overflow)))
-            if overflow_count:
-                print(
-                    f"distributed evaluation tile overflow: {overflow_count}",
-                    flush=True,
-                )
-            if bool(np.any(np.asarray(jax.device_get(intersection_overflow)))):
-                print("distributed evaluation intersection overflow", flush=True)
 
     if last_checkpoint_step != config.steps:
         if pending_checkpoint_future is not None:

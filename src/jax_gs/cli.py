@@ -135,6 +135,7 @@ def _apply_training_defaults(
         and not config.with_ut
         and not config.with_eval3d
         and not config.strategy.absgrad
+        and not config.sparse_grad
         and not config.app_opt
         and rasterizer.tile_size == 16
         and _native_training_defaults_available()

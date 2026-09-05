@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable, Hashable, Sequence
+from concurrent.futures import Executor, Future
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -103,7 +104,8 @@ def _save_compacted_training_checkpoint(
     appearance_module: AppearanceOptModule | None = None,
     appearance_optimizer: nnx.Optimizer | None = None,
     appearance_image_names: tuple[str, ...] | None = None,
-) -> Path:
+    _executor: Executor | None = None,
+) -> Path | Future[Path]:
     compact_count = _training.compact_training_state(model, optimizer, strategy_state)
     compact_count.block_until_ready()
     return _training.save_checkpoint(
@@ -123,6 +125,7 @@ def _save_compacted_training_checkpoint(
         appearance_module=appearance_module,
         appearance_optimizer=appearance_optimizer,
         appearance_image_names=appearance_image_names,
+        _executor=_executor,
     )
 
 

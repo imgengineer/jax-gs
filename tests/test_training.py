@@ -3532,8 +3532,9 @@ def test_camera_module_resume_rejects_structural_config_changes(
         )
 
 
+@pytest.mark.parametrize("async_checkpoint", [False, True])
 def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, async_checkpoint
 ):
     class PoseScene(SimpleNamespace):
         def indices(self, split, _test_every):
@@ -3580,6 +3581,7 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
         checkpoint_every=1,
         eval_every=0,
         output_dir=str(tmp_path / "continuous"),
+        async_checkpoint=async_checkpoint,
     )
     snapshots = {}
     pose_optimizers = []
@@ -3822,7 +3824,8 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
         training_module, "_save_compacted_training_checkpoint", fake_save
     )
 
-    training_module.train(config, resume_from=tmp_path / "checkpoint")
+    resumed = training_module.train(config, resume_from=tmp_path / "checkpoint")
+    assert resumed.metrics["loss"] == 0.0
 
     np.testing.assert_array_equal(dispatched["image"], batches[2]["image"])
     expected_transform = (
@@ -4642,3 +4645,111 @@ def test_train_tunes_an_unset_candidate_bound_from_the_first_frame(
     # not touched again -- a bound that chased occupancy would recompile on
     # every fluctuation.
     assert bounds == [None, 1_024]
+
+
+def test_train_evaluation_retries_before_saving_image(monkeypatch, tmp_path):
+    import jax_gs.training._loop as loop
+
+    scene, batch = _bound_growth_scene_and_batch()
+    _patch_bound_growth_trainer(
+        monkeypatch, scene, batch, _bound_growth_factory([], 1),
+    )
+    config = replace(
+        _bound_growth_config(tmp_path, 512, steps=1),
+        eval_every=1,
+        intersection_bucket_min_capacity=2,
+    )
+    capacities = []
+    saved = []
+
+    def factory(current, width, height, *, _return_info=False):
+        assert _return_info
+        capacity = current.rasterizer.max_intersections
+        capacities.append(capacity)
+        return lambda *args, **kwargs: (
+            jnp.full((height, width, 3), float(capacity >= 3)),
+            jnp.ones((height, width, 1)),
+            jnp.asarray([False]), jnp.asarray(capacity < 3),
+            jnp.asarray(3), jnp.asarray(1),
+        )
+
+    monkeypatch.setattr(loop, "make_render_step", factory)
+    monkeypatch.setattr(loop, "_save_render", lambda path, image: saved.append(image))
+    training_module.train(config)
+    assert capacities == [2, 4]
+    assert len(saved) == 1
+    np.testing.assert_array_equal(saved[0], np.ones((4, 4, 3)))
+
+
+def test_async_checkpoint_captures_state_before_queued_worker_runs(monkeypatch, tmp_path):
+    import concurrent.futures
+    import threading
+    import jax_gs.training._loop as loop
+    from jax_gs.cli import _load_training_objects
+
+    scene, batch = _bound_growth_scene_and_batch()
+    release_worker = threading.Event()
+    executor_class = concurrent.futures.ThreadPoolExecutor
+
+    def delayed_executor(**kwargs):
+        executor = executor_class(**kwargs)
+        executor.submit(release_worker.wait, 20)
+        return executor
+
+    base_factory = _bound_growth_factory([], 1)
+
+    def factory(config):
+        inner = base_factory(config)
+
+        def step(model, optimizer, strategy, safety, *args):
+            number = int(optimizer.step[...]) + 1
+            optimizer.step[...] = jnp.asarray(number, optimizer.step[...].dtype)
+            model.means[...] = jnp.full_like(model.means[...], number)
+            metrics = inner(model, optimizer, strategy, safety, *args)
+            if number == 2:
+                release_worker.set()
+            return metrics
+
+        return step
+
+    _patch_bound_growth_trainer(monkeypatch, scene, batch, factory)
+    monkeypatch.setattr(
+        loop, "concurrent",
+        SimpleNamespace(futures=SimpleNamespace(ThreadPoolExecutor=delayed_executor)),
+    )
+    config = replace(
+        _bound_growth_config(tmp_path, 512, steps=2),
+        async_checkpoint=True, checkpoint_every=1,
+    )
+    try:
+        result = training_module.train(config)
+    finally:
+        release_worker.set()
+    _, restored, _, step = _load_training_objects(
+        tmp_path / "checkpoints" / "step_00000001"
+    )
+    assert step == 1
+    np.testing.assert_array_equal(restored.means[0], np.ones(3))
+    np.testing.assert_array_equal(result.model.means[0], np.full(3, 2.0))
+
+
+@pytest.mark.parametrize("steps", [2, 10, 11])
+def test_training_returns_final_step_metrics_between_log_steps(monkeypatch, tmp_path, steps):
+    scene, batch = _bound_growth_scene_and_batch()
+    base_factory = _bound_growth_factory([], 1)
+    executed = 0
+
+    def factory(config):
+        inner = base_factory(config)
+
+        def step(*args):
+            nonlocal executed
+            executed += 1
+            return {**inner(*args), "loss": jnp.asarray(float(executed))}
+
+        return step
+
+    _patch_bound_growth_trainer(monkeypatch, scene, batch, factory)
+    result = training_module.train(_bound_growth_config(tmp_path, 512, steps=steps))
+    assert result.final_step == steps
+    assert result.metrics["loss"] == float(steps)

@@ -1499,7 +1499,7 @@ def _run_two_rank_pmap_resize_lifecycle():
     np.testing.assert_array_equal(optimizer.step[...], [2, 2])
 
 
-def _run_local_device_distributed_host_loop():
+def _run_local_device_distributed_host_loop(async_checkpoint=False):
     """Exercise grow/replay, eval, checkpoint, and exact resume together."""
 
     assert jax.process_count() == 1
@@ -1588,6 +1588,7 @@ def _run_local_device_distributed_host_loop():
             intersection_bucket_min_capacity=8,
             output_dir=directory,
             ssim_lambda=0.0,
+            async_checkpoint=async_checkpoint,
         )
         with (
             mock.patch.object(
@@ -1622,6 +1623,7 @@ def _run_local_device_distributed_host_loop():
             )
 
         assert dataset_batch_sizes == [2, 2]
+        assert resumed.metrics["loss"] == uninterrupted.metrics["loss"]
         assert uninterrupted.model.means[...].shape == (2, 8, 3)
         assert resumed.model.means[...].shape == (2, 8, 3)
         assert "P('rank'" in str(resumed.model.means[...].sharding)
@@ -1742,7 +1744,7 @@ def _run_local_device_raster_overflow_replay():
         assert (16, 8) in train_step_configs
 
 
-def _run_local_device_distributed_pose_host_loop():
+def _run_local_device_distributed_pose_host_loop(async_checkpoint=False):
     points = np.asarray(
         [[-0.1, 0.0, 3.0], [0.1, 0.0, 3.0]], np.float32
     )
@@ -1826,6 +1828,7 @@ def _run_local_device_distributed_pose_host_loop():
             eval_every=1,
             output_dir=directory,
             ssim_lambda=0.0,
+            async_checkpoint=async_checkpoint,
         )
         with (
             mock.patch.object(
@@ -1945,7 +1948,8 @@ def _run_local_device_distributed_pose_host_loop():
         assert (resumed.output_dir / "renders" / "step_00000002.png").is_file()
 
 
-def test_two_virtual_cpu_distributed_host_loop_smoke():
+@pytest.mark.parametrize("async_checkpoint", [False, True])
+def test_two_virtual_cpu_distributed_host_loop_smoke(async_checkpoint):
     script = "\n".join(
         (
             "import jax",
@@ -1954,8 +1958,8 @@ def test_two_virtual_cpu_distributed_host_loop_smoke():
             "_run_local_device_distributed_pose_host_loop, "
             "_run_local_device_raster_overflow_replay",
             "assert jax.local_device_count() == 2",
-            "_run_local_device_distributed_host_loop()",
-            "_run_local_device_distributed_pose_host_loop()",
+            f"_run_local_device_distributed_host_loop({async_checkpoint})",
+            f"_run_local_device_distributed_pose_host_loop({async_checkpoint})",
             "_run_local_device_raster_overflow_replay()",
         )
     )

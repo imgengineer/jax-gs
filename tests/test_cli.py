@@ -194,6 +194,7 @@ def test_train_cli_uses_native_defaults_when_supported(monkeypatch):
     [
         ["train", "--model-type", "2dgs"],
         ["train", "--with-ut"],
+        ["train", "--packed", "--sparse-grad"],
         ["train", "--distributed"],
         ["train", "--intersection-backend", "jax"],
         ["train", "--config", "scene.json"],
@@ -233,6 +234,7 @@ def test_train_cli_keeps_jax_defaults_when_native_mode_does_not_apply(
     args.func(args)
 
     rasterizer = captured["config"].rasterizer
+    assert rasterizer.projection_backend == "jax"
     assert rasterizer.compositor_backend == "jax"
     assert rasterizer.intersection_backend in {"auto", "jax"}
 

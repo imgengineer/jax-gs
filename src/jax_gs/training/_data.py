@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import itertools
 from typing import Any
 
 import jax
@@ -27,10 +28,20 @@ def _grain_iter_dataset(dataset: Any, num_workers: int) -> Any:
     )
 
 
-def _infinite_batches(dataset: Any, *, num_workers: int) -> Iterator[dict[str, Any]]:
+def _infinite_batches(
+    dataset: Any, *, num_workers: int, start_batch: int = 0
+) -> Iterator[dict[str, Any]]:
+    if start_batch:
+        import grain
+
+        if isinstance(dataset, grain.MapDataset):
+            # Slice after shuffle/repeat/batch so absolute batch indices retain
+            # their original random order without decoding discarded images.
+            dataset = dataset[start_batch:]
+            start_batch = 0
     dataset = _grain_iter_dataset(dataset, num_workers)
-    while True:
-        yield from iter(dataset)
+    batches = itertools.chain.from_iterable(itertools.repeat(dataset))
+    yield from itertools.islice(batches, start_batch, None)
 
 
 def _sample_patches(

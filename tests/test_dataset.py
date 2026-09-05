@@ -217,6 +217,37 @@ def test_colmap_data_source_uint8(synthetic_scene: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("batch_size", [1, 6])
+def test_resume_seeks_grain_batches_without_reading_prior_epochs(batch_size):
+    import grain
+    from jax_gs.training._data import _infinite_batches
+
+    class CountingSource:
+        reads = 0
+
+        def __len__(self):
+            return 37
+
+        def __getitem__(self, index):
+            self.reads += 1
+            return {"image_index": np.int32(index)}
+
+    source = CountingSource()
+    dataset = (
+        grain.MapDataset.source(source).shuffle(seed=42).repeat()
+        .batch(batch_size, drop_remainder=True)
+    )
+    expected = [dataset[index]["image_index"] for index in range(2000, 2010)]
+    source.reads = 0
+    batches = _infinite_batches(dataset, num_workers=1, start_batch=2000)
+    try:
+        actual = [next(batches)["image_index"] for _ in range(10)]
+    finally:
+        batches.close()
+    np.testing.assert_array_equal(actual, expected)
+    assert source.reads <= 30 * batch_size
+
+
 @pytest.mark.slow
 def test_stump_metadata_only() -> None:
     scene_dir = Path("/home/lzc/datasets/stump")

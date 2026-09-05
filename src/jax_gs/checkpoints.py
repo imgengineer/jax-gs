@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from concurrent.futures import Executor, Future
 from dataclasses import asdict
 import hashlib
 import json
@@ -28,6 +29,43 @@ from .strategy import StrategyState
 
 _CHECKPOINT_METADATA = "jax_gs_checkpoint.json"
 _DISTRIBUTED_KIND = "distributed"
+
+
+def _finish_checkpoint(checkpointer, path, config_json, metadata_json) -> Path:
+    try:
+        checkpointer.wait_until_finished()
+    finally:
+        checkpointer.close()
+    if config_json is not None:
+        (path / "jax_gs_config.json").write_text(config_json, encoding="utf-8")
+    (path / _CHECKPOINT_METADATA).write_text(metadata_json, encoding="utf-8")
+    return path
+
+
+def _write_checkpoint(
+    path: Path,
+    payload: Any,
+    config: TrainConfig | None,
+    metadata: dict[str, Any],
+    *,
+    force: bool,
+    executor: Executor | None,
+) -> Path | Future[Path]:
+    config_json = None if config is None else json.dumps(config.to_dict(), indent=2)
+    metadata_json = json.dumps(metadata, indent=2)
+    checkpointer = ocp.StandardCheckpointer()
+    try:
+        # Orbax captures device arrays before save() returns. This must run
+        # on the training thread, before its next update donates those buffers.
+        checkpointer.save(path, payload, force=force)
+        if executor is not None:
+            return executor.submit(
+                _finish_checkpoint, checkpointer, path, config_json, metadata_json
+            )
+    except BaseException:
+        checkpointer.close()
+        raise
+    return _finish_checkpoint(checkpointer, path, config_json, metadata_json)
 
 
 def _pure_state(node: Any) -> Any:
@@ -395,7 +433,8 @@ def save_distributed_checkpoint(
     appearance_optimizer: nnx.Optimizer | None = None,
     appearance_image_names: Sequence[str] | None = None,
     force: bool = True,
-) -> Path:
+    _executor: Executor | None = None,
+) -> Path | Future[Path]:
     """Save one indivisible set of Gaussian-sharded training shards.
 
     All four nodes must be the stacked ``[world, ...]`` objects a bound
@@ -633,17 +672,6 @@ def save_distributed_checkpoint(
             ),
         }
     checkpoint_path = directory / f"step_{step:08d}"
-    checkpointer = ocp.StandardCheckpointer()
-    try:
-        checkpointer.save(checkpoint_path, payload, force=force)
-        if hasattr(checkpointer, "wait_until_finished"):
-            checkpointer.wait_until_finished()
-    finally:
-        checkpointer.close()
-    if config is not None:
-        (checkpoint_path / "jax_gs_config.json").write_text(
-            json.dumps(config.to_dict(), indent=2), encoding="utf-8"
-        )
     components = ["model", "optimizer", "strategy", "safety"]
     if pose_module is not None:
         components.append("pose")
@@ -691,10 +719,9 @@ def save_distributed_checkpoint(
         metadata["appearance_image_names"] = list(names)
     if scene_metadata is not None:
         metadata["scene"] = scene_metadata
-    (checkpoint_path / _CHECKPOINT_METADATA).write_text(
-        json.dumps(metadata, indent=2), encoding="utf-8"
+    return _write_checkpoint(
+        checkpoint_path, payload, config, metadata, force=force, executor=_executor,
     )
-    return checkpoint_path
 
 
 def _world_shaped_like(
@@ -1522,7 +1549,8 @@ def save_checkpoint(
     scene_transform: Any | None = None,
     scene_scale: Any | None = None,
     force: bool = True,
-) -> Path:
+    _executor: Executor | None = None,
+) -> Path | Future[Path]:
     """Save model and optional training state with Orbax."""
 
     if intersection_capacity is not None:
@@ -1579,17 +1607,6 @@ def save_checkpoint(
             ),
         }
     checkpoint_path = directory / f"step_{step:08d}"
-    checkpointer = ocp.StandardCheckpointer()
-    try:
-        checkpointer.save(checkpoint_path, payload, force=force)
-        if hasattr(checkpointer, "wait_until_finished"):
-            checkpointer.wait_until_finished()
-    finally:
-        checkpointer.close()
-    if config is not None:
-        (checkpoint_path / "jax_gs_config.json").write_text(
-            json.dumps(config.to_dict(), indent=2), encoding="utf-8"
-        )
     active_count = int(jax.device_get(model.active_count))
     active_prefix = bool(
         jax.device_get(
@@ -1635,10 +1652,9 @@ def save_checkpoint(
         metadata["appearance_image_names"] = list(names)
     if scene_metadata is not None:
         metadata["scene"] = scene_metadata
-    (checkpoint_path / _CHECKPOINT_METADATA).write_text(
-        json.dumps(metadata, indent=2), encoding="utf-8"
+    return _write_checkpoint(
+        checkpoint_path, payload, config, metadata, force=force, executor=_executor,
     )
-    return checkpoint_path
 
 
 def restore_checkpoint(

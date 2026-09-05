@@ -173,11 +173,11 @@ uv run jax-gs train \
   --config scene_config.json \
   --output outputs/scene_run
 
-# 单机多卡分布式训练（指定卡数）
-uv run jax-gs train \
+# 单机多卡分布式训练（选择 GPU 0、1）
+CUDA_VISIBLE_DEVICES=0,1 uv run jax-gs train \
   --config scene_config.json \
   --output outputs/scene_dist \
-  --num-workers 2
+  --distributed
 
 # 从指定 Checkpoint 恢复训练
 uv run jax-gs train \
@@ -273,7 +273,7 @@ uv run jax-gs estimate-memory \
 
 为降低用户配置成本，CLI 入口在检测到支持环境时会自动路由至完整 CuTe 组合（`projection_backend="cute"`, `compositor_backend="cute"`, `intersection_backend="cute"`, `intersection_mode="accutile"`）：
 
-1. Pinhole 相机模型 3DGS（无 UT、Eval3D、AbsGrad、Appearance Optimization）。
+1. Pinhole 相机模型 3DGS（无 UT、Eval3D、AbsGrad、Sparse Grad、Appearance Optimization）。
 2. 单 GPU、非 distributed 训练。
 3. NVIDIA GPU Compute Capability $\ge 9.0$ 且 CUTLASS DSL 可导入。
 4. `tile_size=16`，使用 float32 Classic rasterization contract。
