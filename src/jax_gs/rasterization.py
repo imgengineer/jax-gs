@@ -11,7 +11,6 @@ from typing import Any, NamedTuple
 import jax  # pyright: ignore[reportMissingImports]
 import jax.numpy as jnp  # pyright: ignore[reportMissingImports]
 
-from ._pallas import rasterize_to_pixels_pallas
 from .cameras import fully_fused_projection
 from .config import RasterizationConfig
 from .external_distortion import (
@@ -736,79 +735,6 @@ def _render_camera_intersections(
     intersection_capacity = _automatic_intersection_capacity(
         means2d.shape[0], tile_count, config
     )
-    use_fused = (
-        means2d.shape[0] > 0
-        and intersection_capacity > 0
-        and config.projection_backend == "cute"
-        and config.intersection_backend == "cute"
-        and config.compositor_backend == "cute"
-        and config.rasterize_mode == "classic"
-        and config.intersection_mode != "aabb"
-        and tile_size == 16
-        and allow_accutile
-        and render_mode == "RGB"
-        and colors is not None
-        and absgrad_probe is None
-    )
-    if use_fused:
-        assert colors is not None
-        feature_background = (
-            jnp.zeros((colors.shape[-1],), dtype=colors.dtype)
-            if background is None
-            else background
-        )
-        from ._cute_intersections import (
-            rasterize_accutile_cute_raw_fused as fused_rasterize,
-        )
-
-        with jax.named_scope("intersection_compositor_cute_raw_fused"):
-            rendered, alphas, fused_info = fused_rasterize(
-                radii,
-                depths,
-                means2d,
-                conics,
-                colors,
-                opacities,
-                valid,
-                capacity=intersection_capacity,
-                tile_size=tile_size,
-                tile_width=tile_width,
-                tile_height=tile_height,
-                image_width=width,
-                image_height=height,
-                background=feature_background,
-                max_gaussians_per_tile=config.max_gaussians_per_tile,
-                max_candidates_per_tile=config.max_candidates_per_tile,
-                alpha_threshold=config.alpha_clip,
-                transmittance_threshold=config.transmittance_eps,
-            )
-        flat_offsets = fused_info["offsets"].reshape(-1)
-        ends = jnp.concatenate(
-            (flat_offsets[1:], fused_info["valid_count"][None]), axis=0
-        )
-        candidate_counts = jnp.maximum(ends - flat_offsets, 0).reshape(
-            tile_height, tile_width
-        )
-        return (
-            rendered,
-            alphas,
-            {
-                "candidate_counts": candidate_counts,
-                "tile_overflow": fused_info["tile_overflow"],
-                "candidate_limit_exceeded": (
-                    candidate_counts > config.max_gaussians_per_tile
-                ),
-                "intersection_count": fused_info["valid_count"],
-                "intersection_required_count": fused_info["required_count"],
-                "intersection_overflow": fused_info["overflow"],
-                "intersection_capacity": jnp.asarray(
-                    intersection_capacity, dtype=jnp.int32
-                ),
-                "intersection_gaussian_ids": fused_info["gaussian_ids"],
-                "intersection_tile_ids": fused_info["tile_ids"],
-                "intersection_offsets": fused_info["offsets"],
-            },
-        )
     with jax.named_scope("intersection_total"):
         intersections = intersect_tiles(
             means2d,
@@ -855,52 +781,32 @@ def _render_camera_intersections(
     if feature_background is None:
         feature_background = jnp.zeros((features.shape[-1],), dtype=features.dtype)
 
-    if config.compositor_backend in {"pallas", "cute"}:
+    if config.compositor_backend == "cuda_tile":
         if absgrad_probe is not None:
             raise NotImplementedError(
-                "the experimental optimized compositors do not support AbsGrad"
+                "the cuTile compositor does not support AbsGrad"
             )
-        with jax.named_scope(f"compositing_{config.compositor_backend}"):
-            if config.compositor_backend == "pallas":
-                rendered, alphas, low_info = rasterize_to_pixels_pallas(
-                    means2d,
-                    conics,
-                    features,
-                    opacities,
-                    width,
-                    height,
-                    tile_size,
-                    intersections.offsets,
-                    intersections.gaussian_ids,
-                    backgrounds=feature_background,
-                    valid_count=intersections.valid_count,
-                    overflow=intersections.overflow,
-                    max_gaussians_per_tile=config.max_gaussians_per_tile,
-                    max_candidates_per_tile=config.max_candidates_per_tile,
-                    alpha_threshold=config.alpha_clip,
-                    transmittance_threshold=config.transmittance_eps,
-                )
-            elif config.compositor_backend == "cute":
-                from ._cute_compositor import rasterize_to_pixels_cute
+        from ._cutile_compositor import rasterize_to_pixels_cutile
 
-                rendered, alphas, low_info = rasterize_to_pixels_cute(
-                    means2d,
-                    conics,
-                    features,
-                    opacities,
-                    width,
-                    height,
-                    tile_size,
-                    intersections.offsets,
-                    intersections.gaussian_ids,
-                    backgrounds=feature_background,
-                    valid_count=intersections.valid_count,
-                    overflow=intersections.overflow,
-                    max_gaussians_per_tile=config.max_gaussians_per_tile,
-                    max_candidates_per_tile=config.max_candidates_per_tile,
-                    alpha_threshold=config.alpha_clip,
-                    transmittance_threshold=config.transmittance_eps,
-                )
+        with jax.named_scope("compositing_cuda_tile"):
+            rendered, alphas, low_info = rasterize_to_pixels_cutile(
+                means2d,
+                conics,
+                features,
+                opacities,
+                width,
+                height,
+                tile_size,
+                intersections.offsets,
+                intersections.gaussian_ids,
+                backgrounds=feature_background,
+                valid_count=intersections.valid_count,
+                overflow=intersections.overflow,
+                max_gaussians_per_tile=config.max_gaussians_per_tile,
+                max_candidates_per_tile=config.max_candidates_per_tile,
+                alpha_threshold=config.alpha_clip,
+                transmittance_threshold=config.transmittance_eps,
+            )
         tile_overflow = low_info["tile_overflow"]
     else:
         with jax.named_scope("compositing_jax"):
@@ -1501,17 +1407,17 @@ def rasterization(
     it while passing ``absgrad=True``; it never changes forward values.
     """
 
-    if config.intersection_backend == "cute":
+    if config.intersection_backend == "cuda_tile":
         if distributed:
             raise NotImplementedError(
-                "the CuTe intersection backend does not support distributed rendering"
+                "the cuTile intersection backend does not support distributed rendering"
             )
         if with_eval3d or with_ut or camera_model != "pinhole":
             raise NotImplementedError(
                 "the optimized AccuTile intersection backend currently supports "
                 "single-camera-style pinhole 3DGS only"
             )
-    if config.projection_backend == "cute":
+    if config.projection_backend == "cuda_tile":
         if distributed:
             raise NotImplementedError(
                 "the optimized projection does not support distributed rendering"
@@ -1526,13 +1432,13 @@ def rasterization(
             )
     if _means2d_absgrad_probe is not None and not absgrad:
         raise ValueError("_means2d_absgrad_probe requires absgrad=True")
-    if distributed and config.compositor_backend == "cute":
+    if distributed and config.compositor_backend == "cuda_tile":
         raise NotImplementedError(
-            "the CuTe compositor does not support distributed rendering"
+            "the cuTile compositor does not support distributed rendering"
         )
-    if config.compositor_backend in {"pallas", "cute"} and absgrad:
+    if config.compositor_backend == "cuda_tile" and absgrad:
         raise NotImplementedError("the optimized compositors do not support AbsGrad")
-    if config.compositor_backend in {"pallas", "cute"} and with_eval3d:
+    if config.compositor_backend == "cuda_tile" and with_eval3d:
         raise NotImplementedError("the optimized compositors do not support Eval3D")
     if _means2d_absgrad_probe is not None and with_eval3d:
         raise ValueError(
@@ -2109,9 +2015,9 @@ def rasterization(
             )
     else:
         with jax.named_scope("projection"):
-            if config.projection_backend == "cute":
-                from ._cute_projection import (
-                    fully_fused_projection_cute as project,
+            if config.projection_backend == "cuda_tile":
+                from ._cutile_projection import (
+                    fully_fused_projection_cutile as project,
                 )
 
                 projection_outputs = project(

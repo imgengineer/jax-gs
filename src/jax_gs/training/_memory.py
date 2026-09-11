@@ -205,13 +205,7 @@ def estimate_rasterization_memory_bytes(
     tile_height = math.ceil(height / rasterizer.tile_size)
     tile_count = tile_width * tile_height
     projection = capacity * 64
-    if rasterizer.compositor_backend == "pallas":
-        pixel_count = math.ceil(rasterizer.tile_size**2 / 128) * 128
-        # Render, alpha, pre-update transmittance, last accepted slot, and
-        # accepted transmittance. Count reverse-mode residuals conservatively
-        # even when no gradient is requested.
-        compositing = tile_count * pixel_count * (channels + 4) * 4
-    elif rasterizer.compositor_backend == "cute":
+    if rasterizer.compositor_backend == "cuda_tile":
         # Render/alpha plus accepted-transmittance and last-id residuals.
         compositing = width * height * (channels + 3) * 4 + tile_count
     else:
@@ -328,15 +322,9 @@ def estimate_training_memory_bytes(
     tile_width = math.ceil(render_width / config.rasterizer.tile_size)
     tile_height = math.ceil(render_height / config.rasterizer.tile_size)
     render_tiles = tile_width * tile_height
-    if config.rasterizer.compositor_backend == "pallas":
-        pixel_count = math.ceil(tile_pixels / 128) * 128
-        # RGB plus alpha, pre-update transmittance, last accepted slot, and
-        # accepted transmittance.
-        raster_workspace = render_tiles * pixel_count * 7 * 4
-    elif config.rasterizer.compositor_backend == "cute":
+    if config.rasterizer.compositor_backend == "cuda_tile":
         # Forward image/residual buffers plus direct per-Gaussian gradient
-        # outputs. The CuTe kernel uses only one tile's dynamic shared-memory
-        # batch at a time.
+        # outputs. cuTile keeps one image tile live per program instance.
         render_pixels = render_height * render_width
         raster_workspace = (
             render_pixels * 3 * 4
@@ -369,10 +357,6 @@ def estimate_training_memory_bytes(
             )
         # Padded ids plus conservative temporary storage for lexicographic sort.
         intersection_workspace = intersection_capacity * 96
-    if config.rasterizer.compositor_backend == "pallas":
-        # The backward kernel emits race-free per-intersection gradients for
-        # mean (2), conic (3), RGB (3), and opacity (1) before owner scatter.
-        raster_workspace += intersection_capacity * 9 * 4
     ut_workspace = 0
     if config.with_ut or config.with_eval3d:
         ut_workspace = (

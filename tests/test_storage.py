@@ -32,12 +32,12 @@ from jax_gs.strategy import DefaultStrategy
 
 def test_inference_compositor_does_not_change_the_training_fingerprint():
     config = TrainConfig()
-    pallas = replace(
+    cutile = replace(
         config,
-        rasterizer=replace(config.rasterizer, compositor_backend="pallas"),
+        rasterizer=replace(config.rasterizer, compositor_backend="cuda_tile"),
     )
 
-    assert _config_fingerprint(pallas) == _config_fingerprint(config)
+    assert _config_fingerprint(cutile) == _config_fingerprint(config)
 
 
 def test_projection_backend_does_not_change_the_training_fingerprint():
@@ -46,7 +46,7 @@ def test_projection_backend_does_not_change_the_training_fingerprint():
         config,
         rasterizer=replace(
             config.rasterizer,
-            projection_backend="cute",
+            projection_backend="cuda_tile",
         ),
     )
 

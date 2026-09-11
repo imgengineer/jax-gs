@@ -10,9 +10,9 @@ gsplat is Copyright 2023–2025 the Regents of the University of California,
 Nerfstudio Team and contributors, and is distributed under the Apache License
 2.0: <https://github.com/nerfstudio-project/gsplat>
 
-The optional CUDA/XLA FFI compositor and CUB intersection topology stages
-also adapt gsplat CUDA architectures carrying Copyright (c) 2026 NVIDIA
-CORPORATION & AFFILIATES, licensed under Apache-2.0.
+The cuTile projection, compositor, and intersection topology kernels adapt the
+same gsplat numerical conventions. NVIDIA cuTile is distributed separately by
+NVIDIA; its package contains the applicable third-party notices and licenses.
 
 The implementation also follows the equations and conventions of 3D Gaussian
 Splatting and 2D Gaussian Splatting cited by the upstream project. See the

@@ -102,12 +102,12 @@ def _native_training_defaults_available() -> bool:
         capabilities = {
             float(getattr(device, "compute_capability", 0.0)) for device in devices
         }
-        cute_available = importlib.util.find_spec("cutlass.jax") is not None
+        cutile_available = importlib.util.find_spec("cuda.tile.jax") is not None
     except (ImportError, ModuleNotFoundError, RuntimeError, TypeError, ValueError):
         return False
     if not devices or any("cuda" not in str(device).lower() for device in devices):
         return False
-    return len(capabilities) == 1 and min(capabilities) >= 9.0 and cute_available
+    return len(capabilities) == 1 and min(capabilities) >= 8.0 and cutile_available
 
 
 def _apply_training_defaults(
@@ -147,10 +147,11 @@ def _apply_training_defaults(
         rasterizer=replace(
             rasterizer,
             backend="intersections",
-            projection_backend="cute",
-            compositor_backend="cute",
-            intersection_backend="cute",
+            projection_backend="cuda_tile",
+            compositor_backend="cuda_tile",
+            intersection_backend="cuda_tile",
             intersection_mode="accutile",
+            sort_backend="cuda_tile",
         ),
     )
 
@@ -711,24 +712,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument(
         "--projection-backend",
-        choices=("jax", "cute"),
+        choices=("jax", "cuda_tile"),
         help=(
-            "dense pinhole projection backend; CuTe uses CUTLASS DSL forward "
-            "projection and authoritative JAX-recompute gradients"
+            "dense pinhole projection backend; cuda_tile uses NVIDIA cuTile "
+            "Python"
         ),
     )
     train_parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas", "cute"),
-        help=(
-            "compositor used for forward and reverse mode; CuTe requires an "
-            "NVIDIA CUDA GPU"
-        ),
+        choices=("jax", "cuda_tile"),
+        help="compositor used for forward and reverse mode",
     )
     train_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile", "cute"),
-        help="use Pallas, NVIDIA cuTile, or CuTe DSL for AccuTile topology",
+        choices=("auto", "jax", "cuda_tile"),
+        help="use NVIDIA cuTile for the complete AccuTile topology",
     )
     train_parser.add_argument(
         "--intersection-mode",
@@ -736,7 +734,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_parser.add_argument(
         "--sort-backend",
-        choices=("auto", "jax"),
+        choices=("auto", "jax", "cuda_tile"),
     )
     train_parser.add_argument("--tile-batch-size", type=int)
     train_parser.add_argument("--steps", type=int)
@@ -787,18 +785,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_parser.add_argument(
         "--projection-backend",
-        choices=("jax", "cute"),
+        choices=("jax", "cuda_tile"),
         help="dense pinhole projection backend",
     )
     render_parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas", "cute"),
-        help="GPU compositor; CuTe requires NVIDIA CUDA",
+        choices=("jax", "cuda_tile"),
+        help="GPU compositor; cuTile requires NVIDIA CUDA",
     )
     render_parser.add_argument(
         "--intersection-backend",
-        choices=("auto", "jax", "pallas", "cuda_tile", "cute"),
-        help="use Pallas, NVIDIA cuTile, or CuTe DSL for AccuTile topology",
+        choices=("auto", "jax", "cuda_tile"),
+        help="use NVIDIA cuTile for the complete AccuTile topology",
     )
     render_parser.add_argument(
         "--intersection-mode",
@@ -806,7 +804,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_parser.add_argument(
         "--sort-backend",
-        choices=("auto", "jax"),
+        choices=("auto", "jax", "cuda_tile"),
     )
     render_parser.add_argument("--tile-batch-size", type=int)
     render_parser.add_argument("--strict-overflow", action="store_true")

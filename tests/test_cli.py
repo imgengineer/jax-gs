@@ -183,10 +183,11 @@ def test_train_cli_uses_native_defaults_when_supported(monkeypatch):
 
     rasterizer = captured["config"].rasterizer
     assert rasterizer.backend == "intersections"
-    assert rasterizer.projection_backend == "cute"
-    assert rasterizer.compositor_backend == "cute"
-    assert rasterizer.intersection_backend == "cute"
+    assert rasterizer.projection_backend == "cuda_tile"
+    assert rasterizer.compositor_backend == "cuda_tile"
+    assert rasterizer.intersection_backend == "cuda_tile"
     assert rasterizer.intersection_mode == "accutile"
+    assert rasterizer.sort_backend == "cuda_tile"
 
 
 @pytest.mark.parametrize(
@@ -275,18 +276,14 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     sparse_args.func(sparse_args)
     visible_args = parser.parse_args(["train", "--visible-adam"])
     visible_args.func(visible_args)
-    pallas_args = parser.parse_args(
-        ["train", "--compositor-backend", "pallas"]
+    cutile_compositor_args = parser.parse_args(
+        ["train", "--compositor-backend", "cuda_tile"]
     )
-    pallas_args.func(pallas_args)
-    cute_compositor_args = parser.parse_args(
-        ["train", "--compositor-backend", "cute"]
+    cutile_compositor_args.func(cutile_compositor_args)
+    cutile_intersection_args = parser.parse_args(
+        ["train", "--intersection-backend", "cuda_tile"]
     )
-    cute_compositor_args.func(cute_compositor_args)
-    cute_intersection_args = parser.parse_args(
-        ["train", "--intersection-backend", "cute"]
-    )
-    cute_intersection_args.func(cute_intersection_args)
+    cutile_intersection_args.func(cutile_intersection_args)
 
     sparse_config, sparse_resume = captured[0]
     assert sparse_config.packed
@@ -298,15 +295,12 @@ def test_train_cli_exposes_packed_sparse_and_visible_adam(monkeypatch):
     assert not visible_config.sparse_grad
     assert visible_config.visible_adam
     assert visible_resume is None
-    pallas_config, pallas_resume = captured[2]
-    assert pallas_config.rasterizer.compositor_backend == "pallas"
-    assert pallas_resume is None
-    cute_compositor_config, cute_compositor_resume = captured[3]
-    assert cute_compositor_config.rasterizer.compositor_backend == "cute"
-    assert cute_compositor_resume is None
-    cute_intersection_config, cute_intersection_resume = captured[4]
-    assert cute_intersection_config.rasterizer.intersection_backend == "cute"
-    assert cute_intersection_resume is None
+    cutile_compositor_config, cutile_compositor_resume = captured[2]
+    assert cutile_compositor_config.rasterizer.compositor_backend == "cuda_tile"
+    assert cutile_compositor_resume is None
+    cutile_intersection_config, cutile_intersection_resume = captured[3]
+    assert cutile_intersection_config.rasterizer.intersection_backend == "cuda_tile"
+    assert cutile_intersection_resume is None
 
 
 def test_train_cli_exposes_target_primitives(monkeypatch):
@@ -663,7 +657,7 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
             "--data",
             "unused",
             "--compositor-backend",
-            "pallas",
+            "cuda_tile",
         ]
     )
 
@@ -676,7 +670,7 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     )
     expected = expected_transform.world_to_camera(example["w2c"])
     np.testing.assert_allclose(captured["viewmat"], expected)
-    assert captured["compositor_backend"] == "pallas"
+    assert captured["compositor_backend"] == "cuda_tile"
 
 
 @pytest.mark.parametrize("app_opt", [False, True])

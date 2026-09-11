@@ -74,7 +74,7 @@ def test_evaluation_preflight_uses_bounded_workspace(monkeypatch):
     config = TrainConfig(
         model=ModelConfig(capacity=1_000_000),
         rasterizer=RasterizationConfig(
-            backend="intersections", compositor_backend="cute",
+            backend="intersections", compositor_backend="cuda_tile",
         ),
     )
     configs = []

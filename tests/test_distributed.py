@@ -476,7 +476,7 @@ def _supports_cuda() -> bool:
     [
         RasterizationConfig(
             backend="intersections",
-            compositor_backend="cute",
+            compositor_backend="cuda_tile",
             intersection_backend="jax",
             intersection_mode="accutile",
             tile_size=16,
@@ -486,7 +486,7 @@ def _supports_cuda() -> bool:
         RasterizationConfig(
             backend="intersections",
             compositor_backend="jax",
-            intersection_backend="cute",
+            intersection_backend="cuda_tile",
             intersection_mode="accutile",
             tile_size=16,
             max_intersections=64,
@@ -495,9 +495,9 @@ def _supports_cuda() -> bool:
     ],
     ids=("compositor", "intersections"),
 )
-def test_distributed_rasterization_rejects_cute_backends(config):
+def test_distributed_rasterization_rejects_cutile_backends(config):
     if not _supports_cuda():
-        pytest.skip("CuTe backends require an NVIDIA CUDA GPU")
+        pytest.skip("cuTile backends require an NVIDIA CUDA GPU")
 
     inputs = _distributed_render_inputs(None)
     with pytest.raises(NotImplementedError, match="distributed"):

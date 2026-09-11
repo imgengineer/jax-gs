@@ -119,13 +119,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--projection-backend",
-        choices=("jax", "cute"),
+        choices=("jax", "cuda_tile"),
         default="jax",
         help="dense pinhole projection implementation",
     )
     parser.add_argument(
         "--compositor-backend",
-        choices=("jax", "pallas", "cute"),
+        choices=("jax", "cuda_tile"),
         default="jax",
         help="forward/reverse compositor implementation",
     )
@@ -134,13 +134,11 @@ def _parser() -> argparse.ArgumentParser:
         choices=(
             "auto",
             "jax",
-            "pallas",
             "cuda_tile",
-            "cute",
         ),
         default="auto",
         help=(
-            "intersection backend; cute uses CuTe DSL for preparation, "
+            "intersection backend; cuda_tile uses cuTile for preparation, "
             "prefix, stable radix sorting, and offsets"
         ),
     )
@@ -152,7 +150,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sort-backend",
-        choices=("auto", "jax"),
+        choices=("auto", "jax", "cuda_tile"),
         default="auto",
         help="fixed-capacity intersection sort backend",
     )
@@ -524,14 +522,9 @@ def _estimated_peak_bytes(
                 min(tile_count * (k + 1), max(k + 1, capacity * 8)),
             )
         intersection_workspace = intersection_capacity * 96
-    if compositor_backend == "pallas":
-        pixel_count = math.ceil(tile_size**2 / 128) * 128
-        # RGB plus alpha, pre-update transmittance, last accepted slot, and
-        # accepted transmittance.
-        compositing = tile_count * pixel_count * 7 * 4
-    elif compositor_backend == "cute":
+    if compositor_backend == "cuda_tile":
         # Image outputs plus final-transmittance/last-id residuals; Gaussian
-        # gradients are allocated directly by the CuTe backward call.
+        # gradients are allocated directly by the cuTile backward call.
         compositing = width * height * 8
     else:
         compositing = tile_batch * k * tile_size * tile_size * 32
@@ -544,12 +537,7 @@ def _estimated_peak_bytes(
         + compositing
         + outputs
     )
-    pallas_backward = (
-        intersection_capacity * 9 * 4
-        if backward and compositor_backend == "pallas"
-        else 0
-    )
-    return forward * (5 if backward else 2) + pallas_backward
+    return forward * (5 if backward else 2)
 
 
 def _memory_stats(device: jax.Device) -> dict[str, int]:

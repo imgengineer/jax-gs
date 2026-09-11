@@ -713,22 +713,15 @@ def _make_train_step(
     distributed_scene_scale: float = 1.0,
 ) -> Callable[..., dict[str, jax.Array]]:
     if (
-        config.rasterizer.intersection_backend in {"pallas", "cute"}
+        config.rasterizer.intersection_backend == "cuda_tile"
         and distributed_world_size > 1
     ):
-        backend_name = {
-            "pallas": "Pallas",
-            "cute": "CuTe",
-        }[config.rasterizer.intersection_backend]
         raise NotImplementedError(
-            f"{backend_name} AccuTile intersection does not yet support "
+            "cuTile AccuTile intersection does not yet support "
             "distributed Gaussian shards"
         )
-    if config.rasterizer.compositor_backend in {"pallas", "cute"}:
-        compositor_name = {
-            "pallas": "Pallas",
-            "cute": "CuTe",
-        }[config.rasterizer.compositor_backend]
+    if config.rasterizer.compositor_backend == "cuda_tile":
+        compositor_name = "cuTile"
         if distributed_world_size > 1:
             raise NotImplementedError(
                 f"{compositor_name} compositor training does not yet support "

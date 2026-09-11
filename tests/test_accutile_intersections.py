@@ -7,10 +7,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_gs._pallas_intersections import (
-    count_accutile_intersections_pallas,
-    emit_accutile_intersections_pallas,
-)
 from jax_gs.intersections import (
     _count_accutile_intersections_jax,
     _emit_accutile_intersections_jax,
@@ -20,101 +16,6 @@ from jax_gs.intersections import (
 
 
 _GAUSSIAN_EXTEND = np.float32(3.33)
-
-
-def _supports_native_pallas() -> bool:
-    device = jax.devices()[0]
-    try:
-        compute_capability = float(
-            getattr(device, "compute_capability", 0.0)
-        )
-    except (TypeError, ValueError):
-        compute_capability = 0.0
-    return device.platform == "gpu" and compute_capability >= 9.0
-
-
-@pytest.mark.parametrize("interpret", [True, False], ids=["interpret", "native"])
-def test_pallas_accutile_scan_matches_jax_with_partial_final_blocks(interpret):
-    if not interpret and not _supports_native_pallas():
-        pytest.skip("native Pallas AccuTile scans require a supported GPU")
-    count = 129
-    means = jnp.stack(
-        (
-            jnp.linspace(-2.0, 25.0, count, dtype=jnp.float32),
-            jnp.linspace(19.0, -1.0, count, dtype=jnp.float32),
-        ),
-        axis=-1,
-    )
-    radii = jnp.full((count, 2), 4.0, jnp.float32)
-    conics = jnp.tile(
-        jnp.asarray([[0.18, 0.03, 0.24]], jnp.float32), (count, 1)
-    )
-    opacities = jnp.linspace(0.001, 0.9, count, dtype=jnp.float32)
-    valid = jnp.arange(count) % 7 != 0
-    state = _prepare_accutile_state_jax(
-        means,
-        radii,
-        conics,
-        opacities,
-        valid,
-        tile_size=4,
-        tile_width=7,
-        tile_height=5,
-        alpha_threshold=1.0 / 255.0,
-    )
-    expected = jax.jit(
-        lambda: _count_accutile_intersections_jax(
-            state, tile_size=4, tile_width=7, tile_height=5
-        )
-    )()
-    actual = jax.jit(
-        lambda: count_accutile_intersections_pallas(
-            state,
-            tile_size=4,
-            tile_width=7,
-            tile_height=5,
-            interpret=interpret,
-        )
-    )()
-    np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
-
-    required_cumulative = jnp.cumsum(expected, dtype=jnp.int32)
-    for capacity in (193, 1345):
-        cumulative = jnp.minimum(
-            required_cumulative, jnp.int32(capacity + 1)
-        )
-        valid_count = jnp.minimum(
-            required_cumulative[-1], jnp.int32(capacity)
-        )
-        expected_ids = jax.jit(
-            lambda: _emit_accutile_intersections_jax(
-                state,
-                cumulative,
-                valid_count,
-                capacity=capacity,
-                tile_size=4,
-                tile_width=7,
-                tile_height=5,
-            )
-        )()
-        actual_ids = jax.jit(
-            lambda: emit_accutile_intersections_pallas(
-                state,
-                cumulative,
-                valid_count,
-                capacity=capacity,
-                tile_size=4,
-                tile_width=7,
-                tile_height=5,
-                interpret=interpret,
-            )
-        )()
-        for actual_id, expected_id in zip(
-            actual_ids, expected_ids, strict=True
-        ):
-            np.testing.assert_array_equal(
-                np.asarray(actual_id), np.asarray(expected_id)
-            )
 
 
 def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks(

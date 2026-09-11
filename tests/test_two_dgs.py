@@ -46,11 +46,10 @@ def _config(max_gaussians_per_tile: int = 4):
     )
 
 
-@pytest.mark.parametrize("compositor_backend", ["pallas", "cute"])
-def test_2dgs_rejects_3d_only_gpu_compositors(compositor_backend):
+def test_2dgs_rejects_cutile_compositor():
     means, quats, scales, opacities, colors = _single_surfel()
     viewmats, Ks = _camera()
-    with pytest.raises(NotImplementedError, match="Pallas.*CuTe.*3DGS"):
+    with pytest.raises(NotImplementedError, match="cuTile.*3DGS"):
         rasterization_2dgs(
             means,
             quats,
@@ -62,7 +61,7 @@ def test_2dgs_rejects_3d_only_gpu_compositors(compositor_backend):
             5,
             5,
             config=RasterizationConfig(
-                compositor_backend=compositor_backend
+                compositor_backend="cuda_tile"
             ),
         )
 

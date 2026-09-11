@@ -1066,13 +1066,13 @@ def rasterization_2dgs(
     above the threshold set ``info['candidate_limit_exceeded']``.
     """
 
-    if config.compositor_backend in {"pallas", "cute"}:
+    if config.compositor_backend == "cuda_tile":
         raise NotImplementedError(
-            "the Pallas and CuTe compositors only support 3DGS"
+            "the cuTile compositor currently supports 3DGS only"
         )
-    if config.intersection_backend == "cute":
+    if config.intersection_backend == "cuda_tile":
         raise NotImplementedError(
-            "the CuTe intersection backend only supports 3DGS AccuTile"
+            "the cuTile intersection backend currently supports 3DGS AccuTile only"
         )
     if _gradient_2dgs_absgrad_probe is not None and not absgrad:
         raise ValueError(

@@ -94,15 +94,25 @@ class RasterizationConfig:
     max_candidates_per_tile: int | None = None
 
     def __post_init__(self) -> None:
-        removed_backends = []
-        for field_name in ("backend", "intersection_backend", "sort_backend"):
+        migrated_backends = []
+        if self.backend == "cutile":
+            object.__setattr__(self, "backend", "intersections")
+            migrated_backends.append("backend")
+        for field_name in (
+            "projection_backend",
+            "compositor_backend",
+            "intersection_backend",
+        ):
             if getattr(self, field_name) == "cutile":
-                object.__setattr__(self, field_name, "jax")
-                removed_backends.append(field_name)
-        if removed_backends:
+                object.__setattr__(self, field_name, "cuda_tile")
+                migrated_backends.append(field_name)
+        if self.sort_backend == "cutile":
+            object.__setattr__(self, "sort_backend", "cuda_tile")
+            migrated_backends.append("sort_backend")
+        if migrated_backends:
             warnings.warn(
-                "cuTile backends were removed; using pure JAX for "
-                + ", ".join(removed_backends),
+                "legacy GPU backend names now select NVIDIA cuTile for "
+                + ", ".join(migrated_backends),
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -115,36 +125,30 @@ class RasterizationConfig:
             raise ValueError(
                 "backend must be 'auto', 'jax', 'intersections', or 'reference'"
             )
-        if self.projection_backend not in {"jax", "cute"}:
-            raise ValueError("projection_backend must be 'jax' or 'cute'")
-        if self.projection_backend == "cute" and self.backend == "reference":
+        if self.projection_backend not in {"jax", "cuda_tile"}:
+            raise ValueError("projection_backend must be 'jax' or 'cuda_tile'")
+        if self.projection_backend == "cuda_tile" and self.backend == "reference":
             raise ValueError(
                 "the optimized projection requires the intersections backend"
             )
         if self.intersection_backend not in {
             "auto",
             "jax",
-            "pallas",
             "cuda_tile",
-            "cute",
         }:
             raise ValueError(
-                "intersection_backend must be 'auto', 'jax', 'pallas', "
-                "'cuda_tile', or 'cute'"
+                "intersection_backend must be 'auto', 'jax', or 'cuda_tile'"
             )
-        if self.compositor_backend not in {"jax", "pallas", "cute"}:
-            raise ValueError("compositor_backend must be 'jax', 'pallas', or 'cute'")
-        if (
-            self.compositor_backend in {"pallas", "cute"}
-            and self.backend == "reference"
-        ):
+        if self.compositor_backend not in {"jax", "cuda_tile"}:
+            raise ValueError("compositor_backend must be 'jax' or 'cuda_tile'")
+        if self.compositor_backend == "cuda_tile" and self.backend == "reference":
             raise ValueError(
                 "the optimized compositors require the intersections backend"
             )
         if self.intersection_mode not in {"auto", "aabb", "accutile"}:
             raise ValueError("intersection_mode must be 'auto', 'aabb', or 'accutile'")
-        if self.sort_backend not in {"auto", "jax"}:
-            raise ValueError("sort_backend must be 'auto' or 'jax'")
+        if self.sort_backend not in {"auto", "jax", "cuda_tile"}:
+            raise ValueError("sort_backend must be 'auto', 'jax', or 'cuda_tile'")
         if self.tile_size <= 0:
             raise ValueError("tile_size must be positive")
         if self.max_gaussians_per_tile <= 0:
@@ -477,10 +481,10 @@ class TrainConfig:
         rasterizer_values = dict(values.get("rasterizer", {}))
         legacy_backends = {
             "backend": {"cuda_ffi": "jax"},
-            "projection_backend": {"cuda_ffi_strict": "cute"},
-            "compositor_backend": {"cuda_ffi": "cute"},
-            "intersection_backend": {"cuda_tile_cub": "cute"},
-            "sort_backend": {"cuda_ffi": "jax"},
+            "projection_backend": {"cuda_ffi_strict": "cuda_tile"},
+            "compositor_backend": {"cuda_ffi": "cuda_tile"},
+            "intersection_backend": {"cuda_tile_cub": "cuda_tile"},
+            "sort_backend": {"cuda_ffi": "cuda_tile"},
         }
         migrated = []
         for key, replacements in legacy_backends.items():

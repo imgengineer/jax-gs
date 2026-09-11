@@ -5,13 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import statistics
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import Any
-
 
 _PROFILES = ("default", "small", "wide", "low_occupancy")
 _TUNING_OVERRIDE_ENV = (
@@ -25,7 +24,7 @@ _TUNING_OVERRIDE_ENV = (
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Benchmark cuTile count/emit variants inside the explicit "
+            "Benchmark cuTile topology variants inside the complete "
             "cuda_tile renderer and cache the fastest profile"
         )
     )
@@ -67,13 +66,15 @@ def _benchmark_command(args: argparse.Namespace, output: Path) -> list[str]:
         "--backend",
         "intersections",
         "--compositor-backend",
-        "jax",
+        "cuda_tile",
+        "--projection-backend",
+        "cuda_tile",
         "--intersection-backend",
         "cuda_tile",
         "--intersection-mode",
         "accutile",
         "--sort-backend",
-        "jax",
+        "cuda_tile",
         "--max-intersections",
         str(args.max_intersections),
         "--max-candidates-per-tile",
@@ -116,6 +117,7 @@ def _run_profile(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            check=False,
         )
         if result.returncode:
             raise RuntimeError(

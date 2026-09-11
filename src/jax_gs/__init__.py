@@ -20,7 +20,7 @@ configure_persistent_compilation_cache()
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 from .api import PaddedProjection, fully_fused_projection
-from ._cute_projection import fully_fused_projection_cute
+from ._cutile_projection import fully_fused_projection_cutile
 from .cameras import proj, world_to_cam
 from .capabilities import (
     has_2dgs,
@@ -239,7 +239,7 @@ __all__ = [
     "export_splat",
     "export_splats",
     "fully_fused_projection",
-    "fully_fused_projection_cute",
+    "fully_fused_projection_cutile",
     "fully_fused_projection_2dgs",
     "fully_fused_projection_with_ut",
     "gaussian_density_reg",
