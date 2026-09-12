@@ -212,7 +212,8 @@ def _compositor_backward_kernel(
     last_ids,
     render_cotangent,
     alpha_cotangent,
-    packed_gradient,
+    geometry_gradient,
+    color_gradient,
     gaussian_count: ct.Constant[int],
     input_capacity: ct.Constant[int],
     image_width: ct.Constant[int],
@@ -375,17 +376,14 @@ def _compositor_backward_kernel(
                 axis=1,
             )
             ct.atomic_add(
-                packed_gradient,
-                (
-                    gaussian_id,
-                    ct.where(field < 5, field, ct.where(field == 5, channels + 5, -1)),
-                ),
+                geometry_gradient,
+                (gaussian_id, ct.where(field < 6, field, -1)),
                 ct.sum(geometry, axis=0),
                 memory_order=ct.MemoryOrder.RELAXED,
             )
             ct.atomic_add(
-                packed_gradient,
-                (gaussian_id, channel + 5),
+                color_gradient,
+                (gaussian_id, channel),
                 ct.where(channel < channels, ct.sum(color_local, axis=0), 0.0),
                 memory_order=ct.MemoryOrder.RELAXED,
             )
@@ -477,8 +475,10 @@ def _run_backward(
     input_capacity = flatten_ids.shape[0]
     channels = colors.shape[-1]
     storage_channels = 1 << (channels - 1).bit_length()
-    packed = jnp.zeros((gaussian_count, 6 + channels), jnp.float32)
-    packed = ctj.cutile_call(
+    # Independent outputs avoid ordering geometry and color atomics together.
+    geometry_gradient = jnp.zeros((gaussian_count, 6), jnp.float32)
+    color_gradient = jnp.zeros((gaussian_count, channels), jnp.float32)
+    geometry_gradient, color_gradient = ctj.cutile_call(
         (tile_count,),
         _compositor_backward_kernel,
         (
@@ -493,7 +493,8 @@ def _run_backward(
             last_ids,
             rendered_cotangent,
             alpha_cotangent,
-            ctj.InputOutput(packed),
+            ctj.InputOutput(geometry_gradient),
+            ctj.InputOutput(color_gradient),
             gaussian_count,
             input_capacity,
             image_width,
@@ -506,10 +507,10 @@ def _run_backward(
         ),
     )
     return (
-        packed[:, :2],
-        packed[:, 2:5],
-        packed[:, 5 : 5 + channels],
-        packed[:, 5 + channels],
+        geometry_gradient[:, :2],
+        geometry_gradient[:, 2:5],
+        color_gradient,
+        geometry_gradient[:, 5],
     )
 
 
