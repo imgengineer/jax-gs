@@ -134,17 +134,19 @@ def _compositor_forward_kernel(
         raw_id = ct.load(ids, (position,), shape=())
         candidate_valid = raw_id >= 0
         gaussian_id = ct.maximum(0, ct.minimum(raw_id, gaussian_count - 1))
-        mean_x = ct.load(means, (gaussian_id, 0), shape=())
-        mean_y = ct.load(means, (gaussian_id, 1), shape=())
-        conic_x = ct.load(conics, (gaussian_id, 0), shape=())
-        conic_xy = ct.load(conics, (gaussian_id, 1), shape=())
-        conic_y = ct.load(conics, (gaussian_id, 2), shape=())
-        opacity = ct.load(opacities, (gaussian_id,), shape=())
+        # The wrapper validates nonempty attribute shapes; gaussian_id is clamped.
+        mean_x = ct.load(means, (gaussian_id, 0), shape=(), check_bounds=False)
+        mean_y = ct.load(means, (gaussian_id, 1), shape=(), check_bounds=False)
+        conic_x = ct.load(conics, (gaussian_id, 0), shape=(), check_bounds=False)
+        conic_xy = ct.load(conics, (gaussian_id, 1), shape=(), check_bounds=False)
+        conic_y = ct.load(conics, (gaussian_id, 2), shape=(), check_bounds=False)
+        opacity = ct.load(opacities, (gaussian_id,), shape=(), check_bounds=False)
         color = ct.gather(
             colors,
             (gaussian_id, channel),
             mask=channel < channels,
             padding_value=0.0,
+            check_bounds=False,
         )
 
         dx = px - mean_x
@@ -277,17 +279,19 @@ def _compositor_backward_kernel(
         raw_id = ct.load(ids, (position,), shape=())
         candidate_valid = raw_id >= 0
         gaussian_id = ct.maximum(0, ct.minimum(raw_id, gaussian_count - 1))
-        mean_x = ct.load(means, (gaussian_id, 0), shape=())
-        mean_y = ct.load(means, (gaussian_id, 1), shape=())
-        conic_x = ct.load(conics, (gaussian_id, 0), shape=())
-        conic_xy = ct.load(conics, (gaussian_id, 1), shape=())
-        conic_y = ct.load(conics, (gaussian_id, 2), shape=())
-        opacity = ct.load(opacities, (gaussian_id,), shape=())
+        # The wrapper validates nonempty attribute shapes; gaussian_id is clamped.
+        mean_x = ct.load(means, (gaussian_id, 0), shape=(), check_bounds=False)
+        mean_y = ct.load(means, (gaussian_id, 1), shape=(), check_bounds=False)
+        conic_x = ct.load(conics, (gaussian_id, 0), shape=(), check_bounds=False)
+        conic_xy = ct.load(conics, (gaussian_id, 1), shape=(), check_bounds=False)
+        conic_y = ct.load(conics, (gaussian_id, 2), shape=(), check_bounds=False)
+        opacity = ct.load(opacities, (gaussian_id,), shape=(), check_bounds=False)
         color = ct.gather(
             colors,
             (gaussian_id, channel),
             mask=channel < channels,
             padding_value=0.0,
+            check_bounds=False,
         )
 
         dx = px - mean_x
