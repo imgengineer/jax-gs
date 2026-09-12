@@ -348,52 +348,41 @@ def _compositor_backward_kernel(
             opacity_local = raw_alpha_cotangent * visibility * active_float
             color_local = render_gradient * (weight * active_float)[:, None]
 
-            # Kernel completion is the only synchronization point; these
-            # accumulations need atomicity but no acquire/release ordering.
-            ct.atomic_add(
-                packed_gradient,
-                (gaussian_id, 0),
-                ct.sum(means_x_local),
-                memory_order=ct.MemoryOrder.RELAXED,
+            # Reduce the six geometry/opacity fields together, padded to eight.
+            # Negative destinations discard the padding; completion is the only
+            # synchronization point, so relaxed atomic ordering is sufficient.
+            field = ct.arange(8, dtype=ct.int32)
+            means_local = ct.cat(
+                (means_x_local[:, None], means_y_local[:, None]), axis=1
+            )
+            conic_pair = ct.cat(
+                (conic_x_local[:, None], conic_xy_local[:, None]), axis=1
+            )
+            opacity_pair = ct.cat(
+                (conic_y_local[:, None], opacity_local[:, None]), axis=1
+            )
+            geometry = ct.cat(
+                (
+                    ct.cat((means_local, conic_pair), axis=1),
+                    ct.cat(
+                        (opacity_pair, ct.zeros((_TILE_PIXELS, 2), ct.float32)), axis=1
+                    ),
+                ),
+                axis=1,
             )
             ct.atomic_add(
                 packed_gradient,
-                (gaussian_id, 1),
-                ct.sum(means_y_local),
-                memory_order=ct.MemoryOrder.RELAXED,
-            )
-            ct.atomic_add(
-                packed_gradient,
-                (gaussian_id, 2),
-                ct.sum(conic_x_local),
-                memory_order=ct.MemoryOrder.RELAXED,
-            )
-            ct.atomic_add(
-                packed_gradient,
-                (gaussian_id, 3),
-                ct.sum(conic_xy_local),
-                memory_order=ct.MemoryOrder.RELAXED,
-            )
-            ct.atomic_add(
-                packed_gradient,
-                (gaussian_id, 4),
-                ct.sum(conic_y_local),
+                (
+                    gaussian_id,
+                    ct.where(field < 5, field, ct.where(field == 5, channels + 5, -1)),
+                ),
+                ct.sum(geometry, axis=0),
                 memory_order=ct.MemoryOrder.RELAXED,
             )
             ct.atomic_add(
                 packed_gradient,
                 (gaussian_id, channel + 5),
-                ct.where(
-                    channel < channels,
-                    ct.sum(color_local, axis=0),
-                    0.0,
-                ),
-                memory_order=ct.MemoryOrder.RELAXED,
-            )
-            ct.atomic_add(
-                packed_gradient,
-                (gaussian_id, channels + 5),
-                ct.sum(opacity_local),
+                ct.where(channel < channels, ct.sum(color_local, axis=0), 0.0),
                 memory_order=ct.MemoryOrder.RELAXED,
             )
             trailing_cotangent = ct.where(

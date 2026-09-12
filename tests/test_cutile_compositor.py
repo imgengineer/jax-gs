@@ -81,7 +81,7 @@ def _cutile(inputs, max_candidates_per_tile=5, *, width=32, height=16):
     )
 
 
-@pytest.mark.parametrize("channels", [1, 3, 4, 8, 16, 32])
+@pytest.mark.parametrize("channels", [1, 2, 3, 4, 8, 16, 32])
 def test_cutile_matches_jax_forward_alpha_and_overflow(channels):
     if not _supports_cutile():
         pytest.skip("cuTile compositing requires an NVIDIA CUDA GPU")
@@ -128,26 +128,30 @@ def test_cutile_preserves_rounded_candidate_bound_overflow():
     assert bool(actual[2]["overflow"])
 
 
-@pytest.mark.parametrize("channels", [1, 3, 4])
-def test_cutile_backward_matches_jax_with_repeated_ids(channels):
+@pytest.mark.parametrize("channels", [1, 2, 3, 4, 8, 16, 32])
+@pytest.mark.parametrize(("width", "height"), [(32, 16), (17, 9)])
+def test_cutile_backward_matches_jax_with_repeated_ids(channels, width, height):
     if not _supports_cutile():
         pytest.skip("cuTile compositing requires an NVIDIA CUDA GPU")
     inputs = _inputs(channels)
+    # The repeated Gaussian contributes in both tiles, including a partial tile.
+    conics = inputs[1].at[1].set(jnp.asarray([0.02, 0.0, 0.02], jnp.float32))
+    inputs = (inputs[0], conics, *inputs[2:])
     inputs = (*inputs[:5], inputs[5].at[3].set(1), inputs[6])
     render_cotangent = jnp.linspace(
-        -0.7, 0.9, 32 * 16 * channels, dtype=jnp.float32
-    ).reshape(16, 32, channels)
-    alpha_cotangent = jnp.linspace(0.6, -0.4, 32 * 16, dtype=jnp.float32).reshape(
-        16, 32, 1
-    )
+        -0.7, 0.9, width * height * channels, dtype=jnp.float32
+    ).reshape(height, width, channels)
+    alpha_cotangent = jnp.linspace(
+        0.6, -0.4, width * height, dtype=jnp.float32
+    ).reshape(height, width, 1)
 
     def loss(backend, means, conics, colors, opacities, background):
         current = (means, conics, colors, opacities, inputs[4], inputs[5], background)
         if backend == "jax":
-            rendered, alphas = _reference(current)[:2]
+            rendered, alphas = _reference(current, width=width, height=height)[:2]
             rendered, alphas = rendered[0], alphas[0]
         else:
-            rendered, alphas = _cutile(current)[:2]
+            rendered, alphas = _cutile(current, width=width, height=height)[:2]
         return jnp.sum(rendered * render_cotangent) + jnp.sum(alphas * alpha_cotangent)
 
     differentiable_inputs = (inputs[0], inputs[1], inputs[2], inputs[3], inputs[6])

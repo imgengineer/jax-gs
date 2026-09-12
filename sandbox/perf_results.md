@@ -132,6 +132,37 @@ benchmark 的保守工作集估算为 4.34 GiB；JAX device allocator 报告的�
 
 本机原始记录与 A/B 脚本保存在 `/tmp/jax-gs-extreme-fOhgjC/`：`ab-pack4-1m-shared.json`、`ab-final-1m-round2.json`、`ab-final-10k.json`、`ab_benchmark.py` 和第四轮 `intersections_baseline.py` 快照；这些临时实验文件不属于仓库交付内容。
 
+## 2026-09-12 第六轮：compositor 反向归约热点
+
+本轮起点已提交并推送为 `cd5196b`（第五轮优化与前期告警修复）。在同一 RTX 5090、JAX 0.11.0、cuTile 1.6.0 环境重新采集 1M synthetic(seed=42) 的前向与 value-and-grad，各 20 帧 warm GPU trace；另一个 `train.py` 仍在运行，观察到 GPU 利用率约 96–98%，未干预该任务。
+
+基线 value-and-grad trace 中，compositor backward 是最大的单一 kernel：GPU event 平均 7.555 ms/帧，占全部 GPU events 时长之和 17.610 ms/帧的约 42.9%；compositor forward 为 3.708 ms/帧。以上 event 时长包含并发调度干扰，不能解释为独占 GPU 的纯计算时间；部分排序 pass 也会被调度明显拉长，最终收益仍以同进程交替 A/B 和连续排队测量为准。
+
+保留的改动只在反向归约：把两个 mean、三个 conic 和一个 opacity 梯度组成八列 tile（两列补零），一次按像素轴归约后以向量 atomic 累加；颜色梯度仍单独归约。补零列使用越界负索引丢弃，保持原有 relaxed atomic ordering。kernel 中的归约 / atomic 调用组从七组变为两组，所需的有效标量累加数量不变。没有新增全局缓冲区或配置项，不改候选顺序、梯度公式、精度、前向合成和排序。
+
+最终协议沿用第五轮：1M active / physical capacity、640×360、tile size 16、classic RGB、8,388,608 intersection capacity、16,384 candidate bound；两版分别编译，复用同一组 device arrays，每版 warmup 10 次、100 次交替逐调用同步、30 组交替连续排队（每组 20 次、组末同步）。最终源码独立复测两轮，另以 10k active / capacity、320×180、131,072 intersection capacity、512 candidate bound 检查小场景。
+
+| 1M value-and-grad 中位数 | `cd5196b` 基线 | 合并归约 | 耗时下降 |
+| --- | ---: | ---: | ---: |
+| 第一轮，逐调用同步 | 20.542 ms | 16.892 ms | 17.8% |
+| 第二轮，逐调用同步 | 19.881 ms | 16.901 ms | 15.0% |
+| 第一轮，连续排队 | 16.897 ms | 14.275 ms | 15.5% |
+| 第二轮，连续排队 | 17.176 ms | 14.359 ms | 16.4% |
+
+纯前向未修改，逐调用中位数分别为 12.135 → 12.129 ms 和 12.115 → 12.111 ms；连续排队分别为 10.220 → 10.222 ms 和 10.189 → 10.259 ms，基本持平。并发负载会使基线中位数波动，因此报告两次结果，不把某次降幅视为独占 GPU 的固定收益。
+
+两次 1M 对拍的图像、alpha 和 count / overflow metadata 与基线逐值一致；value-and-grad 最大绝对差分别为 4.657e-9 / 5.588e-9，通过 `atol=1e-6, rtol=1e-4`。实际 intersections 6,179,684、最大 tile candidates 8,905，无 intersection、candidate、tile 或 visible overflow。
+
+10k 小场景逐调用 forward 为 2.521 → 2.524 ms，value-and-grad 为 3.053 → 2.794 ms（-8.5%）；连续排队分别为 0.5834 → 0.5833 ms 和 1.6950 → 1.0747 ms。图像、alpha 和 metadata 逐值一致，value-and-grad 最大绝对差 2.328e-10。实际 intersections 31,379、最大 tile candidates 206，无 overflow；排队与逐调用的降幅不同，包含小任务在共享 GPU 下的调度影响。
+
+最终 20 帧 value-and-grad trace 中，compositor backward 的 GPU event 平均由 7.555 降至 3.899 ms/帧（-48.4%），全部 GPU events 的时长之和由 17.610 降至 13.945 ms/帧；同一次 trace 的 compositor forward 为 3.695 ms/帧，与基线 3.708 ms/帧 接近。该比较仍包含并发调度开销，不与逐调用中位数混用。独立仓库 benchmark 的最终 value-and-grad 中位数为 16.793 ms，loss 保持 0.49609503149986267；JAX allocator 的 forward / backward 峰值仍为 344,088,064 / 553,523,712 bytes，与基线完全相同。
+
+验证：81 项 cuTile / AccuTile / 投影 / compositor / 训练相关测试通过，启用 `-W error::UserWarning`。反向对拍扩展至全部支持的 1 / 2 / 3 / 4 / 8 / 16 / 32 channels，覆盖完整与部分 tile，并确保重复 Gaussian 在两个 tile 中均有贡献；比较 mean、conic、color、opacity 和 background 梯度。Ruff、格式、锁文件和 diff 检查通过。
+
+未保留的实验：32 候选批量预取加动态 tile 提取使前向从约 12 增至 41 ms，停止该实验；反向 8×4 像素分块未改善；把颜色也并入 16 列归约未超过六字段分组；额外打包输入属性虽使 1M 前向略快，但相对六字段分组使 10k 连续排队 value-and-grad 从 1.087 增至 1.233 ms，且引入额外缓冲区，未保留。
+
+基准审计：最初的最终复测发现脚本切换基线时覆盖了默认候选函数，实际成为 A/A 测量，已剔除。脚本现提前保存候选函数、断言与基线对象不同，并记录两版实现来源后重跑；此前显式加载独立候选模块的探索实验不受此问题影响。原始脚本、基线快照、trace 和 JSON 保存在本机 `/tmp/jax-gs-hotspot-1uqoJF/`，最终数据为 `ab-verified-1m-round1.json`、`ab-verified-1m-round2.json`、`ab-verified-10k.json` 和 `final.json`，不属于仓库交付内容。
+
 ## 重建命令
 
 ```bash
