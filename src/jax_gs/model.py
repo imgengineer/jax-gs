@@ -3,16 +3,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 
 from .config import MAX_MODEL_CAPACITY, ModelConfig
 from .init_utils import knn_scale_init
 
-
 SH_C0 = 0.28209479177387814
+_DEFAULT_MODEL_CONFIG = ModelConfig()
 
 
 class MeansParam(nnx.Param):
@@ -99,9 +99,7 @@ class GaussianModel(nnx.Module):
         if (features is None) != (colors is None):
             raise ValueError("features and colors must be provided together")
         if has_sh == has_appearance:
-            raise ValueError(
-                "exactly one of SH or appearance colors must be provided"
-            )
+            raise ValueError("exactly one of SH or appearance colors must be provided")
         if has_sh:
             assert sh0 is not None and sh_rest is not None
             if sh0.shape != (capacity, 1, 3):
@@ -119,9 +117,7 @@ class GaussianModel(nnx.Module):
                 or features.shape[0] != capacity
                 or features.shape[1] < 1
             ):
-                raise ValueError(
-                    "features must have shape [capacity, feature_dim]"
-                )
+                raise ValueError("features must have shape [capacity, feature_dim]")
             if colors.shape != (capacity, 3):
                 raise ValueError("colors must have shape [capacity, 3]")
         if active_mask.shape != (capacity,):
@@ -130,9 +126,7 @@ class GaussianModel(nnx.Module):
             max_capacity = capacity
         max_capacity = int(max_capacity)
         if max_capacity > MAX_MODEL_CAPACITY:
-            raise ValueError(
-                f"max_capacity cannot exceed {MAX_MODEL_CAPACITY:,}"
-            )
+            raise ValueError(f"max_capacity cannot exceed {MAX_MODEL_CAPACITY:,}")
         if max_capacity < capacity:
             raise ValueError("max_capacity cannot be smaller than physical capacity")
 
@@ -146,14 +140,10 @@ class GaussianModel(nnx.Module):
         if has_sh:
             assert sh0 is not None and sh_rest is not None
             self.sh0 = Sh0Param(jnp.asarray(sh0, dtype=jnp.float32))
-            self.sh_rest = ShRestParam(
-                jnp.asarray(sh_rest, dtype=jnp.float32)
-            )
+            self.sh_rest = ShRestParam(jnp.asarray(sh_rest, dtype=jnp.float32))
         else:
             assert features is not None and colors is not None
-            self.features = FeaturesParam(
-                jnp.asarray(features, dtype=jnp.float32)
-            )
+            self.features = FeaturesParam(jnp.asarray(features, dtype=jnp.float32))
             self.colors = ColorsParam(jnp.asarray(colors, dtype=jnp.float32))
         self.active_mask = nnx.Variable(jnp.asarray(active_mask, dtype=jnp.bool_))
 
@@ -168,7 +158,7 @@ class GaussianModel(nnx.Module):
         if self.has_appearance:
             raise ValueError("appearance models do not store SH coefficients")
         basis_count = 1 + int(self.sh_rest[...].shape[1])
-        return int(round(basis_count**0.5)) - 1
+        return round(basis_count**0.5) - 1
 
     @property
     def sh_coeffs(self) -> jax.Array:
@@ -230,11 +220,7 @@ class GaussianModel(nnx.Module):
                     f"{self.sh_degree}"
                 )
             sh_rest = sh_rest[:, : basis_count - 1]
-        coeffs = (
-            (sh0, sh_rest)
-            if split_sh
-            else jnp.concatenate([sh0, sh_rest], axis=1)
-        )
+        coeffs = (sh0, sh_rest) if split_sh else jnp.concatenate([sh0, sh_rest], axis=1)
         return {
             "means": self.means[...],
             # Projection normalizes defensively, and training normalizes the
@@ -272,7 +258,7 @@ class GaussianModel(nnx.Module):
         state: Mapping[str, Any],
         *,
         max_capacity: int | None = None,
-    ) -> "GaussianModel":
+    ) -> GaussianModel:
         arrays = {name: jnp.asarray(value) for name, value in state.items()}
         return cls(
             arrays["means"],
@@ -290,12 +276,12 @@ class GaussianModel(nnx.Module):
     @classmethod
     def empty(
         cls,
-        config: ModelConfig = ModelConfig(),
+        config: ModelConfig = _DEFAULT_MODEL_CONFIG,
         *,
         device: jax.Device | None = None,
         physical_capacity: int | None = None,
         appearance_feature_dim: int | None = None,
-    ) -> "GaussianModel":
+    ) -> GaussianModel:
         capacity = (
             config.bucket_capacity()
             if physical_capacity is None
@@ -317,24 +303,18 @@ class GaussianModel(nnx.Module):
                 raise ValueError("appearance_feature_dim must be positive")
             sh0 = None
             sh_rest = None
-            features = jnp.zeros(
-                (capacity, appearance_feature_dim), dtype=jnp.float32
-            )
+            features = jnp.zeros((capacity, appearance_feature_dim), dtype=jnp.float32)
             colors = jnp.zeros((capacity, 3), dtype=jnp.float32)
         else:
             basis_count = (config.sh_degree + 1) ** 2
             sh0 = jnp.zeros((capacity, 1, 3), dtype=jnp.float32)
-            sh_rest = jnp.zeros(
-                (capacity, basis_count - 1, 3), dtype=jnp.float32
-            )
+            sh_rest = jnp.zeros((capacity, basis_count - 1, 3), dtype=jnp.float32)
             features = None
             colors = None
         if device is not None:
-            means, log_scales, quats, opacity_logits, active_mask = (
-                jax.device_put(
-                    (means, log_scales, quats, opacity_logits, active_mask),
-                    device,
-                )
+            means, log_scales, quats, opacity_logits, active_mask = jax.device_put(
+                (means, log_scales, quats, opacity_logits, active_mask),
+                device,
             )
             if sh0 is not None:
                 sh0, sh_rest = jax.device_put((sh0, sh_rest), device)
@@ -358,7 +338,7 @@ class GaussianModel(nnx.Module):
         cls,
         points: np.ndarray | jax.Array,
         colors: np.ndarray | jax.Array,
-        config: ModelConfig = ModelConfig(),
+        config: ModelConfig = _DEFAULT_MODEL_CONFIG,
         *,
         device: jax.Device | None = None,
         physical_capacity: int | None = None,
@@ -366,7 +346,7 @@ class GaussianModel(nnx.Module):
         appearance_feature_dim: int | None = None,
         feature_key: jax.Array | None = None,
         initial_log_scales: np.ndarray | jax.Array | None = None,
-    ) -> "GaussianModel":
+    ) -> GaussianModel:
         points_np = np.asarray(points, dtype=np.float32)
         colors_np = np.asarray(colors, dtype=np.float32)
         if points_np.ndim != 2 or points_np.shape[1] != 3:
@@ -397,13 +377,9 @@ class GaussianModel(nnx.Module):
                     neighbor_log_scales[:, None], 3, axis=1
                 )
         else:
-            initial_log_scales_np = np.asarray(
-                initial_log_scales, dtype=np.float32
-            )
+            initial_log_scales_np = np.asarray(initial_log_scales, dtype=np.float32)
             if initial_log_scales_np.shape != (count, 3):
-                raise ValueError(
-                    "initial_log_scales must have shape [N, 3]"
-                )
+                raise ValueError("initial_log_scales must have shape [N, 3]")
             if not np.all(np.isfinite(initial_log_scales_np)):
                 raise ValueError("initial_log_scales must be finite")
 
@@ -440,9 +416,7 @@ class GaussianModel(nnx.Module):
                 )
             sh0 = None
             sh_rest = None
-            features = np.zeros(
-                (capacity, appearance_feature_dim), dtype=np.float32
-            )
+            features = np.zeros((capacity, appearance_feature_dim), dtype=np.float32)
             features[:count] = np.asarray(
                 jax.random.uniform(
                     feature_key,
@@ -451,16 +425,12 @@ class GaussianModel(nnx.Module):
                 )
             )
             color_logits = np.zeros((capacity, 3), dtype=np.float32)
-            color_logits[:count] = np.asarray(
-                inverse_sigmoid(jnp.asarray(colors_np))
-            )
+            color_logits[:count] = np.asarray(inverse_sigmoid(jnp.asarray(colors_np)))
         else:
             basis_count = (config.sh_degree + 1) ** 2
             sh0 = np.zeros((capacity, 1, 3), np.float32)
             sh0[:count, 0] = np.asarray(rgb_to_sh(jnp.asarray(colors_np)))
-            sh_rest = np.zeros(
-                (capacity, basis_count - 1, 3), np.float32
-            )
+            sh_rest = np.zeros((capacity, basis_count - 1, 3), np.float32)
             features = None
             color_logits = None
 

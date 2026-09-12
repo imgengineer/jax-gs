@@ -1,9 +1,9 @@
 import math
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import pytest
+from flax import nnx
 
 from jax_gs.config import ModelConfig, OptimizerConfig, StrategyConfig
 from jax_gs.contrib.dynamic import DynamicStrategy
@@ -57,10 +57,7 @@ def _scene(capacity: int) -> GaussianScene:
 def _binomials(size: int = 8) -> jax.Array:
     return jnp.asarray(
         [
-            [
-                math.comb(row, column) if column <= row else 0
-                for column in range(size)
-            ]
+            [math.comb(row, column) if column <= row else 0 for column in range(size)]
             for row in range(size)
         ],
         jnp.float32,
@@ -116,9 +113,7 @@ def test_eager_fixed_slot_ops_preserve_scene_lineage_across_reused_holes():
         key=jax.random.key(2),
     )
     assert dead.tolist() == [2]
-    assert int(scene.signal["label"][dead[0]]) == int(
-        before_relocate_labels[donors[0]]
-    )
+    assert int(scene.signal["label"][dead[0]]) == int(before_relocate_labels[donors[0]])
     assert int(scene.component_index[dead[0]]) == int(
         before_relocate_components[donors[0]]
     )
@@ -135,9 +130,7 @@ def test_eager_fixed_slot_ops_preserve_scene_lineage_across_reused_holes():
         key=jax.random.key(3),
     )
     assert targets.tolist() == [0]
-    assert int(scene.signal["label"][targets[0]]) == int(
-        before_add_labels[sampled[0]]
-    )
+    assert int(scene.signal["label"][targets[0]]) == int(before_add_labels[sampled[0]])
     assert int(scene.component_index[targets[0]]) == int(
         before_add_components[sampled[0]]
     )
@@ -197,9 +190,7 @@ def test_default_hook_commits_scene_transaction_without_private_result_keys():
         key=jax.random.key(4),
     )
 
-    new_slots = jnp.nonzero(
-        model.active_mask[...].at[0].set(False), size=1
-    )[0]
+    new_slots = jnp.nonzero(model.active_mask[...].at[0].set(False), size=1)[0]
     assert int(result["new_count"]) == 1
     assert int(scene.signal["label"][new_slots[0]]) == 10
     assert int(scene.component_index[new_slots[0]]) == 0
@@ -238,9 +229,7 @@ def test_dynamic_hook_scheduled_refine_updates_scene_and_mask_lineage():
         key=jax.random.key(8),
     )
 
-    new_slots = jnp.nonzero(
-        model.active_mask[...].at[0].set(False), size=1
-    )[0]
+    new_slots = jnp.nonzero(model.active_mask[...].at[0].set(False), size=1)[0]
     new_slot = new_slots[0]
     assert int(result["new_count"]) == 1
     assert bool(state.dynamic_mask[new_slot])
@@ -389,13 +378,9 @@ def test_mcmc_hook_commits_relocation_and_birth_scene_transactions():
     )
 
     active = model.active_mask[...]
-    expected_labels = 10 * (
-        jnp.rint(model.means[:, 0]).astype(jnp.int32) + 1
-    )
+    expected_labels = 10 * (jnp.rint(model.means[:, 0]).astype(jnp.int32) + 1)
     assert int(model.active_count) == 21
-    assert jnp.array_equal(
-        scene.signal["label"][active], expected_labels[active]
-    )
+    assert jnp.array_equal(scene.signal["label"][active], expected_labels[active])
     assert jnp.array_equal(
         scene.component_index[active],
         jnp.rint(model.means[active, 0]).astype(jnp.int32),

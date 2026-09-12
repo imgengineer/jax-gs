@@ -1,7 +1,6 @@
-import numpy as np
-
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 import jax_gs.intersections as intersections_module
@@ -26,9 +25,7 @@ def test_intersections_are_tile_major_depth_sorted_and_padded():
 
     np.testing.assert_array_equal(np.asarray(result.gaussian_ids), [1, 0, 2, -1, -1])
     np.testing.assert_array_equal(np.asarray(result.tile_ids), [0, 0, 1, -1, -1])
-    np.testing.assert_array_equal(
-        np.asarray(result.offsets), [[0, 2, 3], [3, 3, 3]]
-    )
+    np.testing.assert_array_equal(np.asarray(result.offsets), [[0, 2, 3], [3, 3, 3]])
     assert int(result.valid_count) == 3
     assert not bool(result.overflow)
 
@@ -95,7 +92,9 @@ def test_valid_values_reuse_one_jit_signature_and_indices_are_grad_safe():
     def selected_sum(features):
         intersections = build(jnp.array([True, True]))
         safe_ids = jnp.clip(intersections.gaussian_ids, 0, features.shape[0] - 1)
-        mask = jnp.arange(intersections.gaussian_ids.shape[0]) < intersections.valid_count
+        mask = (
+            jnp.arange(intersections.gaussian_ids.shape[0]) < intersections.valid_count
+        )
         return jnp.sum(jnp.where(mask, features[safe_ids], 0.0))
 
     gradient = jax.grad(selected_sum)(jnp.array([3.0, 4.0], dtype=jnp.float32))
@@ -138,9 +137,7 @@ def test_direct_sort_uses_gaussian_id_as_the_equal_depth_tiebreaker(monkeypatch)
         max_intersections=5,
         backend="jax",
     )
-    np.testing.assert_array_equal(
-        np.asarray(result.gaussian_ids), [1, 3, -1, -1, -1]
-    )
+    np.testing.assert_array_equal(np.asarray(result.gaussian_ids), [1, 3, -1, -1, -1])
 
 
 def test_empty_inputs_and_zero_capacity_are_safe():
@@ -188,12 +185,12 @@ def test_removed_low_level_backend_aliases_are_rejected():
         jnp.array([2.0, 1.0, 4.0, 0.5], dtype=jnp.float32),
         jnp.array([True, True, False, True]),
     )
-    kwargs = dict(
-        tile_size=2,
-        tile_width=3,
-        tile_height=2,
-        max_intersections=11,
-    )
+    kwargs = {
+        "tile_size": 2,
+        "tile_width": 3,
+        "tile_height": 2,
+        "max_intersections": 11,
+    }
     with pytest.raises(ValueError, match="backend must"):
         intersect_tiles(*inputs, **kwargs, backend="cutile")
     with pytest.raises(ValueError, match="sort_backend must"):

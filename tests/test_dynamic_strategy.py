@@ -311,9 +311,7 @@ def test_dynamic_strategy_clears_parent_and_child_pruned_after_growth():
 
     assert int(statistics["new_count"]) == 1
     assert int(statistics["pruned_count"]) == 2
-    assert jnp.array_equal(
-        model.active_mask[...], jnp.asarray([False, True, False])
-    )
+    assert jnp.array_equal(model.active_mask[...], jnp.asarray([False, True, False]))
     assert not bool(jnp.any(state.dynamic_mask[...]))
 
 

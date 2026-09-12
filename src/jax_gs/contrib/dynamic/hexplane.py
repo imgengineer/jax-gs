@@ -5,10 +5,9 @@ from __future__ import annotations
 import itertools
 from collections.abc import Sequence
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
-
+from flax import nnx
 
 _DEFAULT_PLANE_CONFIG = {
     "grid_dimensions": 2,
@@ -47,12 +46,8 @@ def _sample_2d(
     """Border-padded bilinear sampling for one ``(C, H, W)`` grid."""
 
     height, width = grid.shape[-2:]
-    x = _normalized_index(
-        coordinates[:, 0], width, align_corners=align_corners
-    )
-    y = _normalized_index(
-        coordinates[:, 1], height, align_corners=align_corners
-    )
+    x = _normalized_index(coordinates[:, 0], width, align_corners=align_corners)
+    y = _normalized_index(coordinates[:, 1], height, align_corners=align_corners)
     x0 = jnp.floor(x).astype(jnp.int32)
     y0 = jnp.floor(y).astype(jnp.int32)
     x1 = jnp.minimum(x0 + 1, width - 1)
@@ -77,15 +72,9 @@ def _sample_3d(
     """Border-padded trilinear sampling for one ``(C, D, H, W)`` grid."""
 
     depth, height, width = grid.shape[-3:]
-    x = _normalized_index(
-        coordinates[:, 0], width, align_corners=align_corners
-    )
-    y = _normalized_index(
-        coordinates[:, 1], height, align_corners=align_corners
-    )
-    z = _normalized_index(
-        coordinates[:, 2], depth, align_corners=align_corners
-    )
+    x = _normalized_index(coordinates[:, 0], width, align_corners=align_corners)
+    y = _normalized_index(coordinates[:, 1], height, align_corners=align_corners)
+    z = _normalized_index(coordinates[:, 2], depth, align_corners=align_corners)
     x0 = jnp.floor(x).astype(jnp.int32)
     y0 = jnp.floor(y).astype(jnp.int32)
     z0 = jnp.floor(z).astype(jnp.int32)
@@ -104,12 +93,8 @@ def _sample_3d(
         return jnp.moveaxis(grid[:, layer, row, column], 0, -1)
 
     def sample_layer(layer: jax.Array) -> jax.Array:
-        top = gather(layer, y0, x0) * (1.0 - wx) + gather(
-            layer, y0, x1
-        ) * wx
-        bottom = gather(layer, y1, x0) * (1.0 - wx) + gather(
-            layer, y1, x1
-        ) * wx
+        top = gather(layer, y0, x0) * (1.0 - wx) + gather(layer, y0, x1) * wx
+        bottom = gather(layer, y1, x0) * (1.0 - wx) + gather(layer, y1, x1) * wx
         return top * (1.0 - wy) + bottom * wy
 
     return sample_layer(z0) * (1.0 - wz) + sample_layer(z1) * wz
@@ -129,8 +114,7 @@ def _grid_sample_wrapper(
         coordinates = coordinates[None, ...]
     if grid_dim not in (2, 3):
         raise NotImplementedError(
-            "_grid_sample_wrapper supports 2D / 3D coords only; "
-            f"got {grid_dim}D."
+            f"_grid_sample_wrapper supports 2D / 3D coords only; got {grid_dim}D."
         )
     if grid.shape[0] != coordinates.shape[0]:
         raise ValueError(
@@ -161,13 +145,10 @@ def _init_grid_params(
 ) -> nnx.List:
     if in_dim != len(resolution):
         raise ValueError(
-            f"_init_grid_param: in_dim={in_dim} != "
-            f"len(reso)={len(resolution)}."
+            f"_init_grid_param: in_dim={in_dim} != len(reso)={len(resolution)}."
         )
     if grid_nd > in_dim:
-        raise ValueError(
-            f"_init_grid_param: grid_nd={grid_nd} > in_dim={in_dim}."
-        )
+        raise ValueError(f"_init_grid_param: grid_nd={grid_nd} > in_dim={in_dim}.")
 
     has_time_planes = in_dim == 4
     planes = []
@@ -240,9 +221,7 @@ class HexPlaneField(nnx.Module):
             if planes_config is not None
             else dict(_DEFAULT_PLANE_CONFIG)
         )
-        multires_values = list(
-            _DEFAULT_MULTIRES if multires is None else multires
-        )
+        multires_values = list(_DEFAULT_MULTIRES if multires is None else multires)
         rngs = nnx.Rngs(0) if rngs is None else rngs
 
         self.bounds = float(bounds)

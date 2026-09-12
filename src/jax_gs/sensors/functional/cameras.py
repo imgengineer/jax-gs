@@ -281,7 +281,7 @@ def pixel_grid_to_world_rays_shutter_pose(
     )
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "camera_rays_to_image_points",
     "generate_image_points",
     "image_points_to_camera_rays",

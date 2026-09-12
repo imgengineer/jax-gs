@@ -26,9 +26,9 @@ def _intrinsics() -> jax.Array:
 def test_world_to_cam_known_transform_and_shapes() -> None:
     means = jnp.array([[1.0, 2.0, 3.0], [-1.0, 0.0, 2.0]], dtype=jnp.float32)
     covars = jnp.broadcast_to(jnp.eye(3, dtype=jnp.float32), (2, 3, 3))
-    viewmat = jnp.eye(4, dtype=jnp.float32).at[:3, 3].set(
-        jnp.array([2.0, -1.0, 0.5])
-    )[None]
+    viewmat = (
+        jnp.eye(4, dtype=jnp.float32).at[:3, 3].set(jnp.array([2.0, -1.0, 0.5]))[None]
+    )
     means_c, covars_c = jax.jit(world_to_cam)(means, covars, viewmat)
     assert means_c.shape == (1, 2, 3)
     assert covars_c.shape == (1, 2, 3, 3)
@@ -45,21 +45,22 @@ def test_pinhole_and_ortho_known_values() -> None:
     jacobian = np.array([[25.0, 0.0, -6.25], [0.0, 25.0, -12.5]])
     np.testing.assert_allclose(covars2d[0, 0, 0], jacobian @ jacobian.T, rtol=1e-5)
 
-    means2d_ortho, covars2d_ortho = ortho_proj(
-        means, covars, intrinsics, 100, 100
-    )
+    means2d_ortho, covars2d_ortho = ortho_proj(means, covars, intrinsics, 100, 100)
     np.testing.assert_allclose(means2d_ortho[0, 0, 0], [150.0, 250.0], atol=1e-5)
     np.testing.assert_allclose(covars2d_ortho[0, 0, 0], np.eye(2) * 1e4, atol=1e-3)
 
 
 def test_pinhole_factor_projection_matches_covariance_projection() -> None:
     means = jnp.array([[0.2, -0.1, 3.0], [-0.3, 0.4, 4.0]], jnp.float32)
-    quats = jnp.array(
-        [[1.0, 0.2, -0.1, 0.3], [0.9, -0.2, 0.4, 0.1]], jnp.float32
-    )
+    quats = jnp.array([[1.0, 0.2, -0.1, 0.3], [0.9, -0.2, 0.4, 0.1]], jnp.float32)
     scales = jnp.array([[0.1, 0.2, 0.3], [0.15, 0.08, 0.25]], jnp.float32)
     viewmat = jnp.array(
-        [[0.0, -1.0, 0.0, 0.1], [1.0, 0.0, 0.0, -0.2], [0.0, 0.0, 1.0, 0.3], [0.0, 0.0, 0.0, 1.0]],
+        [
+            [0.0, -1.0, 0.0, 0.1],
+            [1.0, 0.0, 0.0, -0.2],
+            [0.0, 0.0, 1.0, 0.3],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
         jnp.float32,
     )[None]
     covars, _ = quat_scale_to_covar_preci(
@@ -71,9 +72,7 @@ def test_pinhole_factor_projection_matches_covariance_projection() -> None:
     )
 
     world_factors = quat_to_rotmat(quats) * scales[..., None, :]
-    camera_factors = jnp.einsum(
-        "cij,njk->cnik", viewmat[:, :3, :3], world_factors
-    )
+    camera_factors = jnp.einsum("cij,njk->cnik", viewmat[:, :3, :3], world_factors)
     actual_means, actual_covars = _pinhole_proj_factors(
         means_c, camera_factors, _intrinsics(), 100, 100
     )
@@ -197,9 +196,7 @@ def test_fisheye_known_value_and_optical_axis_stability() -> None:
     covars = jnp.eye(3, dtype=jnp.float32)[None, None, None]
     means = jnp.array([[[[1.0, 0.0, 1.0]]]], dtype=jnp.float32)
     means2d, _ = fisheye_proj(means, covars, intrinsics, 100, 100)
-    np.testing.assert_allclose(
-        means2d[0, 0, 0], [50.0 + 25.0 * np.pi, 50.0], rtol=1e-5
-    )
+    np.testing.assert_allclose(means2d[0, 0, 0], [50.0 + 25.0 * np.pi, 50.0], rtol=1e-5)
 
     optical_axis = jnp.array([[[[0.0, 0.0, 2.0]]]], dtype=jnp.float32)
     objective = lambda value: sum(
@@ -241,8 +238,8 @@ def test_fully_fused_projection_valid_mask_and_grad(camera_model: str) -> None:
     np.testing.assert_array_equal(valid, [[True, False, False]])
     np.testing.assert_array_equal(radii[0, 1:], 0)
 
-    objective = lambda value: jnp.sum(projection(value)[1]) + jnp.sum(
-        projection(value)[3]
+    objective = lambda value: (
+        jnp.sum(projection(value)[1]) + jnp.sum(projection(value)[3])
     )
     gradient = jax.jit(jax.grad(objective))(means)
     assert jnp.all(jnp.isfinite(gradient))

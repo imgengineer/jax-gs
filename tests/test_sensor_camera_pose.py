@@ -45,9 +45,7 @@ def _static_pose() -> Pose:
 def _dynamic_pose() -> DynamicPose:
     return DynamicPose(
         start_pose=_static_pose(),
-        end_pose=Pose(
-            jnp.array([0.1, 0.0, 0.0]), jnp.array([1.0, 0.0, 0.0, 0.0])
-        ),
+        end_pose=Pose(jnp.array([0.1, 0.0, 0.0]), jnp.array([1.0, 0.0, 0.0, 0.0])),
     )
 
 
@@ -82,9 +80,7 @@ def test_pose_types_are_pytrees_and_equal_quaternion_slerp_has_finite_gradients(
 def test_pose_interpolation_uses_lerp_and_wxyz_slerp():
     half_angle = math.pi / 4.0
     start_rotation = jnp.array([1.0, 0.0, 0.0, 0.0])
-    end_rotation = jnp.array(
-        [math.cos(half_angle), 0.0, math.sin(half_angle), 0.0]
-    )
+    end_rotation = jnp.array([math.cos(half_angle), 0.0, math.sin(half_angle), 0.0])
     translation, rotation = interpolate_dynamic_pose(
         jnp.zeros(3),
         start_rotation,
@@ -93,9 +89,7 @@ def test_pose_interpolation_uses_lerp_and_wxyz_slerp():
         jnp.array([0.5]),
     )
     np.testing.assert_allclose(translation, [[1.0, 2.0, 3.0]])
-    expected = jnp.array(
-        [[math.cos(math.pi / 8.0), 0.0, math.sin(math.pi / 8.0), 0.0]]
-    )
+    expected = jnp.array([[math.cos(math.pi / 8.0), 0.0, math.sin(math.pi / 8.0), 0.0]])
     np.testing.assert_allclose(rotation, expected, atol=1.0e-6)
 
 
@@ -210,7 +204,9 @@ def test_shutter_projection_converges_to_scanline_pose_and_is_jittable():
 
     image_points, valid, timestamps, pose_t, _ = jax.jit(project)(world_points)
     relative_time = 40.0 / 79.0
-    np.testing.assert_allclose(image_points, [[50.0 - 10.0 * relative_time, 40.0]], atol=1.0e-5)
+    np.testing.assert_allclose(
+        image_points, [[50.0 - 10.0 * relative_time, 40.0]], atol=1.0e-5
+    )
     np.testing.assert_array_equal(valid, [True])
     np.testing.assert_array_equal(timestamps, [int(relative_time * 100)])
     np.testing.assert_allclose(pose_t, [[0.1 * relative_time, 0.0, 0.0]])
@@ -255,7 +251,9 @@ def test_ftheta_shutter_projection_can_converge_inward_from_out_of_frame_pose():
         return_poses=True,
     )
     assert bool(valid[0])
-    assert bool(jnp.all((image_points[0] >= 0.0) & (image_points[0] < jnp.array([100.0, 80.0]))))
+    assert bool(
+        jnp.all((image_points[0] >= 0.0) & (image_points[0] < jnp.array([100.0, 80.0])))
+    )
     assert int(timestamps[0]) < 50
     assert float(pose_t[0, 0]) < 1.0
 

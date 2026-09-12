@@ -13,10 +13,10 @@ _training = sys.modules[__package__]
 import math
 from pathlib import Path
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import optax
+from flax import nnx
 
 from ..config import TrainConfig
 from ..model import GaussianModel
@@ -29,9 +29,7 @@ from .pose import CameraOptModule
 def _validate_2dgs_mode(config: TrainConfig) -> None:
     if config.model_type != "2dgs":
         if config.normal_loss or config.dist_loss:
-            raise ValueError(
-                "normal_loss and dist_loss are available only for 2DGS"
-            )
+            raise ValueError("normal_loss and dist_loss are available only for 2DGS")
         return
     if config.camera_model != "pinhole":
         raise ValueError("2DGS supports only camera_model='pinhole'")
@@ -73,9 +71,7 @@ def _create_training_optimizer(
     return create_optimizer(model, config.optimizer, **optimizer_kwargs)
 
 
-def _pose_learning_rate(
-    config: TrainConfig, step: int | jax.Array
-) -> jax.Array:
+def _pose_learning_rate(config: TrainConfig, step: int | jax.Array) -> jax.Array:
     """Current-main pose LR: batch-scaled and exponentially decayed to 1%."""
 
     step = jnp.asarray(step, dtype=jnp.float32)
@@ -127,10 +123,7 @@ def _validate_camera_module_resume_config(
             f"({saved.data.batch_size} saved, "
             f"{config.data.batch_size} requested)"
         )
-    if (
-        saved.strategy.target_primitives
-        != config.strategy.target_primitives
-    ):
+    if saved.strategy.target_primitives != config.strategy.target_primitives:
         raise ValueError(
             "resume requires target_primitives to match the checkpoint config "
             f"({saved.strategy.target_primitives} saved, "
@@ -189,18 +182,13 @@ def _invert_rigid_transforms(transforms: jax.Array) -> jax.Array:
     transforms = jnp.asarray(transforms)
     if transforms.ndim < 2 or transforms.shape[-2:] != (4, 4):
         raise ValueError(
-            "transforms must have shape (..., 4, 4), "
-            f"got {transforms.shape}"
+            f"transforms must have shape (..., 4, 4), got {transforms.shape}"
         )
     rotation = transforms[..., :3, :3]
     translation = transforms[..., :3, 3]
     inverse_rotation = jnp.swapaxes(rotation, -1, -2)
-    inverse_translation = -jnp.einsum(
-        "...ij,...j->...i", inverse_rotation, translation
-    )
-    result = jnp.broadcast_to(
-        jnp.eye(4, dtype=transforms.dtype), transforms.shape
-    )
+    inverse_translation = -jnp.einsum("...ij,...j->...i", inverse_rotation, translation)
+    result = jnp.broadcast_to(jnp.eye(4, dtype=transforms.dtype), transforms.shape)
     result = result.at[..., :3, :3].set(inverse_rotation)
     return result.at[..., :3, 3].set(inverse_translation)
 

@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import math
 import operator
+from collections.abc import Mapping
 from typing import Any, NamedTuple
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import optax
+from flax import nnx
 
 from ..config import OptimizerConfig
 from ..model import GaussianModel
-
 
 _PARAMETER_LABELS = {
     "means": "means",
@@ -24,6 +23,7 @@ _PARAMETER_LABELS = {
     "features": "features",
     "colors": "colors",
 }
+_DEFAULT_OPTIMIZER_CONFIG = OptimizerConfig()
 
 
 def _label_parameter_tree(parameters: Any) -> Any:
@@ -68,9 +68,7 @@ def _row_selective(
             value.ndim == 0 or value.shape[0] != visible_mask.shape[0]
             for value in update_arrays
         ):
-            raise ValueError(
-                "visible_mask length does not match parameter rows"
-            )
+            raise ValueError("visible_mask length does not match parameter rows")
 
         transformed, candidate_state = inner.update(
             updates, state, params, **extra_args
@@ -84,17 +82,13 @@ def _row_selective(
                 and candidate.shape[0] == capacity
             ):
                 return candidate
-            mask = visible_mask.reshape(
-                (capacity,) + (1,) * (candidate.ndim - 1)
-            )
+            mask = visible_mask.reshape((capacity,) + (1,) * (candidate.ndim - 1))
             return jnp.where(mask, candidate, previous)
 
         def mask_update(value: Any) -> Any:
             if not hasattr(value, "shape"):
                 return value
-            mask = visible_mask.reshape(
-                (capacity,) + (1,) * (value.ndim - 1)
-            )
+            mask = visible_mask.reshape((capacity,) + (1,) * (value.ndim - 1))
             return jnp.where(mask, value, jnp.zeros_like(value))
 
         selected_state = jax.tree.map(keep_visible, candidate_state, state)
@@ -132,9 +126,7 @@ def _scale_by_uncorrected_adam(
     ) -> tuple[Any, _UncorrectedAdamState]:
         del params
         mu = jax.tree.map(
-            lambda gradient, previous: (
-                b1 * previous + (1.0 - b1) * gradient
-            ),
+            lambda gradient, previous: b1 * previous + (1.0 - b1) * gradient,
             updates,
             state.mu,
         )
@@ -201,9 +193,7 @@ def _create_optimizer(
 
     def adam(learning_rate: Any) -> optax.GradientTransformation:
         if bias_correction:
-            return optax.adam(
-                learning_rate, b1=b1, b2=b2, eps=eps
-            )
+            return optax.adam(learning_rate, b1=b1, b2=b2, eps=eps)
         return optax.chain(
             _scale_by_uncorrected_adam(b1=b1, b2=b2, eps=eps),
             optax.scale_by_learning_rate(learning_rate),
@@ -225,16 +215,13 @@ def _create_optimizer(
             if model.has_appearance
             else {
                 "sh0": adam(config.sh0_lr * learning_rate_scale),
-                "sh_rest": adam(
-                    config.sh_rest_lr * learning_rate_scale
-                ),
+                "sh_rest": adam(config.sh_rest_lr * learning_rate_scale),
             }
         ),
     }
     if row_selective:
         transforms = {
-            name: _row_selective(transform)
-            for name, transform in transforms.items()
+            name: _row_selective(transform) for name, transform in transforms.items()
         }
     parameter_state = nnx.as_pure(nnx.state(model, nnx.Param))
     labels = _label_parameter_tree(parameter_state)
@@ -259,7 +246,7 @@ def _create_optimizer(
 
 def create_optimizer(
     model: GaussianModel,
-    config: OptimizerConfig = OptimizerConfig(),
+    config: OptimizerConfig = _DEFAULT_OPTIMIZER_CONFIG,
     *,
     batch_size: int = 1,
     world_size: int = 1,
@@ -279,7 +266,7 @@ def create_optimizer(
 
 def create_row_selective_optimizer(
     model: GaussianModel,
-    config: OptimizerConfig = OptimizerConfig(),
+    config: OptimizerConfig = _DEFAULT_OPTIMIZER_CONFIG,
     *,
     batch_size: int = 1,
     world_size: int = 1,
@@ -304,7 +291,7 @@ def create_row_selective_optimizer(
 
 def create_visible_adam_optimizer(
     model: GaussianModel,
-    config: OptimizerConfig = OptimizerConfig(),
+    config: OptimizerConfig = _DEFAULT_OPTIMIZER_CONFIG,
     *,
     batch_size: int = 1,
     world_size: int = 1,
@@ -421,9 +408,7 @@ def mask_inactive_gradients(grads: Any, active_mask: jax.Array) -> Any:
             return value
         if value.ndim == 0 or value.shape[0] != capacity:
             return value
-        broadcast_mask = active_mask.reshape(
-            (capacity,) + (1,) * (value.ndim - 1)
-        )
+        broadcast_mask = active_mask.reshape((capacity,) + (1,) * (value.ndim - 1))
         return jnp.where(broadcast_mask, value, 0.0)
 
     return jax.tree.map(mask, grads)
@@ -435,7 +420,7 @@ class SelectiveAdam:
     def __init__(
         self,
         model: GaussianModel,
-        config: OptimizerConfig = OptimizerConfig(),
+        config: OptimizerConfig = _DEFAULT_OPTIMIZER_CONFIG,
     ) -> None:
         self.optimizer = create_visible_adam_optimizer(model, config)
 
@@ -459,13 +444,9 @@ class SelectiveAdam:
             if visible_mask.dtype != jnp.bool_:
                 raise TypeError("visible_mask must be boolean")
             if visible_mask.shape != active_mask.shape:
-                raise ValueError(
-                    "visible_mask length does not match parameter rows"
-                )
+                raise ValueError("visible_mask length does not match parameter rows")
             visible_mask = visible_mask & active_mask
-        updates = self.optimizer.update(
-            model, grads, visible_mask=visible_mask
-        )
+        updates = self.optimizer.update(model, grads, visible_mask=visible_mask)
         normalized_quats = model.normalized_quats
         model.quats[...] = jnp.where(
             visible_mask[:, None], normalized_quats, model.quats[...]

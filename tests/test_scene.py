@@ -1,15 +1,15 @@
 from functools import partial
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import pytest
+from flax import nnx
 
 from jax_gs.scene import (
     GaussianInferenceScene,
     GaussianScene,
-    SHCompressionMode,
     Scene,
+    SHCompressionMode,
 )
 from jax_gs.scene.functional import pack_gaussian_inference_scene
 
@@ -32,14 +32,10 @@ def _raw_splats(count=3, *, sh_degree=None):
         )
     else:
         basis_count = (sh_degree + 1) ** 2
-        values["sh0"] = nnx.Param(
-            jnp.full((count, 1, 3), 0.2, dtype=jnp.float32)
-        )
+        values["sh0"] = nnx.Param(jnp.full((count, 1, 3), 0.2, dtype=jnp.float32))
         if basis_count > 1:
             values["shN"] = nnx.Param(
-                jnp.full(
-                    (count, basis_count - 1, 3), 0.1, dtype=jnp.float32
-                )
+                jnp.full((count, basis_count - 1, 3), 0.1, dtype=jnp.float32)
             )
     return nnx.Dict(values)
 
@@ -51,21 +47,22 @@ def _activated_inputs(count=4, sh_degree=-1):
     opacities = jnp.linspace(0.1, 0.9, count, dtype=jnp.float32)
     if sh_degree < 0:
         colors = (
-            jnp.linspace(-1, 1, count * 3, dtype=jnp.float32).reshape(
-                (count, 3)
-            )
+            jnp.linspace(-1, 1, count * 3, dtype=jnp.float32).reshape((count, 3))
             if count
             else jnp.empty((0, 3), dtype=jnp.float32)
         )
     else:
-        colors = jnp.arange(
-            count * (sh_degree + 1) ** 2 * 3, dtype=jnp.float32
-        ).reshape((count, (sh_degree + 1) ** 2, 3)) / 100
+        colors = (
+            jnp.arange(count * (sh_degree + 1) ** 2 * 3, dtype=jnp.float32).reshape(
+                (count, (sh_degree + 1) ** 2, 3)
+            )
+            / 100
+        )
     return means, quats, scales, opacities, colors
 
 
 def test_scene_public_surface_and_id_validation():
-    import jax_gs.scene as scene
+    from jax_gs import scene
 
     assert scene.__all__ == [
         "functional",
@@ -242,9 +239,7 @@ def test_gaussian_scene_fixed_slot_transaction_uses_one_sidecar_snapshot():
     assert jnp.array_equal(
         scene.signal["label"], jnp.asarray([10, 10, 20, 40], jnp.int32)
     )
-    assert jnp.array_equal(
-        scene.component_index, jnp.asarray([0, 0, 1, 1], jnp.int32)
-    )
+    assert jnp.array_equal(scene.component_index, jnp.asarray([0, 0, 1, 1], jnp.int32))
     assert jnp.array_equal(
         scene.signal["vector"],
         jnp.asarray([[0, 1], [0, 1], [2, 3], [6, 7]], jnp.float32),
@@ -272,9 +267,7 @@ def test_pack_gaussian_inference_scene_layouts(
     degree, mode, expected_shape, expected_dtype
 ):
     inputs = _activated_inputs(4, degree)
-    means_planar, qso, colors = pack_gaussian_inference_scene(
-        *inputs, degree, mode
-    )
+    means_planar, qso, colors = pack_gaussian_inference_scene(*inputs, degree, mode)
     assert means_planar.shape == (3, 4)
     assert means_planar.dtype == jnp.float32
     assert qso.shape == (4, 8)
@@ -324,8 +317,7 @@ def test_pack_clamps_fp16_lanes_and_is_no_grad_jittable():
         (lambda values: values[:4] + ("-1",) + values[5:], TypeError),
         (lambda values: values[:4] + (values[4], 4, values[6]), ValueError),
         (
-            lambda values: values[:5]
-            + (-1, SHCompressionMode.PACKED_32B),
+            lambda values: values[:5] + (-1, SHCompressionMode.PACKED_32B),
             ValueError,
         ),
         (
@@ -333,15 +325,11 @@ def test_pack_clamps_fp16_lanes_and_is_no_grad_jittable():
             ValueError,
         ),
         (
-            lambda values: values[:1]
-            + (values[1].astype(jnp.float16),)
-            + values[2:],
+            lambda values: values[:1] + (values[1].astype(jnp.float16),) + values[2:],
             TypeError,
         ),
         (
-            lambda values: values[:4]
-            + (values[4][:, None, :],)
-            + values[5:],
+            lambda values: values[:4] + (values[4][:, None, :],) + values[5:],
             ValueError,
         ),
     ],
@@ -434,9 +422,7 @@ def test_inference_scene_from_training_scene_concatenates_sh_and_rejects_feature
     appearance["features"] = nnx.Param(jnp.ones((1, 4), dtype=jnp.float32))
     appearance_scene = GaussianScene.from_splats(appearance, id="appearance")
     with pytest.raises(ValueError, match="appearance-optimized"):
-        GaussianInferenceScene.from_gaussian_scene(
-            appearance_scene, id="viewer"
-        )
+        GaussianInferenceScene.from_gaussian_scene(appearance_scene, id="viewer")
 
 
 def test_inference_scene_rejects_multi_component_training_scene():
@@ -457,9 +443,7 @@ def test_inference_scene_put_get_release_and_zero_length_replacement():
     assert zero.is_empty()
 
     full_inputs = _activated_inputs(2, -1)
-    packed = pack_gaussian_inference_scene(
-        *full_inputs, -1, SHCompressionMode.NONE
-    )
+    packed = pack_gaussian_inference_scene(*full_inputs, -1, SHCompressionMode.NONE)
     zero.put(
         "full",
         {

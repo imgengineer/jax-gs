@@ -1,9 +1,9 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
+from flax import nnx
 
 from jax_gs.training.pose import CameraOptModule, rotation_6d_to_matrix
 
@@ -64,9 +64,7 @@ def test_camera_opt_zero_init_is_identity_and_forward_is_nnx_jittable():
     eager = module(poses, image_ids)
     forwarded = module.forward(poses, image_ids)
     compiled = nnx.jit(
-        lambda current, current_poses, current_ids: current(
-            current_poses, current_ids
-        )
+        lambda current, current_poses, current_ids: current(current_poses, current_ids)
     )(module, poses, image_ids)
 
     np.testing.assert_array_equal(module.embeds.embedding[...], 0.0)
@@ -83,9 +81,7 @@ def test_camera_opt_right_multiplies_local_pose_delta():
         [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
         dtype=jnp.float32,
     )
-    base = _camera_to_world(
-        base_rotation, jnp.asarray([10.0, 20.0, 30.0])
-    )
+    base = _camera_to_world(base_rotation, jnp.asarray([10.0, 20.0, 30.0]))
 
     # A local +x translation becomes world +y under the base rotation.
     module.embeds.embedding[1, :3] = jnp.asarray([1.0, 0.0, 0.0])
@@ -108,9 +104,7 @@ def test_camera_opt_supports_arbitrary_batch_dims_and_validates_shapes():
     module.zero_init()
     poses = jnp.broadcast_to(jnp.eye(4), (2, 2, 4, 4))
     image_ids = jnp.asarray([[0, 1], [2, 3]], dtype=jnp.int32)
-    module.embeds.embedding[:, :3] = jnp.arange(12, dtype=jnp.float32).reshape(
-        4, 3
-    )
+    module.embeds.embedding[:, :3] = jnp.arange(12, dtype=jnp.float32).reshape(4, 3)
 
     adjusted = module(poses, image_ids)
 
@@ -149,9 +143,7 @@ def test_camera_opt_random_and_zero_initializers_are_reproducible():
     assert not np.array_equal(second_default_draw, third_default_draw)
 
     default_b.random_init(0.01)
-    np.testing.assert_array_equal(
-        second_default_draw, default_b.embeds.embedding[...]
-    )
+    np.testing.assert_array_equal(second_default_draw, default_b.embeds.embedding[...])
 
     explicit_a.zero_init()
     np.testing.assert_array_equal(explicit_a.embeds.embedding[...], 0.0)
@@ -183,9 +175,7 @@ def test_camera_opt_has_gradients_and_trains_with_jitted_nnx_optimizer():
         translation_loss = jnp.mean(
             jnp.square(adjusted[..., :3, 3] - target_translations)
         )
-        rotation_loss = jnp.mean(
-            jnp.square(adjusted[..., :3, :3] - target_rotations)
-        )
+        rotation_loss = jnp.mean(jnp.square(adjusted[..., :3, :3] - target_rotations))
         return translation_loss + rotation_loss
 
     gradients = nnx.grad(objective)(module)

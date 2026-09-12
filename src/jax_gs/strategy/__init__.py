@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import operator
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ..config import StrategyConfig
 from ..math import quat_to_rotmat
@@ -16,13 +16,9 @@ from ..model import GaussianModel, inverse_sigmoid
 from ..optimizers import reset_optimizer_slots
 from ..relocation import compute_relocation
 
-
 _MCMC_BINOMIALS = jnp.asarray(
     [
-        [
-            math.comb(row, column) if column <= row else 0
-            for column in range(51)
-        ]
+        [math.comb(row, column) if column <= row else 0 for column in range(51)]
         for row in range(51)
     ],
     dtype=jnp.float32,
@@ -46,7 +42,7 @@ class Strategy:
         self,
         params: GaussianModel,
         optimizers: nnx.Optimizer,
-        state: "StrategyState",
+        state: StrategyState,
         step: int,
         info: Mapping[str, Any],
     ) -> None:
@@ -57,7 +53,6 @@ class Strategy:
         """Strategy-specific callback implemented by concrete strategies."""
 
         del args, kwargs
-        return None
 
 
 class StrategyState(nnx.Module):
@@ -72,16 +67,12 @@ class StrategyState(nnx.Module):
         self.grad_accum = nnx.Variable(jnp.zeros((capacity,), jnp.float32))
         self.visible_count = nnx.Variable(jnp.zeros((capacity,), jnp.float32))
         self.max_radii = nnx.Variable(jnp.zeros((capacity,), jnp.float32))
-        self.scene_scale = nnx.Variable(
-            jnp.asarray(scene_scale, dtype=jnp.float32)
-        )
+        self.scene_scale = nnx.Variable(jnp.asarray(scene_scale, dtype=jnp.float32))
         self.last_new_count = nnx.Variable(jnp.array(0, jnp.int32))
         self.last_pruned_count = nnx.Variable(jnp.array(0, jnp.int32))
         self.capacity_overflow = nnx.Variable(jnp.array(False))
         if track_target_primitives:
-            self.target_births_remaining = nnx.Variable(
-                jnp.array(-1, jnp.int32)
-            )
+            self.target_births_remaining = nnx.Variable(jnp.array(-1, jnp.int32))
 
     @staticmethod
     def _validate_capacity(capacity: int) -> int:
@@ -160,9 +151,7 @@ def build_densification_stats(
     camera_scale = jnp.asarray(camera_count, dtype=screen_grad.dtype)
     gradient_scale = jnp.stack((width, height)) * (0.5 * camera_scale)
     visible = valid & active[None, :] & jnp.all(radii > 0.0, axis=-1)
-    normalized_grad = jnp.where(
-        visible[..., None], screen_grad * gradient_scale, 0.0
-    )
+    normalized_grad = jnp.where(visible[..., None], screen_grad * gradient_scale, 0.0)
     grad_sum = jnp.sum(jnp.linalg.norm(normalized_grad, axis=-1), axis=0)
     count = jnp.sum(visible.astype(jnp.float32), axis=0)
     normalized_radii = jnp.max(radii, axis=-1) / jnp.maximum(width, height)
@@ -218,21 +207,23 @@ def _build_packed_densification_stats(
     width_value = jnp.asarray(width, dtype=screen_grad.dtype)
     height_value = jnp.asarray(height, dtype=screen_grad.dtype)
     camera_scale = jnp.asarray(n_cameras, dtype=screen_grad.dtype)
-    gradient_scale = jnp.stack((width_value, height_value)) * (
-        0.5 * camera_scale
-    )
+    gradient_scale = jnp.stack((width_value, height_value)) * (0.5 * camera_scale)
     gradient_norm = jnp.linalg.norm(screen_grad * gradient_scale, axis=-1)
-    grad_sum = jnp.zeros((gaussian_count,), jnp.float32).at[safe_ids].add(
-        jnp.where(visible, gradient_norm, 0.0).astype(jnp.float32)
+    grad_sum = (
+        jnp.zeros((gaussian_count,), jnp.float32)
+        .at[safe_ids]
+        .add(jnp.where(visible, gradient_norm, 0.0).astype(jnp.float32))
     )
-    count = jnp.zeros((gaussian_count,), jnp.float32).at[safe_ids].add(
-        visible.astype(jnp.float32)
+    count = (
+        jnp.zeros((gaussian_count,), jnp.float32)
+        .at[safe_ids]
+        .add(visible.astype(jnp.float32))
     )
-    normalized_radii = jnp.max(radii, axis=-1) / jnp.maximum(
-        width_value, height_value
-    )
-    max_radii = jnp.zeros((gaussian_count,), jnp.float32).at[safe_ids].max(
-        jnp.where(visible, normalized_radii, 0.0).astype(jnp.float32)
+    normalized_radii = jnp.max(radii, axis=-1) / jnp.maximum(width_value, height_value)
+    max_radii = (
+        jnp.zeros((gaussian_count,), jnp.float32)
+        .at[safe_ids]
+        .max(jnp.where(visible, normalized_radii, 0.0).astype(jnp.float32))
     )
     return DensificationStats(grad_sum, count, max_radii)
 
@@ -252,9 +243,7 @@ def accumulate_densification_stats(
         raise ValueError("stats.max_radii must match the strategy capacity")
     state.grad_accum[...] += stats.grad_sum
     state.visible_count[...] += stats.count
-    state.max_radii[...] = jnp.maximum(
-        state.max_radii[...], stats.max_radii
-    )
+    state.max_radii[...] = jnp.maximum(state.max_radii[...], stats.max_radii)
 
 
 @nnx.jit(donate_argnames=("state",))
@@ -420,21 +409,15 @@ def _default_growth_events(
         axis=-1,
     ).reshape(-1)
     raw_parent_ids = jnp.repeat(ranked_parents, 2)
-    raw_parent_ranks = jnp.repeat(
-        jnp.arange(allocation_count, dtype=jnp.int32), 2
-    )
+    raw_parent_ranks = jnp.repeat(jnp.arange(allocation_count, dtype=jnp.int32), 2)
     raw_is_split = jnp.tile(
         jnp.asarray([False, True], dtype=jnp.bool_), allocation_count
     )
-    event_positions = jnp.nonzero(
-        raw_valid, size=allocation_count, fill_value=0
-    )[0]
+    event_positions = jnp.nonzero(raw_valid, size=allocation_count, fill_value=0)[0]
     parent_ids = raw_parent_ids[event_positions]
     parent_ranks = raw_parent_ranks[event_positions]
     is_split = raw_is_split[event_positions]
-    planned_new_count = jnp.minimum(
-        jnp.count_nonzero(raw_valid), allocation_count
-    )
+    planned_new_count = jnp.minimum(jnp.count_nonzero(raw_valid), allocation_count)
     if config.target_primitives is not None:
         if step is None:
             raise ValueError("step is required when target_primitives is set")
@@ -452,22 +435,14 @@ def _default_growth_events(
         )
         refine_steps = jnp.asarray(_target_refine_steps(config), jnp.int32)
         remaining_refines = jnp.maximum(
-            jnp.count_nonzero(
-                refine_steps >= jnp.asarray(step, jnp.int32)
-            ),
+            jnp.count_nonzero(refine_steps >= jnp.asarray(step, jnp.int32)),
             1,
         )
-        target_budget = (
-            remaining + remaining_refines - 1
-        ) // remaining_refines
+        target_budget = (remaining + remaining_refines - 1) // remaining_refines
         planned_new_count = jnp.minimum(planned_new_count, target_budget)
-    selected = (
-        jnp.arange(allocation_count, dtype=jnp.int32) < planned_new_count
-    )
+    selected = jnp.arange(allocation_count, dtype=jnp.int32) < planned_new_count
 
-    free_scores, free_ids = jax.lax.top_k(
-        (~active).astype(jnp.int32), allocation_count
-    )
+    free_scores, free_ids = jax.lax.top_k((~active).astype(jnp.int32), allocation_count)
     free_count = jnp.count_nonzero(~active)
     capacity_overflow = planned_new_count > free_count
     valid_new = selected & (free_scores > 0) & ~capacity_overflow
@@ -485,13 +460,9 @@ def _default_growth_events(
     )
 
 
-def _scatter_any(
-    indices: jax.Array, valid: jax.Array, capacity: int
-) -> jax.Array:
+def _scatter_any(indices: jax.Array, valid: jax.Array, capacity: int) -> jax.Array:
     return (
-        jnp.zeros((capacity,), dtype=jnp.int32)
-        .at[indices]
-        .add(valid.astype(jnp.int32))
+        jnp.zeros((capacity,), dtype=jnp.int32).at[indices].add(valid.astype(jnp.int32))
         > 0
     )
 
@@ -519,14 +490,13 @@ def _default_prune_mask(
 ) -> jax.Array:
     low_opacity = jax.nn.sigmoid(opacity_logits) < config.prune_opacity
     too_large = (
-        jnp.max(jnp.exp(log_scales), axis=-1)
-        > config.prune_scale3d * scene_scale
+        jnp.max(jnp.exp(log_scales), axis=-1) > config.prune_scale3d * scene_scale
     )
     if step is not None:
         if config.refine_scale2d_stop_iter > 0:
-            too_large |= (
-                jnp.asarray(step) < config.refine_scale2d_stop_iter
-            ) & (max_radii > config.prune_scale2d)
+            too_large |= (jnp.asarray(step) < config.refine_scale2d_stop_iter) & (
+                max_radii > config.prune_scale2d
+            )
         too_large &= jnp.asarray(step) > config.reset_every
     return active & (low_opacity | too_large)
 
@@ -540,13 +510,9 @@ def _default_refine_plan(
     *,
     config: StrategyConfig,
 ) -> dict[str, jax.Array]:
-    events = _default_growth_events(
-        model, state, scene_scale, config, step
-    )
+    events = _default_growth_events(model, state, scene_scale, config, step)
     selected_split = events.selected & events.is_split
-    split_parents = _scatter_any(
-        events.parent_ids, selected_split, model.capacity
-    )
+    split_parents = _scatter_any(events.parent_ids, selected_split, model.capacity)
     scale_reduction = jnp.asarray(jnp.log(1.6), model.log_scales[...].dtype)
     grown_log_scales = model.log_scales[...] - jnp.where(
         split_parents[:, None], scale_reduction, 0.0
@@ -581,15 +547,9 @@ def _default_refine_plan(
         config,
         step,
     )
-    pruned_count = jnp.count_nonzero(prune_parents) + jnp.count_nonzero(
-        prune_children
-    )
-    active_after_prune_count = jnp.count_nonzero(
-        events.active & ~prune_parents
-    )
-    active_after_prune_count += jnp.count_nonzero(
-        events.selected & ~prune_children
-    )
+    pruned_count = jnp.count_nonzero(prune_parents) + jnp.count_nonzero(prune_children)
+    active_after_prune_count = jnp.count_nonzero(events.active & ~prune_parents)
+    active_after_prune_count += jnp.count_nonzero(events.selected & ~prune_children)
     return {
         "planned_new_count": events.planned_new_count,
         "pruned_count": pruned_count,
@@ -618,9 +578,7 @@ def _default_refine(
 ) -> dict[str, jax.Array]:
     capacity = model.capacity
     allocation_count = min(config.max_new_per_refine, capacity)
-    events = _default_growth_events(
-        model, state, scene_scale, config, step
-    )
+    events = _default_growth_events(model, state, scene_scale, config, step)
     valid_new = events.valid_new
     valid_split = valid_new & events.is_split
 
@@ -649,9 +607,7 @@ def _default_refine(
     parent_log_scales = old_log_scales[events.parent_ids]
     parent_opacity_logits = old_opacity_logits[events.parent_ids]
     scale_reduction = jnp.asarray(jnp.log(1.6), parent_log_scales.dtype)
-    child_means = parent_means + jnp.where(
-        valid_split[:, None], offsets[1], 0.0
-    )
+    child_means = parent_means + jnp.where(valid_split[:, None], offsets[1], 0.0)
     child_log_scales = parent_log_scales - jnp.where(
         valid_split[:, None], scale_reduction, 0.0
     )
@@ -659,11 +615,11 @@ def _default_refine(
         parent_opacity_logits, valid_split, config.revised_opacity
     )
 
-    split_parents = _scatter_any(
-        events.parent_ids, valid_split, capacity
-    )
-    parent_offsets = jnp.zeros_like(old_means).at[events.parent_ids].add(
-        jnp.where(valid_split[:, None], offsets[0], 0.0)
+    split_parents = _scatter_any(events.parent_ids, valid_split, capacity)
+    parent_offsets = (
+        jnp.zeros_like(old_means)
+        .at[events.parent_ids]
+        .add(jnp.where(valid_split[:, None], offsets[0], 0.0))
     )
     model.means[...] = old_means + parent_offsets
     model.log_scales[...] = old_log_scales - jnp.where(
@@ -681,21 +637,15 @@ def _default_refine(
     model.means[...] = assign(model.means[...], child_means)
     model.log_scales[...] = assign(model.log_scales[...], child_log_scales)
     model.quats[...] = assign(model.quats[...], old_quats[events.parent_ids])
-    model.opacity_logits[...] = assign(
-        model.opacity_logits[...], child_opacity_logits
-    )
+    model.opacity_logits[...] = assign(model.opacity_logits[...], child_opacity_logits)
     if model.has_appearance:
         model.features[...] = assign(
             model.features[...], old_features[events.parent_ids]
         )
-        model.colors[...] = assign(
-            model.colors[...], old_colors[events.parent_ids]
-        )
+        model.colors[...] = assign(model.colors[...], old_colors[events.parent_ids])
     else:
         model.sh0[...] = assign(model.sh0[...], old_sh0[events.parent_ids])
-        model.sh_rest[...] = assign(
-            model.sh_rest[...], old_sh_rest[events.parent_ids]
-        )
+        model.sh_rest[...] = assign(model.sh_rest[...], old_sh_rest[events.parent_ids])
     state.grad_accum[...] = assign(
         state.grad_accum[...], old_grad_accum[events.parent_ids]
     )
@@ -739,15 +689,11 @@ def _default_refine(
     state.last_new_count[...] = new_count
     state.last_pruned_count[...] = jnp.count_nonzero(prune)
     state.capacity_overflow[...] = events.capacity_overflow
-    state.grad_accum[...] = jnp.where(
-        events.capacity_overflow, old_grad_accum, 0.0
-    )
+    state.grad_accum[...] = jnp.where(events.capacity_overflow, old_grad_accum, 0.0)
     state.visible_count[...] = jnp.where(
         events.capacity_overflow, old_visible_count, 0.0
     )
-    state.max_radii[...] = jnp.where(
-        events.capacity_overflow, old_max_radii, 0.0
-    )
+    state.max_radii[...] = jnp.where(events.capacity_overflow, old_max_radii, 0.0)
     return {
         "new_count": state.last_new_count[...],
         "pruned_count": state.last_pruned_count[...],
@@ -881,9 +827,7 @@ def _mcmc_refine(
         donor_weights,
         relocate_count,
     )
-    valid_relocate = (
-        (dead_scores > 0) & has_relocate_donor & ~capacity_overflow
-    )
+    valid_relocate = (dead_scores > 0) & has_relocate_donor & ~capacity_overflow
     relocated_opacity, relocated_scales = compute_relocation(
         opacity[relocate_donor_ids],
         jnp.exp(model.log_scales[...][relocate_donor_ids]),
@@ -936,9 +880,7 @@ def _mcmc_refine(
             model.sh_rest[...], dead_ids, relocate_donor_ids, valid_relocate
         )
 
-    free_scores, free_ids = jax.lax.top_k(
-        (~active).astype(jnp.int32), allocation_count
-    )
+    free_scores, free_ids = jax.lax.top_k((~active).astype(jnp.int32), allocation_count)
     birth_opacity = jax.nn.sigmoid(model.opacity_logits[...])
     birth_weights = jnp.where(active, birth_opacity + 1.0e-8, 0.0)
     birth_donor_ids, has_birth_donor = _sample_weighted_ids(
@@ -946,9 +888,12 @@ def _mcmc_refine(
         birth_weights,
         allocation_count,
     )
-    valid_birth = (free_scores > 0) & (
-        jnp.arange(allocation_count) < planned_new_count
-    ) & has_birth_donor & ~capacity_overflow
+    valid_birth = (
+        (free_scores > 0)
+        & (jnp.arange(allocation_count) < planned_new_count)
+        & has_birth_donor
+        & ~capacity_overflow
+    )
     donor_birth_opacity, donor_birth_scales = compute_relocation(
         birth_opacity[birth_donor_ids],
         jnp.exp(model.log_scales[...][birth_donor_ids]),
@@ -1014,9 +959,7 @@ def _mcmc_refine(
     state.last_pruned_count[...] = 0
     state.capacity_overflow[...] = capacity_overflow
     state.grad_accum[...] = jnp.where(capacity_overflow, old_grad_accum, 0.0)
-    state.visible_count[...] = jnp.where(
-        capacity_overflow, old_visible_count, 0.0
-    )
+    state.visible_count[...] = jnp.where(capacity_overflow, old_visible_count, 0.0)
     state.max_radii[...] = jnp.where(capacity_overflow, old_max_radii, 0.0)
     return {
         "new_count": state.last_new_count[...],
@@ -1203,9 +1146,7 @@ class DefaultStrategy(Strategy):
             track_target_primitives=self.config.target_primitives is not None,
         )
 
-    def check_sanity(
-        self, params: GaussianModel, optimizers: nnx.Optimizer
-    ) -> None:
+    def check_sanity(self, params: GaussianModel, optimizers: nnx.Optimizer) -> None:
         super().check_sanity(params, optimizers)
 
     def step_pre_backward(
@@ -1230,14 +1171,12 @@ class DefaultStrategy(Strategy):
         return (
             self.config.refine_start < step < self.config.refine_stop
             and step % self.config.refine_every == 0
-            and step % self.config.reset_every
-            >= self.config.pause_refine_after_reset
+            and step % self.config.reset_every >= self.config.pause_refine_after_reset
         )
 
     def should_reset(self, step: int) -> bool:
         return (
-            0 < step < self.config.refine_stop
-            and step % self.config.reset_every == 0
+            0 < step < self.config.refine_stop and step % self.config.reset_every == 0
         )
 
     def plan_refine(
@@ -1265,9 +1204,9 @@ class DefaultStrategy(Strategy):
         *,
         step: int | jax.Array | None = None,
     ) -> jax.Array:
-        return self.plan_refine(
-            model, state, scene_scale, step=step
-        )["required_capacity"]
+        return self.plan_refine(model, state, scene_scale, step=step)[
+            "required_capacity"
+        ]
 
     def refine(
         self,
@@ -1327,9 +1266,7 @@ class DefaultStrategy(Strategy):
             absgrad_key = f"{self.key_for_gradient}_absgrad"
             gradient = info.get(absgrad_key)
             if gradient is None:
-                raise ValueError(
-                    f"info must provide {absgrad_key!r} when absgrad=True"
-                )
+                raise ValueError(f"info must provide {absgrad_key!r} when absgrad=True")
         else:
             gradient = info.get("means_gradient")
             if gradient is None:
@@ -1357,8 +1294,7 @@ class DefaultStrategy(Strategy):
             for required_key in ("width", "height", "n_cameras"):
                 if required_key not in info:
                     raise ValueError(
-                        "packed screen statistics require "
-                        f"{required_key!r}"
+                        f"packed screen statistics require {required_key!r}"
                     )
             stats = _build_packed_densification_stats(
                 gradient,
@@ -1383,8 +1319,7 @@ class DefaultStrategy(Strategy):
             for required_key in ("width", "height"):
                 if required_key not in info:
                     raise ValueError(
-                        "dense screen statistics require "
-                        f"{required_key!r}"
+                        f"dense screen statistics require {required_key!r}"
                     )
             stats = build_densification_stats(
                 gradient,
@@ -1408,12 +1343,10 @@ class DefaultStrategy(Strategy):
                 else:
                     radii_array = jnp.asarray(radii)
                     if radii_array.shape[0] != params.capacity:
-                        raise ValueError(
-                            "radii must have capacity as its first axis"
-                        )
-                    visible = jnp.max(
-                        radii_array.reshape(params.capacity, -1), axis=-1
-                    ) > 0.0
+                        raise ValueError("radii must have capacity as its first axis")
+                    visible = (
+                        jnp.max(radii_array.reshape(params.capacity, -1), axis=-1) > 0.0
+                    )
             visible = jnp.asarray(visible, dtype=jnp.bool_)
             if visible.shape != (params.capacity,):
                 raise ValueError("visible must have shape (capacity,)")
@@ -1421,12 +1354,8 @@ class DefaultStrategy(Strategy):
             if radii is not None:
                 radii_array = jnp.asarray(radii)
                 if radii_array.shape[0] != params.capacity:
-                    raise ValueError(
-                        "radii must have capacity as its first axis"
-                    )
-                max_radii = jnp.max(
-                    radii_array.reshape(params.capacity, -1), axis=-1
-                )
+                    raise ValueError("radii must have capacity as its first axis")
+                max_radii = jnp.max(radii_array.reshape(params.capacity, -1), axis=-1)
             update_strategy_state(state, params, gradient, visible, max_radii)
         if scene_scale is None:
             scene_scale = jnp.copy(state.scene_scale[...])
@@ -1446,9 +1375,7 @@ class DefaultStrategy(Strategy):
                 scene=scene,
             )
             result.update(refine_result)
-            refine_overflow = bool(
-                jax.device_get(refine_result["capacity_overflow"])
-            )
+            refine_overflow = bool(jax.device_get(refine_result["capacity_overflow"]))
         if self.should_reset(step):
             if refine_overflow:
                 result["opacity_reset"] = jnp.asarray(False)
@@ -1587,9 +1514,9 @@ class MCMCStrategy(DefaultStrategy):
         *,
         step: int | jax.Array | None = None,
     ) -> jax.Array:
-        return self.plan_refine(
-            model, state, scene_scale, step=step
-        )["required_capacity"]
+        return self.plan_refine(model, state, scene_scale, step=step)[
+            "required_capacity"
+        ]
 
     def refine(
         self,
@@ -1647,9 +1574,7 @@ class MCMCStrategy(DefaultStrategy):
                 scene=scene,
             )
             result.update(refine_result)
-            refine_overflow = bool(
-                jax.device_get(refine_result["capacity_overflow"])
-            )
+            refine_overflow = bool(jax.device_get(refine_result["capacity_overflow"]))
         noise_stop = self.noise_injection_stop_iter
         if noise_stop < 0 or step < noise_stop:
             if refine_overflow:
@@ -1670,7 +1595,7 @@ class MCMCStrategy(DefaultStrategy):
         return result
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "DensificationStats",
     "DefaultStrategy",
     "MCMCStrategy",

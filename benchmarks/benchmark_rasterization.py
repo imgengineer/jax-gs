@@ -11,15 +11,16 @@ array length, not the logical maximum accepted by the training CLI.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import json
 import math
 import os
-from pathlib import Path
 import resource
 import sys
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 # This must be set before importing JAX.  Assignment (rather than setdefault)
 # makes the benchmark safe even when a shell profile enables preallocation.
@@ -64,7 +65,9 @@ def _resolution(value: str) -> tuple[int, int]:
         width_text, height_text = value.lower().split("x", maxsplit=1)
         width, height = int(width_text), int(height_text)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("use WIDTHxHEIGHT, for example 320x180") from exc
+        raise argparse.ArgumentTypeError(
+            "use WIDTHxHEIGHT, for example 320x180"
+        ) from exc
     if width <= 0 or height <= 0:
         raise argparse.ArgumentTypeError("width and height must be positive")
     return width, height
@@ -244,7 +247,9 @@ def _camera_array(array: np.ndarray, shape: tuple[int, int], index: int) -> np.n
         return array
     if array.ndim == 3 and array.shape[1:] == shape:
         return array[index % array.shape[0]]
-    raise ValueError(f"camera array must have shape {shape} or [C, {shape[0]}, {shape[1]}]")
+    raise ValueError(
+        f"camera array must have shape {shape} or [C, {shape[0]}, {shape[1]}]"
+    )
 
 
 def _source_resolution(
@@ -372,9 +377,7 @@ def _load_npz(
         if quats is None:
             quats = attribute_rng.normal(size=(means.shape[0], 4)).astype(np.float32)
         if scales is None:
-            scales = (
-                attribute_rng.random((means.shape[0], 3), dtype=np.float32) * 0.02
-            )
+            scales = attribute_rng.random((means.shape[0], 3), dtype=np.float32) * 0.02
         if opacities is None:
             opacities = attribute_rng.random(means.shape[0], dtype=np.float32)
     quats = np.asarray(quats, dtype=np.float32).reshape(-1, 4)
@@ -530,12 +533,7 @@ def _estimated_peak_bytes(
         compositing = tile_batch * k * tile_size * tile_size * 32
     outputs = width * height * 20
     forward = (
-        inputs
-        + projection
-        + tile_scan
-        + intersection_workspace
-        + compositing
-        + outputs
+        inputs + projection + tile_scan + intersection_workspace + compositing + outputs
     )
     return forward * (5 if backward else 2)
 
@@ -559,14 +557,16 @@ def _peak_rss_bytes() -> int:
 
 def _block(tree: Any) -> Any:
     return jax.tree.map(
-        lambda value: value.block_until_ready()
-        if hasattr(value, "block_until_ready")
-        else value,
+        lambda value: (
+            value.block_until_ready() if hasattr(value, "block_until_ready") else value
+        ),
         tree,
     )
 
 
-def _time_once(function: Callable[..., Any], arguments: tuple[Any, ...]) -> tuple[Any, float]:
+def _time_once(
+    function: Callable[..., Any], arguments: tuple[Any, ...]
+) -> tuple[Any, float]:
     started = time.perf_counter()
     output = _block(function(*arguments))
     return output, time.perf_counter() - started
@@ -615,17 +615,11 @@ def _validate_safety(args: argparse.Namespace, parser: argparse.ArgumentParser) 
         if args.npz is None:
             parser.error("--gsplat-v153-garden-profile requires --npz")
         if args.capacity != args.active:
-            parser.error(
-                "--gsplat-v153-garden-profile requires --capacity == --active"
-            )
+            parser.error("--gsplat-v153-garden-profile requires --capacity == --active")
         if (width, height) != (640, 360):
-            parser.error(
-                "--gsplat-v153-garden-profile requires --resolution 640x360"
-            )
+            parser.error("--gsplat-v153-garden-profile requires --resolution 640x360")
         if not math.isclose(args.radius_clip, 3.0):
-            parser.error(
-                "--gsplat-v153-garden-profile requires --radius-clip 3"
-            )
+            parser.error("--gsplat-v153-garden-profile requires --radius-clip 3")
     if args.backward and not args.allow_unsafe:
         violations = []
         if width * height > 128 * 128:
@@ -857,6 +851,7 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     if args.backward:
+
         def loss_function(
             means: jax.Array,
             quats: jax.Array,

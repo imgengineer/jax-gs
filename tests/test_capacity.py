@@ -3,12 +3,12 @@
 import json
 from pathlib import Path
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
+from flax import nnx
 
 import jax_gs.checkpoints as checkpoints_module
 from jax_gs.capacity import (
@@ -34,11 +34,11 @@ from jax_gs.config import (
 from jax_gs.model import GaussianModel, inverse_sigmoid
 from jax_gs.optimizers import create_optimizer
 from jax_gs.strategy import StrategyState
-from jax_gs.training.pose import CameraOptModule
 from jax_gs.training.appearance import (
     AppearanceOptModule,
     create_appearance_optimizer,
 )
+from jax_gs.training.pose import CameraOptModule
 
 
 def _snapshot_state(node: object) -> dict[str, np.ndarray]:
@@ -53,9 +53,7 @@ def _snapshot_state(node: object) -> dict[str, np.ndarray]:
     return {str(path): copy_array(value) for path, value in leaves}
 
 
-def _seed_adam_moments(
-    model: GaussianModel, optimizer: nnx.Optimizer
-) -> None:
+def _seed_adam_moments(model: GaussianModel, optimizer: nnx.Optimizer) -> None:
     parameters = nnx.state(model, nnx.Param)
 
     def make_gradient(value: jax.Array) -> jax.Array:
@@ -70,9 +68,9 @@ def _pose_training_state(
     camera_count: int,
 ) -> tuple[CameraOptModule, nnx.Optimizer]:
     module = CameraOptModule(camera_count, rngs=nnx.Rngs(123))
-    module.embeds.embedding[...] = jnp.arange(
-        camera_count * 9, dtype=jnp.float32
-    ).reshape(camera_count, 9) / 100.0
+    module.embeds.embedding[...] = (
+        jnp.arange(camera_count * 9, dtype=jnp.float32).reshape(camera_count, 9) / 100.0
+    )
     optimizer = nnx.Optimizer(module, optax.adam(1.0e-3), wrt=nnx.Param)
     gradients = jax.tree.map(jnp.ones_like, nnx.state(module, nnx.Param))
     optimizer.update(module, gradients)
@@ -124,9 +122,7 @@ def test_bucket_capacity_distinguishes_logical_and_physical_capacity() -> None:
 
     points = np.zeros((17, 3), np.float32)
     points[:, 0] = np.arange(17, dtype=np.float32)
-    point_model = GaussianModel.from_point_cloud(
-        points, np.zeros_like(points), config
-    )
+    point_model = GaussianModel.from_point_cloud(points, np.zeros_like(points), config)
     assert point_model.capacity == 32
     assert point_model.max_capacity == 100
     assert int(point_model.active_count) == 17
@@ -163,16 +159,12 @@ def test_compact_training_state_uses_one_stable_permutation() -> None:
 
     slots = jnp.arange(model.capacity, dtype=jnp.float32)
     model.means[...] = jnp.stack([slots, slots + 10, slots + 20], axis=-1)
-    model.log_scales[...] = jnp.stack(
-        [slots + 30, slots + 40, slots + 50], axis=-1
-    )
+    model.log_scales[...] = jnp.stack([slots + 30, slots + 40, slots + 50], axis=-1)
     model.quats[...] = jnp.stack(
         [slots + 60, slots + 70, slots + 80, slots + 90], axis=-1
     )
     model.opacity_logits[...] = slots + 100
-    model.sh0[...] = jnp.broadcast_to(
-        slots[:, None, None], model.sh0.shape
-    )
+    model.sh0[...] = jnp.broadcast_to(slots[:, None, None], model.sh0.shape)
     model.sh_rest[...] = jnp.broadcast_to(
         (slots + 110)[:, None, None], model.sh_rest.shape
     )
@@ -190,8 +182,7 @@ def test_compact_training_state_uses_one_stable_permutation() -> None:
 
     order = np.array([1, 3, 4, 7, 0, 2, 5, 6])
     model_before = {
-        name: np.asarray(value).copy()
-        for name, value in model.state_dict().items()
+        name: np.asarray(value).copy() for name, value in model.state_dict().items()
     }
     optimizer_before = _snapshot_state(optimizer)
     strategy_before = _snapshot_state(strategy_state)
@@ -207,17 +198,13 @@ def test_compact_training_state_uses_one_stable_permutation() -> None:
     optimizer_after = _snapshot_state(optimizer)
     for path, before in optimizer_before.items():
         after = optimizer_after[path]
-        expected = (
-            before[order] if before.ndim and before.shape[0] == 8 else before
-        )
+        expected = before[order] if before.ndim and before.shape[0] == 8 else before
         np.testing.assert_array_equal(after, expected)
 
     strategy_after = _snapshot_state(strategy_state)
     for path, before in strategy_before.items():
         after = strategy_after[path]
-        expected = (
-            before[order] if before.ndim and before.shape[0] == 8 else before
-        )
+        expected = before[order] if before.ndim and before.shape[0] == 8 else before
         np.testing.assert_array_equal(after, expected)
 
 
@@ -246,8 +233,7 @@ def test_resize_training_state_preserves_prefix_and_initializes_tail() -> None:
     strategy_state.capacity_overflow[...] = True
 
     model_before = {
-        name: np.asarray(value).copy()
-        for name, value in model.state_dict().items()
+        name: np.asarray(value).copy() for name, value in model.state_dict().items()
     }
     optimizer_before = _snapshot_state(optimizer)
     strategy_before = _snapshot_state(strategy_state)
@@ -302,9 +288,7 @@ def test_resize_training_state_preserves_prefix_and_initializes_tail() -> None:
             np.testing.assert_array_equal(after, before)
 
     previous_step = int(new_optimizer.step[...])
-    gradients = jax.tree.map(
-        jnp.zeros_like, nnx.state(new_model, nnx.Param)
-    )
+    gradients = jax.tree.map(jnp.zeros_like, nnx.state(new_model, nnx.Param))
     new_optimizer.update(new_model, gradients)
     assert int(new_optimizer.step[...]) == previous_step + 1
 
@@ -329,16 +313,13 @@ def test_shrink_compacted_training_state_preserves_prefix() -> None:
     active_count = compact_training_state(model, optimizer, strategy_state)
     active_count.block_until_ready()
     model_before = {
-        name: np.asarray(value).copy()
-        for name, value in model.state_dict().items()
+        name: np.asarray(value).copy() for name, value in model.state_dict().items()
     }
     optimizer_before = _snapshot_state(optimizer)
     strategy_before = _snapshot_state(strategy_state)
 
     with pytest.raises(ValueError, match="active rows"):
-        _shrink_compacted_training_state(
-            model, optimizer, strategy_state, 4, 5
-        )
+        _shrink_compacted_training_state(model, optimizer, strategy_state, 4, 5)
 
     model, optimizer, strategy_state = _shrink_compacted_training_state(
         model, optimizer, strategy_state, 4, int(active_count)
@@ -390,12 +371,8 @@ def test_appearance_capacity_resize_and_compaction_keep_rows_and_moments_aligned
 
     assert int(active_count) == 2
     order = np.asarray([1, 3, 0, 2])
-    np.testing.assert_array_equal(
-        model.features[:, 0], features_before[order, 0]
-    )
-    np.testing.assert_array_equal(
-        model.colors[:, 0], colors_before[order, 0]
-    )
+    np.testing.assert_array_equal(model.features[:, 0], features_before[order, 0])
+    np.testing.assert_array_equal(model.colors[:, 0], colors_before[order, 0])
     for path, before in optimizer_before.items():
         after = _snapshot_state(optimizer)[path]
         expected = before[order] if before.ndim and before.shape[0] == 4 else before
@@ -477,9 +454,7 @@ def test_checkpoint_records_physical_capacity_separately_from_logical_maximum(
 def test_checkpoint_round_trip_supports_degree_zero_empty_sh_rest(
     tmp_path: Path,
 ) -> None:
-    model_config = ModelConfig(
-        capacity=8, bucket_min_capacity=4, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=8, bucket_min_capacity=4, sh_degree=0)
     config = TrainConfig(model=model_config)
     model = GaussianModel.empty(model_config, physical_capacity=4)
     model.active_mask[:2] = True
@@ -496,9 +471,7 @@ def test_checkpoint_round_trip_supports_degree_zero_empty_sh_rest(
         strategy_state=strategy_state,
         config=config,
     )
-    restored_model = GaussianModel.empty(
-        model_config, physical_capacity=4
-    )
+    restored_model = GaussianModel.empty(model_config, physical_capacity=4)
     restored_optimizer = create_optimizer(restored_model, config.optimizer)
     restored_strategy = StrategyState(4)
     step = restore_checkpoint(
@@ -517,9 +490,7 @@ def test_checkpoint_round_trip_supports_degree_zero_empty_sh_rest(
 def test_checkpoint_round_trip_restores_pose_module_optimizer_and_manifest(
     tmp_path: Path,
 ) -> None:
-    model_config = ModelConfig(
-        capacity=8, bucket_min_capacity=4, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=8, bucket_min_capacity=4, sh_degree=0)
     config = TrainConfig(model=model_config)
     model = GaussianModel.empty(model_config, physical_capacity=4)
     optimizer = create_optimizer(model, config.optimizer)
@@ -554,9 +525,7 @@ def test_checkpoint_round_trip_restores_pose_module_optimizer_and_manifest(
     assert metadata["pose_camera_count"] == 3
     assert metadata["pose_image_names"] == list(pose_image_names)
 
-    restored_model = GaussianModel.empty(
-        model_config, physical_capacity=4
-    )
+    restored_model = GaussianModel.empty(model_config, physical_capacity=4)
     restored_optimizer = create_optimizer(restored_model, config.optimizer)
     restored_strategy = StrategyState(4)
     restored_pose = CameraOptModule(3, rngs=nnx.Rngs(999))
@@ -584,10 +553,9 @@ def test_checkpoint_round_trip_restores_pose_module_optimizer_and_manifest(
         )
 
     gradients = jax.tree.map(
-        lambda value: jnp.arange(value.size, dtype=value.dtype).reshape(
-            value.shape
-        )
-        / 10.0,
+        lambda value: (
+            jnp.arange(value.size, dtype=value.dtype).reshape(value.shape) / 10.0
+        ),
         nnx.state(pose_module, nnx.Param),
     )
     pose_optimizer.update(pose_module, gradients)
@@ -664,8 +632,8 @@ def test_v6_checkpoint_restores_appearance_module_optimizer_and_manifest(
     )
     restored_optimizer = create_optimizer(restored_model, config.optimizer)
     restored_strategy = StrategyState(4)
-    restored_appearance, restored_appearance_optimizer = (
-        _appearance_training_state(3, config)
+    restored_appearance, restored_appearance_optimizer = _appearance_training_state(
+        3, config
     )
     assert (
         restore_checkpoint(
@@ -712,9 +680,7 @@ def test_v6_checkpoint_restores_appearance_module_optimizer_and_manifest(
 def test_v6_pose_checkpoint_supports_model_only_restore_and_rejects_reordered_names(
     tmp_path: Path,
 ) -> None:
-    model_config = ModelConfig(
-        capacity=8, bucket_min_capacity=4, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=8, bucket_min_capacity=4, sh_degree=0)
     model = GaussianModel.empty(model_config, physical_capacity=4)
     model.means[0] = jnp.asarray([1.0, 2.0, 3.0])
     pose_module, pose_optimizer = _pose_training_state(2)
@@ -772,9 +738,7 @@ def test_v6_pose_checkpoint_supports_model_only_restore_and_rejects_reordered_na
 def test_checkpoint_camera_manifest_supports_fixed_pose_noise_without_optimizer(
     tmp_path: Path,
 ) -> None:
-    model_config = ModelConfig(
-        capacity=4, bucket_min_capacity=4, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0)
     model = GaussianModel.empty(model_config, physical_capacity=4)
     names = ("first.png", "second.png")
 
@@ -809,9 +773,7 @@ def test_checkpoint_camera_manifest_supports_fixed_pose_noise_without_optimizer(
 def test_legacy_v3_core_restore_remains_supported_but_pose_restore_is_rejected(
     tmp_path: Path,
 ) -> None:
-    model_config = ModelConfig(
-        capacity=8, bucket_min_capacity=4, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=8, bucket_min_capacity=4, sh_degree=0)
     config = TrainConfig(model=model_config)
     model = GaussianModel.empty(model_config, physical_capacity=4)
     model.active_mask[0] = True
@@ -833,9 +795,7 @@ def test_legacy_v3_core_restore_remains_supported_but_pose_restore_is_rejected(
     metadata.pop("components", None)
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
 
-    restored_model = GaussianModel.empty(
-        model_config, physical_capacity=4
-    )
+    restored_model = GaussianModel.empty(model_config, physical_capacity=4)
     restored_optimizer = create_optimizer(restored_model, config.optimizer)
     restored_strategy = StrategyState(4)
     assert (
@@ -865,9 +825,7 @@ def test_legacy_v3_core_restore_remains_supported_but_pose_restore_is_rejected(
 def test_checkpoint_pose_arguments_must_be_provided_together(
     tmp_path: Path,
 ) -> None:
-    model_config = ModelConfig(
-        capacity=4, bucket_min_capacity=4, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0)
     model = GaussianModel.empty(model_config, physical_capacity=4)
     pose_module, pose_optimizer = _pose_training_state(1)
 

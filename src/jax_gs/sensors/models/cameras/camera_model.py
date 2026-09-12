@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ... import functional as F
 from ...functional.return_types import (
@@ -450,9 +450,7 @@ class CameraModel(nnx.Module):
         return_timestamps: bool = False,
     ) -> WorldRaysReturn:
         points = jnp.asarray(image_points)
-        pose = _camera_ops.mean_pose_to_static_pose(
-            dynamic_pose, dtype=points.dtype
-        )
+        pose = _camera_ops.mean_pose_to_static_pose(dynamic_pose, dtype=points.dtype)
         timestamp = None
         if start_timestamp_us is not None and end_timestamp_us is not None:
             timestamp = (start_timestamp_us + end_timestamp_us) // 2
@@ -600,9 +598,7 @@ class CameraModel(nnx.Module):
 
         return jnp.floor(image_points).astype(jnp.int32)
 
-    def image_points_relative_frame_times(
-        self, image_points: jax.Array
-    ) -> jax.Array:
+    def image_points_relative_frame_times(self, image_points: jax.Array) -> jax.Array:
         return _camera_ops.relative_frame_times(
             image_points, self.resolution, self.shutter_type
         )
@@ -612,7 +608,7 @@ class CameraModel(nnx.Module):
         image_domain_scale: float | tuple[float, float],
         image_domain_offset: tuple[float, float] = (0.0, 0.0),
         new_resolution: tuple[int, int] | None = None,
-    ) -> "CameraModel":
+    ) -> CameraModel:
         if isinstance(image_domain_scale, tuple):
             scale_x, scale_y = image_domain_scale
         else:

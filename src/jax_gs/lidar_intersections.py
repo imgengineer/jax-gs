@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import operator
+from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
@@ -69,9 +69,7 @@ def lidar_sample_tileid(
     dense_elevation = round_fn(
         normalized_elevation * lidar.tiling.cdf_resolution_elevation
     ).astype(jnp.int32)
-    dense_azimuth = jnp.clip(
-        dense_azimuth, 0, lidar.tiling.cdf_resolution_azimuth
-    )
+    dense_azimuth = jnp.clip(dense_azimuth, 0, lidar.tiling.cdf_resolution_azimuth)
     dense_elevation = jnp.clip(
         dense_elevation, 0, lidar.tiling.cdf_resolution_elevation
     )
@@ -86,17 +84,13 @@ def lidar_sample_tileid(
         )
     else:
         elevation_tile = cdf[dense_elevation]
-    azimuth_tile = round_fn(
-        normalized_azimuth * lidar.tiling.n_bins_azimuth
-    ).astype(jnp.int32)
-    azimuth_tile = jnp.clip(
-        azimuth_tile, 0, lidar.tiling.n_bins_azimuth
+    azimuth_tile = round_fn(normalized_azimuth * lidar.tiling.n_bins_azimuth).astype(
+        jnp.int32
     )
+    azimuth_tile = jnp.clip(azimuth_tile, 0, lidar.tiling.n_bins_azimuth)
     return LidarSampleTileIdReturn(
         idx=jnp.stack((azimuth_tile, elevation_tile), axis=-1).astype(jnp.int32),
-        idxdense=jnp.stack(
-            (dense_azimuth, dense_elevation), axis=-1
-        ).astype(jnp.int32),
+        idxdense=jnp.stack((dense_azimuth, dense_elevation), axis=-1).astype(jnp.int32),
     )
 
 
@@ -124,9 +118,7 @@ def has_any_rays_in_tile(
         - cdf[end_elevation, begin_azimuth]
         + cdf[begin_elevation, begin_azimuth]
     )
-    full_horizontal_cover = (begin_azimuth <= 0) & (
-        end_azimuth >= max_azimuth
-    )
+    full_horizontal_cover = (begin_azimuth <= 0) & (end_azimuth >= max_azimuth)
     return (ray_count > 0) | full_horizontal_cover
 
 
@@ -165,9 +157,7 @@ def isect_tiles_lidar(
     static ``max_intersections``.
     """
 
-    if not isinstance(
-        lidar, RowOffsetStructuredSpinningLidarModelParametersExt
-    ):
+    if not isinstance(lidar, RowOffsetStructuredSpinningLidarModelParametersExt):
         raise TypeError("lidar must contain angle maps and tiling state")
     if packed and segmented:
         raise ValueError("segmented sort is not supported for packed inputs")
@@ -205,9 +195,7 @@ def isect_tiles_lidar(
         flat_means = means.reshape((flat_count, 2))
         flat_radii = radii.reshape((flat_count, 2))
         flat_depths = depths.reshape((flat_count,))
-        image_of = jnp.repeat(
-            jnp.arange(image_count, dtype=jnp.int32), gaussian_count
-        )
+        image_of = jnp.repeat(jnp.arange(image_count, dtype=jnp.int32), gaussian_count)
         output_shape = image_shape + (gaussian_count,)
 
     if active_mask is None:
@@ -360,9 +348,7 @@ def isect_tiles_lidar(
     ranks = jnp.arange(capacity, dtype=jnp.int32)
     source = jnp.searchsorted(cumulative, ranks, side="right")
     source = jnp.clip(source, 0, flat_count - 1)
-    previous = jnp.where(
-        source > 0, cumulative[jnp.maximum(source - 1, 0)], 0
-    )
+    previous = jnp.where(source > 0, cumulative[jnp.maximum(source - 1, 0)], 0)
     local = ranks - previous
     selected_azimuth_count = jnp.maximum(azimuth_count[source], 1)
     azimuth_local = local % selected_azimuth_count
@@ -399,9 +385,7 @@ def isect_tiles_lidar(
     high_word = _encode_high_word(selected_image, tile_id, tile_bits)
     depth_word = jax.lax.bitcast_convert_type(selected_depth, jnp.int32)
     intersection_ids = jnp.stack((high_word, depth_word), axis=-1)
-    intersection_ids = jnp.where(
-        selected_valid[:, None], intersection_ids, -1
-    )
+    intersection_ids = jnp.where(selected_valid[:, None], intersection_ids, -1)
     flatten_ids = jnp.where(selected_valid, source.astype(jnp.int32), -1)
     return PaddedIntersections(
         jax.lax.stop_gradient(tiles_per_gaussian),

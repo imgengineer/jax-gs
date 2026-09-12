@@ -7,14 +7,14 @@ convention and exposes both the world-to-camera matrix and its inverse.
 
 from __future__ import annotations
 
+import struct
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-import struct
-from typing import BinaryIO, Mapping
+from typing import BinaryIO
 
 import numpy as np
 from numpy.typing import NDArray
-
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -239,7 +239,9 @@ def _read_c_string(file: BinaryIO, context: str) -> str:
         name.extend(char)
 
 
-def _insert_unique(records: dict[int, object], key: int, value: object, kind: str) -> None:
+def _insert_unique(
+    records: dict[int, object], key: int, value: object, kind: str
+) -> None:
     if key in records:
         raise ColmapFormatError(f"duplicate {kind} id {key}")
     records[key] = value

@@ -27,8 +27,8 @@ def compute_scaled_resolution(
     else:
         scale_x = scale_y = scale
     return (
-        int(round(original_resolution[0] * scale_x)),
-        int(round(original_resolution[1] * scale_y)),
+        round(original_resolution[0] * scale_x),
+        round(original_resolution[1] * scale_y),
     )
 
 

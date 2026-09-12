@@ -1,8 +1,8 @@
 import math
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from jax_gs.config import ModelConfig, OptimizerConfig, StrategyConfig
 from jax_gs.model import GaussianModel
@@ -11,10 +11,7 @@ from jax_gs.strategy import DefaultStrategy, MCMCStrategy, _sample_weighted_ids
 
 
 def _state_leaves(node):
-    return [
-        jnp.array(value)
-        for value in jax.tree.leaves(nnx.as_pure(nnx.state(node)))
-    ]
+    return [jnp.array(value) for value in jax.tree.leaves(nnx.as_pure(nnx.state(node)))]
 
 
 def test_default_strategy_allocates_without_resizing():
@@ -115,9 +112,7 @@ def test_default_strategy_target_paces_growth_and_caps_the_final_population():
 
     first_plan = strategy.plan_refine(model, state, 1.0, step=0)
     assert int(first_plan["planned_new_count"]) == 1
-    first = strategy.refine(
-        model, state, optimizer, jax.random.key(0), 1.0, step=0
-    )
+    first = strategy.refine(model, state, optimizer, jax.random.key(0), 1.0, step=0)
     assert int(first["new_count"]) == 1
     assert int(model.active_count) == 5
 
@@ -125,9 +120,7 @@ def test_default_strategy_target_paces_growth_and_caps_the_final_population():
     state.visible_count[:8] = 1.0
     final_plan = strategy.plan_refine(model, state, 1.0, step=4)
     assert int(final_plan["planned_new_count"]) == 3
-    final = strategy.refine(
-        model, state, optimizer, jax.random.key(1), 1.0, step=4
-    )
+    final = strategy.refine(model, state, optimizer, jax.random.key(1), 1.0, step=4)
     assert int(final["new_count"]) == 3
     assert int(model.active_count) == 8
 
@@ -161,9 +154,7 @@ def test_default_strategy_target_does_not_compensate_same_step_pruning():
     state.visible_count[:4] = 1.0
     optimizer = create_optimizer(model, OptimizerConfig(max_steps=10))
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(0), 1.0, step=0
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(0), 1.0, step=0)
 
     assert int(result["new_count"]) == 2
     assert int(result["pruned_count"]) == 6
@@ -193,18 +184,14 @@ def test_default_strategy_target_does_not_replenish_births_after_pruning():
     state.visible_count[:4] = 1.0
     optimizer = create_optimizer(model, OptimizerConfig(max_steps=10))
 
-    first = strategy.refine(
-        model, state, optimizer, jax.random.key(0), 1.0, step=0
-    )
+    first = strategy.refine(model, state, optimizer, jax.random.key(0), 1.0, step=0)
     assert int(first["new_count"]) == 1
     assert int(state.target_births_remaining[...]) == 1
 
     model.active_mask[0] = False
     state.grad_accum[:4] = 1.0
     state.visible_count[:4] = 1.0
-    second = strategy.refine(
-        model, state, optimizer, jax.random.key(1), 1.0, step=1
-    )
+    second = strategy.refine(model, state, optimizer, jax.random.key(1), 1.0, step=1)
 
     assert int(second["new_count"]) == 1
     assert int(state.target_births_remaining[...]) == 0
@@ -309,9 +296,7 @@ def test_default_strategy_hook_does_not_grow_at_equal_gradient_threshold():
         state,
         1,
         {
-            "means2d_gradient": jnp.asarray(
-                [[[0.125, 0.0], [0.0, 0.0]]], jnp.float32
-            ),
+            "means2d_gradient": jnp.asarray([[[0.125, 0.0], [0.0, 0.0]]], jnp.float32),
             "radii": jnp.asarray([[[1.0, 1.0], [0.0, 0.0]]], jnp.float32),
             "valid": jnp.asarray([[True, False]]),
             "width": 2,
@@ -390,9 +375,7 @@ def test_default_strategy_small_screen_large_parent_duplicates_then_splits():
     assert int(plan["required_capacity"]) == 3
     assert not bool(plan["capacity_overflow"])
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(41), 1.0, step=1
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(41), 1.0, step=1)
 
     active_scales = jnp.sort(
         jnp.max(jnp.exp(model.log_scales[model.active_mask[...]]), axis=-1)
@@ -429,9 +412,7 @@ def test_default_strategy_combined_growth_event_limit_prefers_duplicate():
     state.visible_count[0] = 1.0
     state.max_radii[0] = 0.2
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(42), 1.0, step=1
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(42), 1.0, step=1)
 
     assert int(result["new_count"]) == 1
     assert jnp.allclose(jnp.exp(model.log_scales[:2]), 0.1)
@@ -442,9 +423,7 @@ def test_default_strategy_combined_growth_revises_and_prunes_only_split_rows():
     model.active_mask[0] = True
     model.log_scales[0] = jnp.log(0.1)
     original_opacity = 0.36
-    model.opacity_logits[0] = jnp.log(
-        original_opacity / (1.0 - original_opacity)
-    )
+    model.opacity_logits[0] = jnp.log(original_opacity / (1.0 - original_opacity))
     optimizer = create_optimizer(model, OptimizerConfig(max_steps=10))
     strategy = DefaultStrategy(
         StrategyConfig(
@@ -465,9 +444,7 @@ def test_default_strategy_combined_growth_revises_and_prunes_only_split_rows():
     state.max_radii[0] = 0.2
 
     plan = strategy.plan_refine(model, state, 1.0, step=1)
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(44), 1.0, step=1
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(44), 1.0, step=1)
 
     assert int(plan["planned_new_count"]) == 2
     assert int(plan["pruned_count"]) == 2
@@ -479,9 +456,7 @@ def test_default_strategy_combined_growth_revises_and_prunes_only_split_rows():
         jax.nn.sigmoid(model.opacity_logits[model.active_mask[...]]),
         original_opacity,
     )
-    assert jnp.allclose(
-        jnp.exp(model.log_scales[model.active_mask[...]]), 0.1
-    )
+    assert jnp.allclose(jnp.exp(model.log_scales[model.active_mask[...]]), 0.1)
 
 
 def test_default_strategy_combined_growth_overflow_is_atomic():
@@ -525,9 +500,7 @@ def test_default_strategy_combined_growth_overflow_is_atomic():
     assert int(plan["required_capacity"]) == 3
     assert bool(plan["capacity_overflow"])
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(43), 1.0, step=1
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(43), 1.0, step=1)
 
     assert int(result["new_count"]) == 0
     assert int(result["pruned_count"]) == 0
@@ -639,9 +612,7 @@ def test_default_strategy_splits_before_pruning_large_gaussians():
     assert int(plan["pruned_count"]) == 0
     assert int(plan["active_after_prune_count"]) == 2
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(29), 1.0, step=2
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(29), 1.0, step=2)
 
     assert int(result["new_count"]) == 1
     assert int(result["pruned_count"]) == 0
@@ -678,9 +649,7 @@ def test_default_strategy_revised_opacity_matches_split_and_prune_plan():
     assert int(plan["pruned_count"]) == 2
     assert int(plan["active_after_prune_count"]) == 2
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(37), 1.0, step=1
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(37), 1.0, step=1)
 
     revised_opacity = 1.0 - math.sqrt(1.0 - original_opacity)
     stored_opacities = jnp.sort(jax.nn.sigmoid(model.opacity_logits[...]))
@@ -728,16 +697,12 @@ def test_default_strategy_prunes_low_opacity_parent_and_duplicate_after_growth()
     assert int(plan["active_after_prune_count"]) == 1
     assert not bool(plan["capacity_overflow"])
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(31), 1.0, step=1
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(31), 1.0, step=1)
 
     assert int(result["new_count"]) == 1
     assert int(result["pruned_count"]) == 2
     assert int(model.active_count) == 1
-    assert jnp.array_equal(
-        model.active_mask[...], jnp.asarray([False, True, False])
-    )
+    assert jnp.array_equal(model.active_mask[...], jnp.asarray([False, True, False]))
 
 
 def test_default_strategy_prunes_low_opacity_slots():
@@ -825,9 +790,7 @@ def test_compiled_mcmc_strategy_copies_appearance_rows_for_birth_and_relocation(
     birth_model.colors[:20] = jnp.broadcast_to(
         jnp.arange(20, dtype=jnp.float32)[:, None], (20, 3)
     )
-    birth_optimizer = create_optimizer(
-        birth_model, OptimizerConfig(max_steps=10)
-    )
+    birth_optimizer = create_optimizer(birth_model, OptimizerConfig(max_steps=10))
     birth_strategy = MCMCStrategy(
         StrategyConfig(kind="mcmc", cap_max=21, max_new_per_refine=2)
     )
@@ -858,9 +821,7 @@ def test_compiled_mcmc_strategy_copies_appearance_rows_for_birth_and_relocation(
     relocate_model.opacity_logits[...] = jnp.asarray([-20.0, jnp.log(4.0)])
     relocate_model.features[1] = jnp.arange(32, dtype=jnp.float32)
     relocate_model.colors[1] = jnp.asarray([1.0, 2.0, 3.0])
-    relocate_optimizer = create_optimizer(
-        relocate_model, OptimizerConfig(max_steps=10)
-    )
+    relocate_optimizer = create_optimizer(relocate_model, OptimizerConfig(max_steps=10))
     relocate_strategy = MCMCStrategy(
         StrategyConfig(
             kind="mcmc",
@@ -900,9 +861,7 @@ def test_mcmc_strategy_capacity_overflow_is_atomic():
         jax.tree.map(jnp.ones_like, nnx.state(model, nnx.Param)),
     )
     model.active_mask[:] = True
-    model.means[...] = jnp.arange(capacity * 3, dtype=jnp.float32).reshape(
-        capacity, 3
-    )
+    model.means[...] = jnp.arange(capacity * 3, dtype=jnp.float32).reshape(capacity, 3)
     model.log_scales[...] = jnp.log(0.1)
     model.quats[...] = jnp.asarray([1.0, 0.0, 0.0, 0.0])
     model.opacity_logits[...] = jnp.log(4.0)
@@ -935,9 +894,7 @@ def test_mcmc_strategy_capacity_overflow_is_atomic():
     assert int(plan["free_count"]) == 0
     assert bool(plan["capacity_overflow"])
 
-    result = strategy.refine(
-        model, state, optimizer, jax.random.key(45), 1.0
-    )
+    result = strategy.refine(model, state, optimizer, jax.random.key(45), 1.0)
 
     assert int(result["new_count"]) == 0
     assert int(result["pruned_count"]) == 0
@@ -994,9 +951,7 @@ def test_mcmc_strategy_does_not_force_a_birth_below_twenty_points():
 def test_mcmc_weighted_sampling_has_linear_intermediate_shapes():
     abstract_weights = jax.ShapeDtypeStruct((1_000_000,), jnp.float32)
     output_shapes = jax.eval_shape(
-        lambda weights: _sample_weighted_ids(
-            jax.random.key(0), weights, 8_192
-        ),
+        lambda weights: _sample_weighted_ids(jax.random.key(0), weights, 8_192),
         abstract_weights,
     )
     assert output_shapes[0].shape == (8_192,)
@@ -1004,9 +959,7 @@ def test_mcmc_weighted_sampling_has_linear_intermediate_shapes():
 
     jaxpr = str(
         jax.make_jaxpr(
-            lambda weights: _sample_weighted_ids(
-                jax.random.key(0), weights, 8_192
-            )
+            lambda weights: _sample_weighted_ids(jax.random.key(0), weights, 8_192)
         )(abstract_weights)
     )
     assert "f32[8192,1000000]" not in jaxpr

@@ -1,17 +1,16 @@
-import jax_gs
-import jax_gs.data as data_api
-import jax_gs.data.normalize as normalize_implementation
 import jax
 import jax.numpy as jnp
 import pytest
 
+import jax_gs
+import jax_gs.data as data_api
+import jax_gs.data.normalize as normalize_implementation
 from jax_gs import PaddedProjection, fully_fused_projection
 from jax_gs.checkpoints import (
     is_distributed_checkpoint,
     load_checkpoint_scene_transform,
     load_distributed_inference_checkpoint,
 )
-from jax_gs.two_dgs import fully_fused_projection_2dgs
 
 
 def _inputs():
@@ -27,10 +26,7 @@ def _inputs():
 
 
 def test_public_scene_normalization_and_checkpoint_exports():
-    assert (
-        jax_gs.load_checkpoint_scene_transform
-        is load_checkpoint_scene_transform
-    )
+    assert jax_gs.load_checkpoint_scene_transform is load_checkpoint_scene_transform
     assert "load_checkpoint_scene_transform" in jax_gs.__all__
     assert jax_gs.is_distributed_checkpoint is is_distributed_checkpoint
     assert (
@@ -54,9 +50,7 @@ def test_public_scene_normalization_and_checkpoint_exports():
 
 def test_public_fully_fused_projection_dense_signature():
     means, quats, scales, viewmats, Ks = _inputs()
-    result = fully_fused_projection(
-        means, None, quats, scales, viewmats, Ks, 8, 8
-    )
+    result = fully_fused_projection(means, None, quats, scales, viewmats, Ks, 8, 8)
     assert isinstance(result, tuple)
     assert len(result) == 5
     assert result[0].shape == (1, 2, 2)
@@ -138,18 +132,21 @@ def test_public_fully_fused_projection_sparse_contract():
 def test_gsplat_api_and_submodule_alignment():
     import importlib
 
-    rendering = importlib.import_module("jax_gs.rendering")
-    strategy = importlib.import_module("jax_gs.strategy")
-    distributed = importlib.import_module("jax_gs.distributed")
-    exporter = importlib.import_module("jax_gs.exporter")
-    color_correct = importlib.import_module("jax_gs.color_correct")
-    compression = importlib.import_module("jax_gs.compression")
-    losses = importlib.import_module("jax_gs.losses")
-    optimizers = importlib.import_module("jax_gs.optimizers")
-    cameras = importlib.import_module("jax_gs.cameras")
-    camera_wrappers = importlib.import_module("jax_gs.camera_wrappers")
-    relocation = importlib.import_module("jax_gs.relocation")
-    cuda = importlib.import_module("jax_gs.cuda")
+    for module_name in (
+        "jax_gs.rendering",
+        "jax_gs.strategy",
+        "jax_gs.distributed",
+        "jax_gs.exporter",
+        "jax_gs.color_correct",
+        "jax_gs.compression",
+        "jax_gs.losses",
+        "jax_gs.optimizers",
+        "jax_gs.cameras",
+        "jax_gs.camera_wrappers",
+        "jax_gs.relocation",
+        "jax_gs.cuda",
+    ):
+        importlib.import_module(module_name)
     _C = importlib.import_module("jax_gs.cuda._wrapper")
 
     root_expected = [

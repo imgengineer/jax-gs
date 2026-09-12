@@ -21,9 +21,7 @@ def test_safe_normalize_known_values_and_zero() -> None:
 
 
 def test_quaternion_rotation_known_values_and_vmap() -> None:
-    quats = jnp.array(
-        [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]], dtype=jnp.float32
-    )
+    quats = jnp.array([[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]], dtype=jnp.float32)
     rotations = jax.jit(quat_to_rotmat)(quats)
     np.testing.assert_allclose(rotations[0], np.eye(3), atol=1e-6)
     np.testing.assert_allclose(rotations[1], np.diag([-1.0, -1.0, 1.0]), atol=1e-6)
@@ -40,9 +38,7 @@ def test_quaternion_scale_covariance_precision_full_and_triu() -> None:
         precision[0], np.diag([0.25, 1.0 / 9.0, 1.0 / 16.0]), atol=1e-6
     )
 
-    covariance_triu, precision_triu = quat_scale_to_covar_preci(
-        quat, scale, triu=True
-    )
+    covariance_triu, precision_triu = quat_scale_to_covar_preci(quat, scale, triu=True)
     assert covariance_triu.shape == (1, 6)
     assert precision_triu.shape == (1, 6)
     np.testing.assert_allclose(triu_to_full(covariance_triu), covariance, atol=1e-6)

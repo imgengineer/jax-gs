@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-import warnings
 
 import jax
 import jax.numpy as jnp
@@ -75,9 +75,7 @@ def save_ply(
         DeprecationWarning,
         stacklevel=2,
     )
-    host = {
-        name: np.asarray(jax.device_get(value)) for name, value in splats.items()
-    }
+    host = {name: np.asarray(jax.device_get(value)) for name, value in splats.items()}
     means = host["means"]
     count = means.shape[0]
     scales = host["scales"]

@@ -7,6 +7,7 @@ from jax_gs.config import RasterizationConfig
 from jax_gs.intersections import intersect_tiles
 from jax_gs.rasterization import rasterization, rasterization_inria_wrapper
 
+
 def _scene():
     means = jnp.array(
         [[0.0, 0.0, 3.0], [0.2, 0.0, 4.0], [-0.2, 0.1, 2.5], [0.0, 0.0, -1.0]],
@@ -39,9 +40,7 @@ def _assert_global_packed_metadata(dense_info, packed_info):
     dense_valid = np.asarray(dense_info["valid"])
     camera_count, gaussian_count = dense_valid.shape[-2:]
     batch_count = int(np.prod(dense_valid.shape[:-2], dtype=np.int64)) or 1
-    dense_valid = dense_valid.reshape(
-        batch_count, camera_count, gaussian_count
-    )
+    dense_valid = dense_valid.reshape(batch_count, camera_count, gaussian_count)
     capacity = batch_count * camera_count * gaussian_count
     selected = np.flatnonzero(dense_valid.reshape(-1))
     valid_count = selected.size
@@ -71,24 +70,18 @@ def _assert_global_packed_metadata(dense_info, packed_info):
     expected_indptr = np.concatenate(
         (
             np.zeros((1,), dtype=np.int32),
-            np.cumsum(
-                dense_valid.sum(axis=-1).reshape(-1), dtype=np.int32
-            ),
+            np.cumsum(dense_valid.sum(axis=-1).reshape(-1), dtype=np.int32),
         )
     )
-    np.testing.assert_array_equal(
-        np.asarray(packed_info["indptr"]), expected_indptr
-    )
+    np.testing.assert_array_equal(np.asarray(packed_info["indptr"]), expected_indptr)
 
-    dense_flatten_ids = np.asarray(dense_info["flatten_ids"]).reshape(
-        batch_count, -1
-    )
+    dense_flatten_ids = np.asarray(dense_info["flatten_ids"]).reshape(batch_count, -1)
     dense_isect_ids = np.asarray(dense_info["isect_ids"]).reshape(
         batch_count, dense_flatten_ids.shape[1], 2
     )
-    dense_isect_counts = np.asarray(
-        dense_info["isect_valid_count"]
-    ).reshape(batch_count)
+    dense_isect_counts = np.asarray(dense_info["isect_valid_count"]).reshape(
+        batch_count
+    )
     dense_to_packed = np.full((capacity,), -1, dtype=np.int32)
     dense_to_packed[selected] = np.arange(valid_count, dtype=np.int32)
     tile_height, tile_width = np.asarray(dense_info["isect_offsets"]).shape[-2:]
@@ -324,8 +317,8 @@ def test_dense_metadata_reuses_multicamera_tile_intersections():
         gaussian_ids = np.asarray(intersections.gaussian_ids[:valid_count])
         tile_ids = np.asarray(intersections.tile_ids[:valid_count])
         depths = np.asarray(info["depths"][camera_id, gaussian_ids], np.float32)
-        high_words = ((camera_id << tile_bits) | tile_ids).astype(np.uint32).view(
-            np.int32
+        high_words = (
+            ((camera_id << tile_bits) | tile_ids).astype(np.uint32).view(np.int32)
         )
         depth_words = depths.view(np.int32)
         expected_words.extend(np.stack((high_words, depth_words), axis=-1))
@@ -343,12 +336,8 @@ def test_dense_metadata_reuses_multicamera_tile_intersections():
         np.asarray(info["flatten_ids"][:valid_count]),
         np.asarray(expected_flatten_ids),
     )
-    np.testing.assert_array_equal(
-        np.asarray(info["isect_ids"])[valid_count:], -1
-    )
-    np.testing.assert_array_equal(
-        np.asarray(info["flatten_ids"])[valid_count:], -1
-    )
+    np.testing.assert_array_equal(np.asarray(info["isect_ids"])[valid_count:], -1)
+    np.testing.assert_array_equal(np.asarray(info["flatten_ids"])[valid_count:], -1)
     np.testing.assert_array_equal(
         np.asarray(info["isect_offsets"]), np.asarray(expected_offsets)
     )
@@ -406,9 +395,7 @@ def test_packed_metadata_is_a_stable_projection_prefix_and_remaps_intersections(
     assert packed_info["projection_capacity"].dtype == jnp.int32
     assert int(packed_info["projection_capacity"]) == capacity
     assert bool(packed_info["packed_metadata_available"])
-    np.testing.assert_array_equal(
-        np.asarray(packed_info["batch_ids"][:valid_count]), 0
-    )
+    np.testing.assert_array_equal(np.asarray(packed_info["batch_ids"][:valid_count]), 0)
     np.testing.assert_array_equal(
         np.asarray(packed_info["camera_ids"][:valid_count]),
         selected // gaussian_count,
@@ -426,15 +413,11 @@ def test_packed_metadata_is_a_stable_projection_prefix_and_remaps_intersections(
             ),
         )
     )
-    np.testing.assert_array_equal(
-        np.asarray(packed_info["indptr"]), expected_indptr
-    )
+    np.testing.assert_array_equal(np.asarray(packed_info["indptr"]), expected_indptr)
     for key in ("batch_ids", "camera_ids", "gaussian_ids"):
         assert packed_info[key].shape == (capacity,)
         assert packed_info[key].dtype == jnp.int32
-        np.testing.assert_array_equal(
-            np.asarray(packed_info[key][valid_count:]), -1
-        )
+        np.testing.assert_array_equal(np.asarray(packed_info[key][valid_count:]), -1)
 
     projection_fields = {
         "radii": (capacity, 2),
@@ -446,15 +429,11 @@ def test_packed_metadata_is_a_stable_projection_prefix_and_remaps_intersections(
     }
     for key, shape in projection_fields.items():
         assert packed_info[key].shape == shape
-        dense_values = np.asarray(dense_info[key]).reshape(
-            (capacity,) + shape[1:]
-        )
+        dense_values = np.asarray(dense_info[key]).reshape((capacity,) + shape[1:])
         np.testing.assert_array_equal(
             np.asarray(packed_info[key][:valid_count]), dense_values[selected]
         )
-        np.testing.assert_array_equal(
-            np.asarray(packed_info[key][valid_count:]), 0
-        )
+        np.testing.assert_array_equal(np.asarray(packed_info[key][valid_count:]), 0)
     assert packed_info["radii"].dtype == jnp.int32
     assert packed_info["tiles_per_gauss"].dtype == jnp.int32
     for key in ("means2d", "depths", "conics", "opacities"):
@@ -483,12 +462,8 @@ def test_packed_metadata_is_a_stable_projection_prefix_and_remaps_intersections(
         np.asarray(dense_info["isect_offsets"]),
     )
 
-    dense_gradient = jax.grad(lambda value: render(value, packed=False)[0].sum())(
-        means
-    )
-    packed_gradient = jax.grad(lambda value: render(value, packed=True)[0].sum())(
-        means
-    )
+    dense_gradient = jax.grad(lambda value: render(value, packed=False)[0].sum())(means)
+    packed_gradient = jax.grad(lambda value: render(value, packed=True)[0].sum())(means)
     np.testing.assert_allclose(
         packed_gradient, dense_gradient, rtol=1.0e-6, atol=1.0e-6
     )
@@ -545,12 +520,8 @@ def test_reference_packed_metadata_uses_the_rendered_tile_candidates():
             config=config,
         )
 
-    dense_render, dense_alpha, dense_info = render(
-        means, opacities, packed=False
-    )
-    packed_render, packed_alpha, packed_info = render(
-        means, opacities, packed=True
-    )
+    dense_render, dense_alpha, dense_info = render(means, opacities, packed=False)
+    packed_render, packed_alpha, packed_info = render(means, opacities, packed=True)
 
     np.testing.assert_array_equal(packed_render, dense_render)
     np.testing.assert_array_equal(packed_alpha, dense_alpha)
@@ -594,9 +565,7 @@ def test_reference_packed_metadata_uses_the_rendered_tile_candidates():
     )
 
     def objective(current_means, current_opacities, *, packed):
-        rendered, alpha, _ = render(
-            current_means, current_opacities, packed=packed
-        )
+        rendered, alpha, _ = render(current_means, current_opacities, packed=packed)
         return jnp.sum(rendered) + 0.1 * jnp.sum(alpha)
 
     dense_gradients = jax.grad(objective, argnums=(0, 1))(
@@ -622,15 +591,13 @@ def test_eval3d_leading_batch_packed_metadata_remaps_visible_candidates():
         ],
         dtype=jnp.float32,
     )
-    quats = jnp.zeros(
-        (batch_count, gaussian_count, 4), dtype=jnp.float32
-    ).at[..., 0].set(1.0)
-    scales = jnp.full(
-        (batch_count, gaussian_count, 3), 0.1, dtype=jnp.float32
+    quats = (
+        jnp.zeros((batch_count, gaussian_count, 4), dtype=jnp.float32)
+        .at[..., 0]
+        .set(1.0)
     )
-    opacities = jnp.asarray(
-        [[0.4, 0.8, 0.5], [0.7, 0.6, 0.9]], dtype=jnp.float32
-    )
+    scales = jnp.full((batch_count, gaussian_count, 3), 0.1, dtype=jnp.float32)
+    opacities = jnp.asarray([[0.4, 0.8, 0.5], [0.7, 0.6, 0.9]], dtype=jnp.float32)
     colors = jnp.asarray(
         [
             [[0.4, 0.1, 0.0], [1.0, 0.0, 0.1], [0.1, 0.4, 0.8]],
@@ -676,12 +643,8 @@ def test_eval3d_leading_batch_packed_metadata_remaps_visible_candidates():
             config=config,
         )
 
-    dense_render, dense_alpha, dense_info = render(
-        means, opacities, packed=False
-    )
-    packed_render, packed_alpha, packed_info = render(
-        means, opacities, packed=True
-    )
+    dense_render, dense_alpha, dense_info = render(means, opacities, packed=False)
+    packed_render, packed_alpha, packed_info = render(means, opacities, packed=True)
 
     np.testing.assert_array_equal(packed_render, dense_render)
     np.testing.assert_array_equal(packed_alpha, dense_alpha)
@@ -705,9 +668,7 @@ def test_eval3d_leading_batch_packed_metadata_remaps_visible_candidates():
         intersection_count = int(intersections.valid_count)
         assert int(dense_info["isect_valid_count"][batch_id]) == intersection_count
         np.testing.assert_array_equal(
-            np.asarray(
-                dense_info["flatten_ids"][batch_id, :intersection_count]
-            ),
+            np.asarray(dense_info["flatten_ids"][batch_id, :intersection_count]),
             np.asarray(intersections.gaussian_ids[:intersection_count]),
         )
         np.testing.assert_array_equal(
@@ -716,9 +677,7 @@ def test_eval3d_leading_batch_packed_metadata_remaps_visible_candidates():
         )
 
     def objective(current_means, current_opacities, *, packed):
-        rendered, alpha, _ = render(
-            current_means, current_opacities, packed=packed
-        )
+        rendered, alpha, _ = render(current_means, current_opacities, packed=packed)
         return jnp.sum(rendered) + 0.1 * jnp.sum(alpha)
 
     dense_gradients = jax.grad(objective, argnums=(0, 1))(
@@ -747,9 +706,7 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
     quats = jnp.zeros((batch_count, gaussian_count, 4), jnp.float32)
     quats = quats.at[..., 0].set(1.0)
     scales = jnp.full((batch_count, gaussian_count, 3), 0.1, jnp.float32)
-    opacities = jnp.asarray(
-        [[0.7, 0.5, 0.6], [0.4, 0.8, 0.55]], dtype=jnp.float32
-    )
+    opacities = jnp.asarray([[0.7, 0.5, 0.6], [0.4, 0.8, 0.55]], dtype=jnp.float32)
     colors = jnp.asarray(
         [
             [[1.0, 0.1, 0.2], [0.2, 1.0, 0.1], [0.1, 0.2, 1.0]],
@@ -792,12 +749,8 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
             config=config,
         )
 
-    dense_render, dense_alpha, dense_info = render(
-        means, opacities, packed=False
-    )
-    packed_render, packed_alpha, packed_info = render(
-        means, opacities, packed=True
-    )
+    dense_render, dense_alpha, dense_info = render(means, opacities, packed=False)
+    packed_render, packed_alpha, packed_info = render(means, opacities, packed=True)
 
     np.testing.assert_allclose(packed_render, dense_render, rtol=0.0, atol=0.0)
     np.testing.assert_allclose(packed_alpha, dense_alpha, rtol=0.0, atol=0.0)
@@ -837,9 +790,7 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
     expected_indptr = np.concatenate(
         (np.zeros((1,), np.int32), np.cumsum(counts_per_image, dtype=np.int32))
     )
-    np.testing.assert_array_equal(
-        np.asarray(packed_info["indptr"]), expected_indptr
-    )
+    np.testing.assert_array_equal(np.asarray(packed_info["indptr"]), expected_indptr)
 
     projection_shapes = {
         "radii": (capacity, 2),
@@ -851,9 +802,7 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
     }
     for key, shape in projection_shapes.items():
         packed_values = np.asarray(packed_info[key])
-        dense_values = np.asarray(dense_info[key]).reshape(
-            (capacity,) + shape[1:]
-        )
+        dense_values = np.asarray(dense_info[key]).reshape((capacity,) + shape[1:])
         assert packed_values.shape == shape
         np.testing.assert_array_equal(
             packed_values[:valid_count], dense_values[selected]
@@ -867,9 +816,7 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
             expected_batch_ids, expected_camera_ids, expected_gaussian_ids
         ] = packed_values[:valid_count]
         dense_projection = dense_values.reshape(reconstructed.shape)
-        projection_mask = dense_valid.reshape(
-            dense_valid.shape + (1,) * len(shape[1:])
-        )
+        projection_mask = dense_valid.reshape(dense_valid.shape + (1,) * len(shape[1:]))
         np.testing.assert_array_equal(
             reconstructed, np.where(projection_mask, dense_projection, 0)
         )
@@ -881,13 +828,9 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
     dense_to_packed = np.full((capacity,), -1, dtype=np.int32)
     dense_to_packed[selected] = np.arange(valid_count, dtype=np.int32)
     for batch_id, count in enumerate(dense_isect_counts):
-        local_dense_ids = np.asarray(dense_info["flatten_ids"])[
-            batch_id, :count
-        ]
+        local_dense_ids = np.asarray(dense_info["flatten_ids"])[batch_id, :count]
         expected_packed_flatten_ids.extend(
-            dense_to_packed[
-                batch_id * camera_count * gaussian_count + local_dense_ids
-            ]
+            dense_to_packed[batch_id * camera_count * gaussian_count + local_dense_ids]
         )
     global_isect_count = len(expected_packed_flatten_ids)
     assert packed_info["flatten_ids"].shape == (global_isect_capacity,)
@@ -904,15 +847,11 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
         np.asarray(packed_info["isect_ids"])[global_isect_count:], -1
     )
 
-    packed_flatten_ids = np.asarray(
-        packed_info["flatten_ids"][:global_isect_count]
-    )
+    packed_flatten_ids = np.asarray(packed_info["flatten_ids"][:global_isect_count])
     high_words = np.asarray(
         packed_info["isect_ids"][:global_isect_count, 0], dtype=np.int32
     ).view(np.uint32)
-    tile_count = int(packed_info["tile_width"]) * int(
-        packed_info["tile_height"]
-    )
+    tile_count = int(packed_info["tile_width"]) * int(packed_info["tile_height"])
     tile_bits = max(1, (tile_count - 1).bit_length())
     decoded_image_ids = high_words >> np.uint32(tile_bits)
     expected_image_ids = (
@@ -936,9 +875,7 @@ def test_leading_batch_packed_metadata_is_one_global_stable_prefix():
     )
 
     def objective(current_means, current_opacities, *, packed):
-        rendered, alphas, _ = render(
-            current_means, current_opacities, packed=packed
-        )
+        rendered, alphas, _ = render(current_means, current_opacities, packed=packed)
         return jnp.sum(rendered) + 0.1 * jnp.sum(alphas)
 
     dense_gradients = jax.grad(objective, argnums=(0, 1))(
@@ -991,11 +928,9 @@ def test_zero_means2d_offset_preserves_forward_and_model_gradient():
         lambda current_means: objective(current_means, None)[0]
     )(means)
     offset = jnp.zeros((2, means.shape[0], 2), dtype=means.dtype)
-    (probed_value, probed_render), (model_grad, screen_grad) = (
-        jax.value_and_grad(objective, argnums=(0, 1), has_aux=True)(
-            means, offset
-        )
-    )
+    (probed_value, probed_render), (model_grad, screen_grad) = jax.value_and_grad(
+        objective, argnums=(0, 1), has_aux=True
+    )(means, offset)
 
     np.testing.assert_allclose(probed_value, baseline_value, rtol=0.0, atol=0.0)
     # The probe reaches the same gradient by a different summation order, so
@@ -1018,9 +953,7 @@ def test_zero_means2d_offset_preserves_forward_and_model_gradient():
 def test_high_level_absgrad_probe_sums_before_symmetric_pixel_cancellation(
     backend,
 ):
-    means, quats, scales, opacities, colors, viewmats, Ks = (
-        _symmetric_absgrad_scene()
-    )
+    means, quats, scales, opacities, colors, viewmats, Ks = _symmetric_absgrad_scene()
     zero_offset = jnp.zeros((1, 1, 2), dtype=jnp.float32)
     zero_probe = jnp.zeros_like(zero_offset)
     config = RasterizationConfig(
@@ -1036,7 +969,8 @@ def test_high_level_absgrad_probe_sums_before_symmetric_pixel_cancellation(
     packed_results = []
 
     for packed in (False, True):
-        def render(current_means, offset, probe):
+
+        def render(current_means, offset, probe, packed=packed):
             return rasterization(
                 current_means,
                 quats,
@@ -1051,11 +985,7 @@ def test_high_level_absgrad_probe_sums_before_symmetric_pixel_cancellation(
                 absgrad=True,
                 config=config,
                 _means2d_offset=offset,
-                **(
-                    {}
-                    if probe is None
-                    else {"_means2d_absgrad_probe": probe}
-                ),
+                **({} if probe is None else {"_means2d_absgrad_probe": probe}),
             )
 
         def objective(current_means, offset, probe):
@@ -1067,16 +997,12 @@ def test_high_level_absgrad_probe_sums_before_symmetric_pixel_cancellation(
 
         baseline = jax.jit(
             jax.value_and_grad(
-                lambda current_means, offset: objective(
-                    current_means, offset, None
-                ),
+                lambda current_means, offset: objective(current_means, offset, None),
                 argnums=(0, 1),
                 has_aux=True,
             )
         )
-        probed = jax.jit(
-            jax.value_and_grad(objective, argnums=(0, 1, 2), has_aux=True)
-        )
+        probed = jax.jit(jax.value_and_grad(objective, argnums=(0, 1, 2), has_aux=True))
         (baseline_value, baseline_images), baseline_gradients = baseline(
             means, zero_offset
         )
@@ -1123,25 +1049,17 @@ def test_high_level_absgrad_probe_sums_before_symmetric_pixel_cancellation(
 
 
 def test_high_level_absgrad_probe_leading_batch_slices_and_jits():
-    means, quats, scales, opacities, colors, viewmats, Ks = (
-        _symmetric_absgrad_scene()
-    )
+    means, quats, scales, opacities, colors, viewmats, Ks = _symmetric_absgrad_scene()
     batch_shape = (1, 2)
     batched_means = jnp.broadcast_to(means, batch_shape + means.shape)
     batched_quats = jnp.broadcast_to(quats, batch_shape + quats.shape)
     batched_scales = jnp.broadcast_to(scales, batch_shape + scales.shape)
-    batched_opacities = jnp.broadcast_to(
-        opacities, batch_shape + opacities.shape
-    )
+    batched_opacities = jnp.broadcast_to(opacities, batch_shape + opacities.shape)
     batched_colors = jnp.broadcast_to(colors, batch_shape + colors.shape)
-    batched_viewmats = jnp.broadcast_to(
-        viewmats, batch_shape + viewmats.shape
-    )
+    batched_viewmats = jnp.broadcast_to(viewmats, batch_shape + viewmats.shape)
     batched_Ks = jnp.broadcast_to(Ks, batch_shape + Ks.shape)
     zero_probes = jnp.zeros(batch_shape + (1, 1, 2), dtype=jnp.float32)
-    batch_weights = jnp.asarray([1.0, 2.0], dtype=jnp.float32).reshape(
-        1, 2, 1, 1, 1, 1
-    )
+    batch_weights = jnp.asarray([1.0, 2.0], dtype=jnp.float32).reshape(1, 2, 1, 1, 1, 1)
     config = RasterizationConfig(
         backend="intersections",
         intersection_backend="jax",
@@ -1171,9 +1089,9 @@ def test_high_level_absgrad_probe_leading_batch_slices_and_jits():
         )
         return jnp.sum(rendered * batch_weights)
 
-    batched_gradients = jax.jit(
-        jax.grad(batched_loss, argnums=(0, 1))
-    )(batched_means, zero_probes)
+    batched_gradients = jax.jit(jax.grad(batched_loss, argnums=(0, 1)))(
+        batched_means, zero_probes
+    )
 
     def single_loss(current_means, probe, weight):
         rendered, _, _ = rasterization(
@@ -1193,9 +1111,7 @@ def test_high_level_absgrad_probe_leading_batch_slices_and_jits():
         )
         return weight * jnp.sum(rendered)
 
-    single_gradients = jax.jit(
-        jax.grad(single_loss, argnums=(0, 1))
-    )
+    single_gradients = jax.jit(jax.grad(single_loss, argnums=(0, 1)))
     expected = [
         single_gradients(means, zero_probes[0, index], index + 1.0)
         for index in range(2)
@@ -1211,9 +1127,7 @@ def test_high_level_absgrad_probe_leading_batch_slices_and_jits():
 
 
 def test_high_level_absgrad_probe_rejects_unsupported_combinations():
-    means, quats, scales, opacities, colors, viewmats, Ks = (
-        _symmetric_absgrad_scene()
-    )
+    means, quats, scales, opacities, colors, viewmats, Ks = _symmetric_absgrad_scene()
     probe = jnp.zeros((1, 1, 2), dtype=jnp.float32)
     arguments = (means, quats, scales, opacities, colors, viewmats, Ks, 2, 1)
 
@@ -1282,9 +1196,7 @@ def test_active_mask_value_change_reuses_static_jit_signature():
 
 def test_leading_batch_dims_match_individual_calls_and_are_jittable():
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
-    batched_means = jnp.stack((means, means.at[0, 0].set(0.1))).reshape(
-        1, 2, 4, 3
-    )
+    batched_means = jnp.stack((means, means.at[0, 0].set(0.1))).reshape(1, 2, 4, 3)
     batched_quats = jnp.broadcast_to(quats, (1, 2) + quats.shape)
     batched_scales = jnp.broadcast_to(scales, (1, 2) + scales.shape)
     batched_opacities = jnp.broadcast_to(opacities, (1, 2) + opacities.shape)
@@ -1346,9 +1258,7 @@ def test_leading_batch_dims_match_individual_calls_and_are_jittable():
     assert jnp.allclose(rendered[0], jnp.stack([value[0] for value in expected]))
     assert jnp.allclose(alphas[0], jnp.stack([value[1] for value in expected]))
 
-    gradient = jax.jit(jax.grad(lambda value: render(value)[0].sum()))(
-        batched_means
-    )
+    gradient = jax.jit(jax.grad(lambda value: render(value)[0].sum()))(batched_means)
     assert gradient.shape == batched_means.shape
     assert jnp.all(jnp.isfinite(gradient))
 
@@ -1500,9 +1410,9 @@ def test_intersection_backend_matches_reference_values_and_gradients():
         )
         return render.sum() + alpha.sum(), (render, alpha, info)
 
-    (fast_loss, (fast_render, fast_alpha, fast_info)), fast_grad = (
-        jax.value_and_grad(objective, has_aux=True)(means, "intersections")
-    )
+    (fast_loss, (fast_render, fast_alpha, fast_info)), fast_grad = jax.value_and_grad(
+        objective, has_aux=True
+    )(means, "intersections")
     (ref_loss, (ref_render, ref_alpha, _)), ref_grad = jax.value_and_grad(
         objective, has_aux=True
     )(means, "reference")
@@ -1808,9 +1718,7 @@ def _backward_temp_bytes(
         [0.0, 0.0, 3.0]
     )
     quats = jnp.tile(jnp.asarray([1.0, 0.0, 0.0, 0.0], jnp.float32), (count, 1))
-    scales = jnp.exp(
-        jax.random.normal(k2, (count, 3), jnp.float32) * 0.2 - 3.0
-    )
+    scales = jnp.exp(jax.random.normal(k2, (count, 3), jnp.float32) * 0.2 - 3.0)
     opacities = jax.nn.sigmoid(jax.random.normal(k3, (count,), jnp.float32))
     colors = jnp.zeros((count, 1, 3), jnp.float32)
     viewmats = jnp.eye(4, dtype=jnp.float32)[None]
@@ -1821,8 +1729,18 @@ def _backward_temp_bytes(
 
     def loss(m, q, s, o, c):
         rendered = rasterization(
-            m, q, s, o, c, viewmats, intrinsics, width, height,
-            sh_degree=0, config=config, **kwargs,
+            m,
+            q,
+            s,
+            o,
+            c,
+            viewmats,
+            intrinsics,
+            width,
+            height,
+            sh_degree=0,
+            config=config,
+            **kwargs,
         )[0]
         return jnp.mean(rendered**2)
 
@@ -1883,7 +1801,6 @@ def test_backward_memory_does_not_grow_with_the_intersection_capacity():
     assert large < 1.5 * small
 
 
-
 def _render_with_candidate_bound(bound, *, compositor_backend="jax"):
     means, quats, scales, opacities, colors, viewmats, Ks = _scene()
     return rasterization(
@@ -1923,9 +1840,7 @@ def test_cutile_compositor_rejects_eval3d():
             32,
             32,
             with_eval3d=True,
-            config=RasterizationConfig(
-                compositor_backend="cuda_tile"
-            ),
+            config=RasterizationConfig(compositor_backend="cuda_tile"),
         )
 
 

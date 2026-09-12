@@ -15,7 +15,6 @@ from ...kernels.cameras import (
 from .camera_model import CameraModel
 from .image_frame import ImageFrame, ImageFrameGroup
 
-
 __all__ = [
     "BivariateWindshieldDistortion",
     "CameraModel",

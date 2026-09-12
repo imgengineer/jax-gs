@@ -46,7 +46,9 @@ def test_evaluation_grows_intersections_before_candidates_and_reuses_plan(monkey
         assert not np.any(overflow)
         assert not bool(intersection_overflow)
     assert [(c.max_intersections, c.max_candidates_per_tile) for c in configs] == [
-        (4, 2), (16, 2), (16, 8)
+        (4, 2),
+        (16, 2),
+        (16, 8),
     ]
     assert checked == [configs[0], configs[1], configs[2], configs[2]]
 
@@ -58,10 +60,18 @@ def test_evaluation_respects_explicit_intersection_limit(monkeypatch):
         lambda *args, **kwargs: None,
     )
     renderer = _EvaluationRenderer(
-        config, 32, 32,
-        lambda current: lambda: (
-            jnp.asarray(0.0), jnp.asarray(0.0), jnp.asarray([False]),
-            jnp.asarray(True), jnp.asarray(5), jnp.asarray(1),
+        config,
+        32,
+        32,
+        lambda current: (
+            lambda: (
+                jnp.asarray(0.0),
+                jnp.asarray(0.0),
+                jnp.asarray([False]),
+                jnp.asarray(True),
+                jnp.asarray(5),
+                jnp.asarray(1),
+            )
         ),
     )
     with pytest.raises(RuntimeError, match="exceed configured maximum"):
@@ -69,12 +79,13 @@ def test_evaluation_respects_explicit_intersection_limit(monkeypatch):
 
 
 def test_evaluation_preflight_uses_bounded_workspace(monkeypatch):
-    import jax_gs.training as training
+    from jax_gs import training
 
     config = TrainConfig(
         model=ModelConfig(capacity=1_000_000),
         rasterizer=RasterizationConfig(
-            backend="intersections", compositor_backend="cuda_tile",
+            backend="intersections",
+            compositor_backend="cuda_tile",
         ),
     )
     configs = []
@@ -83,8 +94,12 @@ def test_evaluation_preflight_uses_bounded_workspace(monkeypatch):
     def factory(current):
         configs.append(current)
         return lambda: (
-            jnp.asarray(1.0), jnp.asarray(1.0), jnp.asarray([False]),
-            jnp.asarray(False), jnp.asarray(100), jnp.asarray(10),
+            jnp.asarray(1.0),
+            jnp.asarray(1.0),
+            jnp.asarray([False]),
+            jnp.asarray(False),
+            jnp.asarray(100),
+            jnp.asarray(10),
         )
 
     renderer = _EvaluationRenderer(config, 648, 420, factory)
@@ -106,7 +121,9 @@ def test_evaluation_retry_matches_complete_render(model_type):
         data=DataConfig(patch_size=4),
         model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
         rasterizer=RasterizationConfig(
-            backend="intersections", tile_size=4, max_gaussians_per_tile=2,
+            backend="intersections",
+            tile_size=4,
+            max_gaussians_per_tile=2,
             tile_batch_size=1,
         ),
         intersection_bucket_min_capacity=2,
@@ -117,19 +134,26 @@ def test_evaluation_retry_matches_complete_render(model_type):
         config.model,
     )
     args = (
-        model, jnp.eye(4),
+        model,
+        jnp.eye(4),
         jnp.asarray([[8.0, 0.0, 4.0], [0.0, 8.0, 4.0], [0.0, 0.0, 1.0]]),
         jnp.asarray(0),
     )
     renderer = _EvaluationRenderer(
-        config, 8, 8,
+        config,
+        8,
+        8,
         lambda current: make_render_step(current, 8, 8, _return_info=True),
     )
     actual = renderer(
-        *args, physical_capacity=4, intersection_capacity=2, candidate_bound=1,
+        *args,
+        physical_capacity=4,
+        intersection_capacity=2,
+        candidate_bound=1,
     )
     complete_config = replace(
-        config, rasterizer=replace(config.rasterizer, max_intersections=16),
+        config,
+        rasterizer=replace(config.rasterizer, max_intersections=16),
     )
     expected = make_render_step(complete_config, 8, 8)(*args)
     np.testing.assert_allclose(actual[0], expected[0], rtol=1e-6, atol=1e-6)

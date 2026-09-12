@@ -1,5 +1,5 @@
-from dataclasses import FrozenInstanceError, replace
 import math
+from dataclasses import FrozenInstanceError, replace
 
 import jax
 import jax.numpy as jnp
@@ -77,9 +77,7 @@ def test_projection_type_is_frozen_registered_and_validated():
     projection = _projection()
     assert SpinningDirection.CLOCKWISE == 0
     assert SpinningDirection.COUNTERCLOCKWISE == 1
-    assert REGISTERED_LIDAR_PROJECTIONS == (
-        RowOffsetStructuredSpinningLidarProjection,
-    )
+    assert REGISTERED_LIDAR_PROJECTIONS == (RowOffsetStructuredSpinningLidarProjection,)
     assert REGISTERED_LIDAR_PROJECTION_NAMES == (
         "RowOffsetStructuredSpinningLidarProjection",
     )
@@ -141,12 +139,12 @@ def test_ray_angle_conversions_are_jittable_and_differentiable():
     expected = rays / jnp.linalg.norm(rays, axis=-1, keepdims=True)
     np.testing.assert_allclose(recovered, expected, atol=1.0e-6)
 
-    ray_gradient = jax.grad(
-        lambda value: sensor_rays_to_sensor_angles(value).sum()
-    )(rays)
-    angle_gradient = jax.grad(
-        lambda value: sensor_angles_to_sensor_rays(value).sum()
-    )(compiled)
+    ray_gradient = jax.grad(lambda value: sensor_rays_to_sensor_angles(value).sum())(
+        rays
+    )
+    angle_gradient = jax.grad(lambda value: sensor_angles_to_sensor_rays(value).sum())(
+        compiled
+    )
     assert bool(jnp.all(jnp.isfinite(ray_gradient)))
     assert bool(jnp.all(jnp.isfinite(angle_gradient)))
 
@@ -202,12 +200,13 @@ def test_generate_matches_explicit_grid_and_interpolates_pose_and_timestamps():
         return_T_sensor_world=True,
         return_timestamps=True,
     )
-    selected = functional.generate_spinning_lidar_rays(
-        projection, explicit, pose
-    )
+    selected = functional.generate_spinning_lidar_rays(projection, explicit, pose)
     assert isinstance(generated, WorldRaysReturn)
     np.testing.assert_allclose(generated.world_rays, selected.world_rays, atol=1.0e-6)
-    assert generated.world_rays.shape == (projection.row_elevations_rad.size * projection.column_azimuths_rad.size, 6)
+    assert generated.world_rays.shape == (
+        projection.row_elevations_rad.size * projection.column_azimuths_rad.size,
+        6,
+    )
     assert generated.T_sensor_world.shape == (explicit.shape[0], 4, 4)
     expected_timestamps = jnp.tile(jnp.array([100, 200, 300, 400, 500]), 3)
     np.testing.assert_array_equal(generated.timestamps_us, expected_timestamps)
@@ -215,9 +214,7 @@ def test_generate_matches_explicit_grid_and_interpolates_pose_and_timestamps():
     alpha = explicit[:, 1].astype(jnp.float32) / 4.0
     expected_origins = alpha[:, None] * pose.end_pose.translation
     np.testing.assert_allclose(generated.world_rays[:, :3], expected_origins)
-    np.testing.assert_allclose(
-        generated.T_sensor_world[:, :3, 3], expected_origins
-    )
+    np.testing.assert_allclose(generated.T_sensor_world[:, :3, 3], expected_origins)
     np.testing.assert_allclose(
         jnp.linalg.norm(generated.world_rays[:, 3:], axis=-1), 1.0, atol=1.0e-6
     )
@@ -245,9 +242,7 @@ def test_generate_is_jittable_and_routes_gradients_to_pose_and_tables():
     pose = _dynamic_pose()
     elements = jnp.array([[0, 1], [1, 2], [2, 3]], dtype=jnp.int32)
     world_rays = jax.jit(
-        lambda value: generate_spinning_lidar_rays(
-            projection, value, pose
-        )[0]
+        lambda value: generate_spinning_lidar_rays(projection, value, pose)[0]
     )(elements)
     assert world_rays.shape == (3, 6)
 
@@ -262,9 +257,7 @@ def test_generate_is_jittable_and_routes_gradients_to_pose_and_tables():
         )[0].sum()
     )(pose.end_pose.translation)
     projection_gradient = jax.grad(
-        lambda value: generate_spinning_lidar_rays(
-            value, elements, pose
-        )[0].sum()
+        lambda value: generate_spinning_lidar_rays(value, elements, pose)[0].sum()
     )(projection)
     assert bool(jnp.all(jnp.isfinite(translation_gradient)))
     for leaf in jax.tree.leaves(projection_gradient):
@@ -299,15 +292,11 @@ def test_inverse_projection_marks_out_of_fov_and_has_finite_geometry_gradient():
         Pose(jnp.zeros(3), jnp.array([1.0, 0.0, 0.0, 0.0]))
     )
     points = jnp.array([[5.0, 0.0, 0.0], [0.0, 0.0, 5.0]])
-    angles, valid, *_ = inverse_project_spinning_lidar(
-        projection, points, pose
-    )
+    angles, valid, *_ = inverse_project_spinning_lidar(projection, points, pose)
     np.testing.assert_array_equal(valid, [True, False])
     np.testing.assert_array_equal(angles[1], [0.0, 0.0])
     gradient = jax.grad(
-        lambda value: inverse_project_spinning_lidar(
-            projection, value, pose
-        )[0].sum()
+        lambda value: inverse_project_spinning_lidar(projection, value, pose)[0].sum()
     )(jnp.array([[5.0, 0.2, 0.1]]))
     assert bool(jnp.all(jnp.isfinite(gradient)))
 

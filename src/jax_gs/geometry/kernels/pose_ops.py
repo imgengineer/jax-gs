@@ -105,9 +105,7 @@ def se3pose_inverse_transform_point(
     translation, rotation, point = _validate_pose_vector(
         translation, rotation, point, "point"
     )
-    inverse_rotation = jnp.concatenate(
-        (-rotation[:, :3], rotation[:, 3:4]), axis=-1
-    )
+    inverse_rotation = jnp.concatenate((-rotation[:, :3], rotation[:, 3:4]), axis=-1)
     return _quat_rotate_vector_raw(inverse_rotation, point - translation)
 
 
@@ -119,9 +117,7 @@ def se3pose_inverse_transform_direction(
     _, rotation, direction = _validate_pose_vector(
         translation, rotation, direction, "direction"
     )
-    inverse_rotation = jnp.concatenate(
-        (-rotation[:, :3], rotation[:, 3:4]), axis=-1
-    )
+    inverse_rotation = jnp.concatenate((-rotation[:, :3], rotation[:, 3:4]), axis=-1)
     return _quat_rotate_vector_raw(inverse_rotation, direction)
 
 
@@ -136,9 +132,7 @@ def _pack_transform_matrix(
     return jnp.concatenate((upper, bottom), axis=-2)
 
 
-def se3pose_to_matrix(
-    translation: jax.Array, rotation: jax.Array
-) -> jax.Array:
+def se3pose_to_matrix(translation: jax.Array, rotation: jax.Array) -> jax.Array:
     """Convert batched ``xyzw`` poses to homogeneous matrices."""
 
     translation, rotation = _validate_pose_pair(translation, rotation)
@@ -228,8 +222,7 @@ def se3pose_from_matrix(matrix: jax.Array) -> tuple[jax.Array, jax.Array]:
         matrices = matrix.reshape((-1, 4, 4))
     else:
         raise ValueError(
-            "matrix must have shape (N, 4, 4) or (N, 16); "
-            f"got {matrix.shape}"
+            f"matrix must have shape (N, 4, 4) or (N, 16); got {matrix.shape}"
         )
     translation = matrices[:, :3, 3]
     rotation = _matrix_to_quaternion_shepperd(matrices[:, :3, :3])
@@ -267,8 +260,7 @@ def se3pose_compose(
             f"{parent_translation.shape[0]} vs {child_translation.shape[0]}"
         )
     translation = (
-        _quat_rotate_vector_raw(parent_rotation, child_translation)
-        + parent_translation
+        _quat_rotate_vector_raw(parent_rotation, child_translation) + parent_translation
     )
     rotation = _quat_multiply_raw(parent_rotation, child_rotation)
     return translation, rotation
@@ -308,13 +300,11 @@ def _validate_track_arrays(
 
     if pose_translations.ndim != 2 or pose_translations.shape[1] != 3:
         raise ValueError(
-            "pose_translations must have shape (M, 3); "
-            f"got {pose_translations.shape}"
+            f"pose_translations must have shape (M, 3); got {pose_translations.shape}"
         )
     if pose_rotations.ndim != 2 or pose_rotations.shape[1] != 4:
         raise ValueError(
-            "pose_rotations must have shape (M, 4) xyzw; "
-            f"got {pose_rotations.shape}"
+            f"pose_rotations must have shape (M, 4) xyzw; got {pose_rotations.shape}"
         )
     pose_count = pose_translations.shape[0]
     if pose_rotations.shape[0] != pose_count:
@@ -330,14 +320,11 @@ def _validate_track_arrays(
             "pose_times must have shape (M,) or (M, 1) matching poses; "
             f"got {pose_times.shape} for M={pose_count}"
         )
-    if pose_offsets.ndim == 1:
-        track_count = pose_offsets.shape[0]
-    elif pose_offsets.ndim == 2 and pose_offsets.shape[1] == 1:
+    if pose_offsets.ndim == 1 or pose_offsets.ndim == 2 and pose_offsets.shape[1] == 1:
         track_count = pose_offsets.shape[0]
     else:
         raise ValueError(
-            "pose_offsets must have shape (C,) or (C, 1); "
-            f"got {pose_offsets.shape}"
+            f"pose_offsets must have shape (C,) or (C, 1); got {pose_offsets.shape}"
         )
     if not (
         (pose_counts.ndim == 1 and pose_counts.shape[0] == track_count)
@@ -439,9 +426,7 @@ def se3_interpolate_tracks(
     query_times = _track_query_times(query_time, track_count, time_dtype)
     packed_pose_count = pose_translations.shape[0]
     if packed_pose_count == 0:
-        translations = jnp.zeros(
-            (track_count, 3), dtype=pose_translations.dtype
-        )
+        translations = jnp.zeros((track_count, 3), dtype=pose_translations.dtype)
         rotations = jnp.zeros((track_count, 4), dtype=pose_rotations.dtype)
         return translations, rotations.at[:, 3].set(1)
 
@@ -456,16 +441,16 @@ def se3_interpolate_tracks(
             & (count <= packed_pose_count - start)
         )
         safe_start = jnp.clip(start, 0, packed_pose_count - 1)
-        safe_last = jnp.clip(start + jnp.maximum(count, 1) - 1, 0, packed_pose_count - 1)
+        safe_last = jnp.clip(
+            start + jnp.maximum(count, 1) - 1, 0, packed_pose_count - 1
+        )
         first_time = times[safe_start]
         last_time = times[safe_last]
         clamped_query = jnp.clip(query, first_time, last_time)
 
         in_track = (indices >= start) & (indices < start + count)
         lower_candidates = in_track & (times >= clamped_query)
-        lower_bound = jnp.min(
-            jnp.where(lower_candidates, indices, packed_pose_count)
-        )
+        lower_bound = jnp.min(jnp.where(lower_candidates, indices, packed_pose_count))
         right = jnp.where(
             query <= first_time,
             safe_start,
@@ -491,15 +476,13 @@ def se3_interpolate_tracks(
         numerator = clamped_query.astype(alpha_dtype) - left_time.astype(alpha_dtype)
         denominator = right_time.astype(alpha_dtype) - left_time.astype(alpha_dtype)
         safe_denominator = jnp.where(valid_interval, denominator, 1)
-        alpha = jnp.where(
-            valid_interval, numerator / safe_denominator, 0
-        ).astype(pose_translations.dtype)
+        alpha = jnp.where(valid_interval, numerator / safe_denominator, 0).astype(
+            pose_translations.dtype
+        )
 
         left_translation = pose_translations[left]
         right_translation = pose_translations[right]
-        translation = left_translation + alpha * (
-            right_translation - left_translation
-        )
+        translation = left_translation + alpha * (right_translation - left_translation)
         left_rotation = pose_rotations[left]
         right_rotation = pose_rotations[right]
         slerp_left = jnp.where(same_pose, identity, left_rotation)
@@ -528,9 +511,7 @@ def se3pose_to_inverse_matrix(
         rotation = jnp.concatenate((rotation[:, 1:], rotation[:, :1]), axis=-1)
     rotation_matrix = quat_to_matrix(rotation)
     inverse_rotation = jnp.swapaxes(rotation_matrix, -1, -2)
-    inverse_translation = -jnp.einsum(
-        "nij,nj->ni", inverse_rotation, translation
-    )
+    inverse_translation = -jnp.einsum("nij,nj->ni", inverse_rotation, translation)
     return _pack_transform_matrix(inverse_rotation, inverse_translation)
 
 
@@ -539,9 +520,7 @@ def _require_float32(name: str, value: jax.Array) -> None:
         raise TypeError(f"{name} must have dtype float32, got {value.dtype}")
 
 
-def _validate_trajectory_time(
-    name: str, value: object, batch_size: int
-) -> jax.Array:
+def _validate_trajectory_time(name: str, value: object, batch_size: int) -> jax.Array:
     value = _expect_array(name, value)
     _require_float32(name, value)
     if not (
@@ -573,8 +552,7 @@ def _validate_trajectory_pose(
         )
     if rotation.shape != (batch_size, 4):
         raise ValueError(
-            f"{rotation_name} must be (N, 4) with N={batch_size}; "
-            f"got {rotation.shape}"
+            f"{rotation_name} must be (N, 4) with N={batch_size}; got {rotation.shape}"
         )
     return translation, rotation
 
@@ -623,17 +601,11 @@ def trajectory_transform_point_2poses(
     if point.ndim != 2 or point.shape[1] != 3:
         raise ValueError(f"point must be (N, 3); got {point.shape}")
     batch_size = point.shape[0]
-    trans0, rot0 = _validate_trajectory_pose(
-        "trans0", trans0, "rot0", rot0, batch_size
-    )
-    trans1, rot1 = _validate_trajectory_pose(
-        "trans1", trans1, "rot1", rot1, batch_size
-    )
+    trans0, rot0 = _validate_trajectory_pose("trans0", trans0, "rot0", rot0, batch_size)
+    trans1, rot1 = _validate_trajectory_pose("trans1", trans1, "rot1", rot1, batch_size)
     time0 = _validate_trajectory_time("time0", time0, batch_size)
     time1 = _validate_trajectory_time("time1", time1, batch_size)
-    query_time = _validate_trajectory_time(
-        "query_time", query_time, batch_size
-    )
+    query_time = _validate_trajectory_time("query_time", query_time, batch_size)
     translation, rotation, out_of_bounds = _interpolate_two_pose_trajectory(
         trans0, rot0, time0, trans1, rot1, time1, query_time
     )
@@ -658,17 +630,11 @@ def trajectory_get_rotation_2poses(
     if trans0.ndim != 2 or trans0.shape[1] != 3:
         raise ValueError(f"trans0 must be (N, 3); got {trans0.shape}")
     batch_size = trans0.shape[0]
-    trans0, rot0 = _validate_trajectory_pose(
-        "trans0", trans0, "rot0", rot0, batch_size
-    )
-    trans1, rot1 = _validate_trajectory_pose(
-        "trans1", trans1, "rot1", rot1, batch_size
-    )
+    trans0, rot0 = _validate_trajectory_pose("trans0", trans0, "rot0", rot0, batch_size)
+    trans1, rot1 = _validate_trajectory_pose("trans1", trans1, "rot1", rot1, batch_size)
     time0 = _validate_trajectory_time("time0", time0, batch_size)
     time1 = _validate_trajectory_time("time1", time1, batch_size)
-    query_time = _validate_trajectory_time(
-        "query_time", query_time, batch_size
-    )
+    query_time = _validate_trajectory_time("query_time", query_time, batch_size)
     _, rotation, out_of_bounds = _interpolate_two_pose_trajectory(
         trans0, rot0, time0, trans1, rot1, time1, query_time
     )
@@ -689,13 +655,9 @@ def trajectory_transform_point_1pose(
     if point.ndim != 2 or point.shape[1] != 3:
         raise ValueError(f"point must be (N, 3); got {point.shape}")
     batch_size = point.shape[0]
-    trans, rot = _validate_trajectory_pose(
-        "trans", trans, "rot", rot, batch_size
-    )
+    trans, rot = _validate_trajectory_pose("trans", trans, "rot", rot, batch_size)
     time = _validate_trajectory_time("time", time, batch_size)
-    query_time = _validate_trajectory_time(
-        "query_time", query_time, batch_size
-    )
+    query_time = _validate_trajectory_time("query_time", query_time, batch_size)
     return {
         "point": _quat_rotate_vector_raw(rot, point) + trans,
         "out_of_bounds": query_time != time,
@@ -713,25 +675,18 @@ def frame_transform_poses_tquat(
     tquat_poses = _expect_array("tquat_poses", tquat_poses)
     _require_float32("tquat_poses", tquat_poses)
     if tquat_poses.ndim != 2 or tquat_poses.shape[1] != 7:
-        raise ValueError(
-            f"tquat_poses must have shape (N, 7); got {tquat_poses.shape}"
-        )
+        raise ValueError(f"tquat_poses must have shape (N, 7); got {tquat_poses.shape}")
     if len(rotation) != 4:
         raise ValueError("rotation must contain four xyzw values")
     if len(translation) != 3:
         raise ValueError("translation must contain three values")
     frame_rotation = jnp.asarray(rotation, dtype=tquat_poses.dtype)
     frame_translation = jnp.asarray(translation, dtype=tquat_poses.dtype)
-    frame_rotations = jnp.broadcast_to(
-        frame_rotation, (tquat_poses.shape[0], 4)
-    )
+    frame_rotations = jnp.broadcast_to(frame_rotation, (tquat_poses.shape[0], 4))
     output_translation = float(scale) * (
-        _quat_rotate_vector_raw(frame_rotations, tquat_poses[:, :3])
-        + frame_translation
+        _quat_rotate_vector_raw(frame_rotations, tquat_poses[:, :3]) + frame_translation
     )
-    output_rotation = _quat_multiply_raw(
-        frame_rotations, tquat_poses[:, 3:]
-    )
+    output_rotation = _quat_multiply_raw(frame_rotations, tquat_poses[:, 3:])
     return jnp.concatenate((output_translation, output_rotation), axis=-1)
 
 

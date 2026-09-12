@@ -7,9 +7,9 @@ import jax_gs.geometry.functional as geometry
 
 def _z_rotation(angle):
     axis = jnp.asarray([[0.0, 0.0, 1.0]], dtype=jnp.float32)
-    return geometry.quat_from_axis_angle(
-        axis, jnp.asarray([angle], dtype=jnp.float32)
-    )[0]
+    return geometry.quat_from_axis_angle(axis, jnp.asarray([angle], dtype=jnp.float32))[
+        0
+    ]
 
 
 def _normalized(values):
@@ -48,15 +48,11 @@ def test_se3_point_and_direction_forward_inverse():
     point = jnp.asarray([[1.0, 0.0, 2.0]], dtype=jnp.float32)
     direction = jnp.asarray([[1.0, 0.0, 0.0]], dtype=jnp.float32)
 
-    transformed_point = geometry.se3pose_transform_point(
-        translation, rotation, point
-    )
+    transformed_point = geometry.se3pose_transform_point(translation, rotation, point)
     transformed_direction = geometry.se3pose_transform_direction(
         translation, rotation, direction
     )
-    assert jnp.allclose(
-        transformed_point, jnp.asarray([[2.0, 0.0, 2.5]]), atol=1.0e-6
-    )
+    assert jnp.allclose(transformed_point, jnp.asarray([[2.0, 0.0, 2.5]]), atol=1.0e-6)
     assert jnp.allclose(
         transformed_direction, jnp.asarray([[0.0, 1.0, 0.0]]), atol=1.0e-6
     )
@@ -77,19 +73,11 @@ def test_se3_point_and_direction_forward_inverse():
 
 
 def test_se3_transform_is_jittable_and_differentiable():
-    translation = jnp.asarray(
-        [[0.2, -0.1, 0.3], [1.0, 2.0, -1.0]], dtype=jnp.float32
-    )
-    rotation = _normalized(
-        [[0.1, 0.2, 0.3, 0.8], [-0.2, 0.4, 0.1, 0.7]]
-    )
-    point = jnp.asarray(
-        [[1.0, -2.0, 0.5], [0.1, 0.2, 0.3]], dtype=jnp.float32
-    )
+    translation = jnp.asarray([[0.2, -0.1, 0.3], [1.0, 2.0, -1.0]], dtype=jnp.float32)
+    rotation = _normalized([[0.1, 0.2, 0.3, 0.8], [-0.2, 0.4, 0.1, 0.7]])
+    point = jnp.asarray([[1.0, -2.0, 0.5], [0.1, 0.2, 0.3]], dtype=jnp.float32)
     expected = geometry.se3pose_transform_point(translation, rotation, point)
-    actual = jax.jit(geometry.se3pose_transform_point)(
-        translation, rotation, point
-    )
+    actual = jax.jit(geometry.se3pose_transform_point)(translation, rotation, point)
     assert jnp.allclose(actual, expected, atol=1.0e-6)
     gradients = jax.grad(
         lambda t, q, p: jnp.sum(geometry.se3pose_transform_point(t, q, p)),
@@ -144,9 +132,7 @@ def test_pose_from_matrix_is_jittable_with_finite_gradient():
     assert jnp.allclose(compiled[0], eager[0])
     _assert_same_rotation(compiled[1], eager[1])
     gradient = jax.grad(
-        lambda value: sum(
-            jnp.sum(part) for part in geometry.se3pose_from_matrix(value)
-        )
+        lambda value: sum(jnp.sum(part) for part in geometry.se3pose_from_matrix(value))
     )(matrix)
     assert bool(jnp.all(jnp.isfinite(gradient)))
 
@@ -178,9 +164,7 @@ def test_pose_composition_matches_sequential_application():
         [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]], dtype=jnp.float32
     )
     child_rotation = jnp.stack((_z_rotation(0.2), _z_rotation(0.8)))
-    point = jnp.asarray(
-        [[0.2, -0.4, 1.0], [1.0, 2.0, 3.0]], dtype=jnp.float32
-    )
+    point = jnp.asarray([[0.2, -0.4, 1.0], [1.0, 2.0, 3.0]], dtype=jnp.float32)
     composed = geometry.se3pose_compose(
         parent_translation,
         parent_rotation,
@@ -190,9 +174,7 @@ def test_pose_composition_matches_sequential_application():
     sequential = geometry.se3pose_transform_point(
         parent_translation,
         parent_rotation,
-        geometry.se3pose_transform_point(
-            child_translation, child_rotation, point
-        ),
+        geometry.se3pose_transform_point(child_translation, child_rotation, point),
     )
     direct = geometry.se3pose_transform_point(*composed, point)
     assert jnp.allclose(direct, sequential, atol=2.0e-6)
@@ -251,9 +233,7 @@ def test_interpolate_tracks_duplicate_timestamps_follow_lower_bound_semantics():
 
 
 def test_interpolate_tracks_invalid_ranges_are_identity_noops():
-    translations = jnp.asarray(
-        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=jnp.float32
-    )
+    translations = jnp.asarray([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=jnp.float32)
     rotations = jnp.stack((_z_rotation(0.0), _z_rotation(1.0)))
     times = jnp.asarray([0.0, 1.0], dtype=jnp.float32)
     offsets = jnp.asarray([-1, 0, 999], dtype=jnp.int32)
@@ -271,9 +251,7 @@ def test_interpolate_tracks_invalid_ranges_are_identity_noops():
 
 
 def test_interpolate_tracks_accepts_column_metadata_and_empty_tracks():
-    translations = jnp.asarray(
-        [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=jnp.float32
-    )
+    translations = jnp.asarray([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=jnp.float32)
     rotations = geometry.quat_identity((2,))
     actual, _ = geometry.se3_interpolate_tracks(
         translations,
@@ -298,9 +276,7 @@ def test_interpolate_tracks_accepts_column_metadata_and_empty_tracks():
 
 
 def test_interpolate_tracks_jit_integer_times_and_gradients():
-    translations = jnp.asarray(
-        [[0.0, 0.0, 0.0], [8.0, 0.0, 0.0]], dtype=jnp.float32
-    )
+    translations = jnp.asarray([[0.0, 0.0, 0.0], [8.0, 0.0, 0.0]], dtype=jnp.float32)
     rotations = jnp.stack((_z_rotation(0.0), _z_rotation(jnp.pi / 2)))
     times = jnp.asarray([100, 108], dtype=jnp.int32)
     offsets = jnp.asarray([0], dtype=jnp.int32)
@@ -323,9 +299,7 @@ def test_interpolate_tracks_jit_integer_times_and_gradients():
         argnums=(0, 1, 2, 3),
     )(translations, rotations, float_times, float_query)
     assert all(bool(jnp.all(jnp.isfinite(value))) for value in gradients)
-    assert jnp.allclose(
-        gradients[0][:, 0], jnp.asarray([0.75, 0.25]), atol=1.0e-6
-    )
+    assert jnp.allclose(gradients[0][:, 0], jnp.asarray([0.75, 0.25]), atol=1.0e-6)
 
 
 def test_two_pose_trajectory_interpolation_swapping_and_extrapolation():
@@ -401,17 +375,13 @@ def test_one_pose_trajectory_always_transforms_and_marks_exact_time():
     point = jnp.asarray([[0.5, 1.0, -1.0], [1.0, 2.0, 3.0]], dtype=jnp.float32)
     time = jnp.asarray([0.0, 1.0], dtype=jnp.float32)
     query = jnp.asarray([0.0, 2.0], dtype=jnp.float32)
-    result = geometry.trajectory_transform_point_1pose(
-        trans, rot, time, point, query
-    )
+    result = geometry.trajectory_transform_point_1pose(trans, rot, time, point, query)
     assert jnp.allclose(result["point"], trans + point)
     assert jnp.array_equal(result["out_of_bounds"], jnp.asarray([False, True]))
 
 
 def test_frame_transform_poses_tquat_matches_definition():
-    input_poses = jnp.asarray(
-        [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]], dtype=jnp.float32
-    )
+    input_poses = jnp.asarray([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]], dtype=jnp.float32)
     frame_rotation = tuple(float(x) for x in _z_rotation(jnp.pi / 2))
     actual = geometry.frame_transform_poses_tquat(
         input_poses,
@@ -419,9 +389,7 @@ def test_frame_transform_poses_tquat_matches_definition():
         (1.0, 2.0, 3.0),
         2.0,
     )
-    assert jnp.allclose(
-        actual[:, :3], jnp.asarray([[2.0, 6.0, 6.0]]), atol=1.0e-6
-    )
+    assert jnp.allclose(actual[:, :3], jnp.asarray([[2.0, 6.0, 6.0]]), atol=1.0e-6)
     _assert_same_rotation(actual[:, 3:], jnp.asarray(frame_rotation)[None])
 
 

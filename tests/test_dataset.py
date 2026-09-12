@@ -220,6 +220,7 @@ def test_colmap_data_source_uint8(synthetic_scene: Path) -> None:
 @pytest.mark.parametrize("batch_size", [1, 6])
 def test_resume_seeks_grain_batches_without_reading_prior_epochs(batch_size):
     import grain
+
     from jax_gs.training._data import _infinite_batches
 
     class CountingSource:
@@ -234,7 +235,9 @@ def test_resume_seeks_grain_batches_without_reading_prior_epochs(batch_size):
 
     source = CountingSource()
     dataset = (
-        grain.MapDataset.source(source).shuffle(seed=42).repeat()
+        grain.MapDataset.source(source)
+        .shuffle(seed=42)
+        .repeat()
         .batch(batch_size, drop_remainder=True)
     )
     expected = [dataset[index]["image_index"] for index in range(2000, 2010)]

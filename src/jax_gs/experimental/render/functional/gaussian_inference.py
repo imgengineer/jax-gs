@@ -12,7 +12,6 @@ from .._common import check_inference_grad_mode
 from ..kernels.gaussian_inference_ops import gaussian_render_inference_only
 from ..types import RenderReturn
 
-
 _INFERENCE_UNSUPPORTED_FEATURES = frozenset(
     {
         "with_ut",
@@ -108,8 +107,7 @@ def _validate_inference_request(request: dict[str, Any]) -> dict[str, Any]:
     render_mode = request.get("render_mode", "RGB")
     if render_mode != "RGB":
         raise TypeError(
-            "Inference branch supports render_mode='RGB' only; "
-            f"got '{render_mode}'"
+            f"Inference branch supports render_mode='RGB' only; got '{render_mode}'"
         )
     camera_model = request.get("camera_model", "pinhole")
     if camera_model != "pinhole":

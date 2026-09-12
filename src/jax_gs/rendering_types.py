@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 CameraModel = Literal["pinhole", "ortho", "fisheye", "ftheta", "lidar"]
 RenderMode = Literal[
     "RGB",
@@ -75,9 +74,7 @@ def resolve_renderer_config(
     if renderer_config is None:
         renderer_config = RendererConfig_MixedBatch()
     _validate_renderer_config(renderer_config)
-    if not with_eval3d and isinstance(
-        renderer_config, RendererConfig_ParallelBatch
-    ):
+    if not with_eval3d and isinstance(renderer_config, RendererConfig_ParallelBatch):
         raise ValueError(
             "RendererConfig_ParallelBatch requires with_eval3d=True; the "
             "non-eval3d path only supports RendererConfig_MixedBatch."
@@ -129,7 +126,7 @@ def resolve_tile_size(
     return 16
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "CameraModel",
     "RasterizeMode",
     "RendererConfig",

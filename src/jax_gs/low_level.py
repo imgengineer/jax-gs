@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from functools import partial
 import math
 import operator
-from typing import Iterator, NamedTuple
+from collections.abc import Iterator
+from dataclasses import dataclass
+from functools import partial
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 
 from .intersections import _accutile_intersections_jax
-
 
 MAX_ALPHA = 0.999
 DEFAULT_ALPHA_THRESHOLD = 1.0 / 255.0
@@ -160,9 +160,10 @@ def _chunk_weights_bwd(_threshold: float, residuals, cotangents):
     direct = jnp.where(accepted, weight_cotangent * transmittance, 0.0)
     alpha_cotangent = direct - trailing / one_minus_alpha
 
-    incoming_cotangent = jnp.sum(
-        jnp.where(accepted, weight_cotangent * alpha * exclusive, 0.0), axis=0
-    ) + outgoing_cotangent * chunk_product
+    incoming_cotangent = (
+        jnp.sum(jnp.where(accepted, weight_cotangent * alpha * exclusive, 0.0), axis=0)
+        + outgoing_cotangent * chunk_product
+    )
     return alpha_cotangent, incoming_cotangent
 
 
@@ -408,9 +409,7 @@ def isect_tiles(
                 raise ValueError("opacities shape does not match means2d")
             flat_conics = conics.reshape(-1, 3)
             flat_opacities = opacities.reshape(-1)
-        image_of = jnp.repeat(
-            jnp.arange(image_count, dtype=jnp.int32), gaussian_count
-        )
+        image_of = jnp.repeat(jnp.arange(image_count, dtype=jnp.int32), gaussian_count)
         output_shape = image_shape + (gaussian_count,)
         if active_mask is None:
             flat_active = jnp.ones((flat_means.shape[0],), dtype=jnp.bool_)
@@ -474,12 +473,8 @@ def isect_tiles(
         )
         selected_valid = (ranks < valid_count) & (source_slots >= 0)
     else:
-        tile_mins = jnp.floor((flat_means - flat_radii) / tile_size).astype(
-            jnp.int32
-        )
-        tile_maxs = jnp.ceil((flat_means + flat_radii) / tile_size).astype(
-            jnp.int32
-        )
+        tile_mins = jnp.floor((flat_means - flat_radii) / tile_size).astype(jnp.int32)
+        tile_maxs = jnp.ceil((flat_means + flat_radii) / tile_size).astype(jnp.int32)
         tile_mins = jnp.stack(
             (
                 jnp.clip(tile_mins[:, 0], 0, tile_width),
@@ -501,9 +496,9 @@ def isect_tiles(
             & jnp.all(jnp.isfinite(flat_means), axis=-1)
             & jnp.all(jnp.isfinite(flat_radii), axis=-1)
         )
-        tiles_per_flat = jnp.where(
-            valid_gaussian, spans[:, 0] * spans[:, 1], 0
-        ).astype(jnp.int32)
+        tiles_per_flat = jnp.where(valid_gaussian, spans[:, 0] * spans[:, 1], 0).astype(
+            jnp.int32
+        )
         cumulative = _saturating_cumsum(tiles_per_flat, capacity + 1)
         total = cumulative[-1]
         valid_count = jnp.minimum(total, jnp.int32(capacity))
@@ -547,9 +542,7 @@ def isect_tiles(
     depth_words = jax.lax.bitcast_convert_type(selected_depths, jnp.int32)
     isect_ids = jnp.stack((high_words, depth_words), axis=-1)
     isect_ids = jnp.where(selected_valid[:, None], isect_ids, -1)
-    flatten_ids = jnp.where(
-        selected_valid, source_slots.astype(jnp.int32), -1
-    )
+    flatten_ids = jnp.where(selected_valid, source_slots.astype(jnp.int32), -1)
     return PaddedIntersections(
         tiles_per_gaussian, isect_ids, flatten_ids, valid_count, overflow
     )
@@ -586,12 +579,12 @@ def isect_offset_encode(
     )
     dense_ids = image_ids * (tile_width * tile_height) + tile_ids
     safe_ids = jnp.clip(dense_ids, 0, n_images * tile_width * tile_height - 1)
-    counts = jnp.zeros(
-        (n_images * tile_width * tile_height,), dtype=jnp.int32
-    ).at[safe_ids].add(valid.astype(jnp.int32))
-    offsets = (jnp.cumsum(counts) - counts).reshape(
-        n_images, tile_height, tile_width
+    counts = (
+        jnp.zeros((n_images * tile_width * tile_height,), dtype=jnp.int32)
+        .at[safe_ids]
+        .add(valid.astype(jnp.int32))
     )
+    offsets = (jnp.cumsum(counts) - counts).reshape(n_images, tile_height, tile_width)
     if return_info:
         return PaddedOffsets(
             offsets, valid_count, jnp.asarray(overflow, dtype=jnp.bool_)
@@ -690,9 +683,7 @@ def rasterize_to_indices_in_range(
     input_capacity = flatten_ids.shape[0]
     if max_intersections is None:
         max_intersections = max(1, input_capacity * tile_size * tile_size)
-    output_capacity = _as_static_int(
-        "max_intersections", max_intersections, minimum=1
-    )
+    output_capacity = _as_static_int("max_intersections", max_intersections, minimum=1)
     raw_offsets = (
         isect_offsets.offsets
         if isinstance(isect_offsets, PaddedOffsets)
@@ -744,7 +735,6 @@ def rasterize_to_indices_in_range(
     count = jnp.asarray(0, dtype=jnp.int32)
 
     def candidate_body(index, carry):
-        trans, gaussian_out, pixel_out, image_out, current_count = carry
         tile_global = candidate_tiles[index]
         image_id = tile_global // tiles_per_image
         tile_id = tile_global % tiles_per_image
@@ -792,10 +782,7 @@ def rasterize_to_indices_in_range(
                 & jnp.isfinite(sigma)
                 & (sigma >= 0.0)
                 & (alpha >= alpha_threshold)
-                & (
-                    current_transmittance * (1.0 - alpha)
-                    > transmittance_threshold
-                )
+                & (current_transmittance * (1.0 - alpha) > transmittance_threshold)
             )
             trans = trans.at[ray_id].set(
                 jnp.where(
@@ -1026,9 +1013,7 @@ def rasterize_to_pixels(
             "probe to obtain signed gradient and compositor AbsGrad"
         )
     if not absgrad and _means2d_absgrad_probe is not None:
-        raise ValueError(
-            "_means2d_absgrad_probe requires absgrad=True"
-        )
+        raise ValueError("_means2d_absgrad_probe requires absgrad=True")
     image_width = _as_static_int("image_width", image_width, minimum=1)
     image_height = _as_static_int("image_height", image_height, minimum=1)
     tile_size = _as_static_int("tile_size", tile_size, minimum=1)
@@ -1129,9 +1114,13 @@ def rasterize_to_pixels(
             "tile_overflow": jnp.zeros(offsets.shape, dtype=jnp.bool_),
             "overflow": input_overflow,
         }
-        return (render_colors, render_alphas, info) if return_info else (
-            render_colors,
-            render_alphas,
+        return (
+            (render_colors, render_alphas, info)
+            if return_info
+            else (
+                render_colors,
+                render_alphas,
+            )
         )
 
     offsets_flat = offsets.reshape(-1)
@@ -1264,9 +1253,7 @@ def rasterize_to_pixels(
             alpha = jnp.minimum(
                 selected_opacities[:, None] * jnp.exp(-sigma), MAX_ALPHA
             )
-            alpha = jnp.nan_to_num(
-                alpha, nan=0.0, posinf=MAX_ALPHA, neginf=0.0
-            )
+            alpha = jnp.nan_to_num(alpha, nan=0.0, posinf=MAX_ALPHA, neginf=0.0)
             alpha_valid = (
                 candidate_valid[:, None]
                 & pixel_valid[None, :]
@@ -1345,9 +1332,7 @@ def rasterize_to_pixels(
         tiles, bound = batch
         return None, render_batch_tiles(bound)(tiles)
 
-    _, batched_tiles = jax.lax.scan(
-        render_batch, None, (padded_order, batch_bounds)
-    )
+    _, batched_tiles = jax.lax.scan(render_batch, None, (padded_order, batch_bounds))
     scattered_position = jnp.argsort(order)
     rendered_tiles, alpha_tiles, tile_overflow = (
         value.reshape((padded,) + value.shape[2:])[scattered_position]
@@ -1375,9 +1360,9 @@ def rasterize_to_pixels(
             image_count, tile_height, tile_width, tile_size, tile_size, 1
         )
         .transpose(0, 1, 3, 2, 4, 5)
-        .reshape(
-            image_count, tile_height * tile_size, tile_width * tile_size, 1
-        )[:, :image_height, :image_width]
+        .reshape(image_count, tile_height * tile_size, tile_width * tile_size, 1)[
+            :, :image_height, :image_width
+        ]
     )
     flat_backgrounds = backgrounds.reshape(image_count, channels)
     render_colors = render_colors + flat_backgrounds[:, None, None, :] * (
@@ -1386,15 +1371,14 @@ def rasterize_to_pixels(
     render_colors = render_colors.reshape(
         image_shape + (image_height, image_width, channels)
     )
-    render_alphas = render_alphas.reshape(
-        image_shape + (image_height, image_width, 1)
-    )
+    render_alphas = render_alphas.reshape(image_shape + (image_height, image_width, 1))
     tile_overflow = tile_overflow.reshape(offsets.shape)
     info = {
         "tile_overflow": tile_overflow,
         "overflow": input_overflow | jnp.any(tile_overflow),
     }
     if not return_info:
+
         def report_overflow(_):
             jax.debug.callback(_raise_rasterization_overflow, ordered=True)
             return jnp.asarray(0, dtype=jnp.int32)
@@ -1405,9 +1389,13 @@ def rasterize_to_pixels(
             lambda _: jnp.asarray(0, dtype=jnp.int32),
             operand=None,
         )
-    return (render_colors, render_alphas, info) if return_info else (
-        render_colors,
-        render_alphas,
+    return (
+        (render_colors, render_alphas, info)
+        if return_info
+        else (
+            render_colors,
+            render_alphas,
+        )
     )
 
 

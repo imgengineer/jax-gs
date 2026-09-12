@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ... import functional as F
 from ...functional.return_types import (
@@ -22,7 +22,6 @@ from ..common.utils import (
     compact_valid_indices,
     filter_by_validity,
 )
-
 
 _TWO_PI = 2.0 * jnp.pi
 
@@ -44,9 +43,7 @@ class LidarModel(nnx.Module):
             raise TypeError(
                 f"unsupported LiDAR projection: {type(projection).__name__}"
             )
-        self._row_elevations_rad = nnx.Param(
-            jnp.asarray(projection.row_elevations_rad)
-        )
+        self._row_elevations_rad = nnx.Param(jnp.asarray(projection.row_elevations_rad))
         self._column_azimuths_rad = nnx.Param(
             jnp.asarray(projection.column_azimuths_rad)
         )
@@ -88,9 +85,7 @@ class LidarModel(nnx.Module):
             rays = rays * jax.lax.rsqrt(
                 jnp.maximum(squared_norm, jnp.asarray(1.0e-20, rays.dtype))
             )
-        result = F.sensor_rays_to_sensor_angles(
-            rays, allow_device_transfer=True
-        )
+        result = F.sensor_rays_to_sensor_angles(rays, allow_device_transfer=True)
         valid = (
             self._valid_sensor_angles(result.sensor_angles)
             if return_valid_flag
@@ -107,11 +102,7 @@ class LidarModel(nnx.Module):
         result = F.sensor_angles_to_sensor_rays(
             sensor_angles, allow_device_transfer=True
         )
-        valid = (
-            self._valid_sensor_angles(sensor_angles)
-            if return_valid_flag
-            else None
-        )
+        valid = self._valid_sensor_angles(sensor_angles) if return_valid_flag else None
         return SensorRayReturn(result.sensor_rays, valid)
 
     def elements_to_sensor_angles(
@@ -134,9 +125,10 @@ class LidarModel(nnx.Module):
     def elements_to_sensor_points(
         self, elements: jax.Array, element_distances: jax.Array
     ) -> jax.Array:
-        return self.elements_to_sensor_rays(elements) * jnp.asarray(
-            element_distances
-        )[:, None]
+        return (
+            self.elements_to_sensor_rays(elements)
+            * jnp.asarray(element_distances)[:, None]
+        )
 
     def elements_to_world_rays_shutter_pose(
         self,
@@ -214,15 +206,11 @@ class LidarModel(nnx.Module):
             else None,
         )
 
-    def sensor_angles_relative_frame_times(
-        self, sensor_angles: jax.Array
-    ) -> jax.Array:
+    def sensor_angles_relative_frame_times(self, sensor_angles: jax.Array) -> jax.Array:
         projection = self.projection
         angles = jnp.asarray(sensor_angles)
         row_indices = jnp.argmin(
-            jnp.abs(
-                angles[:, :1] - projection.row_elevations_rad[None]
-            ),
+            jnp.abs(angles[:, :1] - projection.row_elevations_rad[None]),
             axis=-1,
         )
         azimuth = angles[:, 1]

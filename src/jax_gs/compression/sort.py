@@ -7,9 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 
 
-def sort_splats(
-    splats: dict[str, Any], verbose: bool = True
-) -> dict[str, Any]:
+def sort_splats(splats: dict[str, Any], verbose: bool = True) -> dict[str, Any]:
     """Sort aligned splat arrays into a deterministic spatial order.
 
     Upstream uses the optional PLAS package to optimize the resulting image
@@ -27,7 +25,9 @@ def sort_splats(
     order = np.lexsort((means[:, 2], means[:, 1], means[:, 0]))
     jax_order = jnp.asarray(order)
     for name, values in splats.items():
-        splats[name] = values[order] if isinstance(values, np.ndarray) else values[jax_order]
+        splats[name] = (
+            values[order] if isinstance(values, np.ndarray) else values[jax_order]
+        )
     return splats
 
 

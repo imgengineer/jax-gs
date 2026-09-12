@@ -613,7 +613,9 @@ def train_distributed(
         drop_remainder=True,
     )
     batches = _infinite_batches(
-        dataset, num_workers=config.data.num_workers, start_batch=start_step,
+        dataset,
+        num_workers=config.data.num_workers,
+        start_batch=start_step,
     )
 
     def make_mapped_train_step(current_config: TrainConfig):
@@ -687,10 +689,15 @@ def train_distributed(
         )
         evaluation_example = evaluation_source[0]
         eval_height, eval_width = evaluation_example["image"].shape[:2]
+
         def make_mapped_render_step(current_config):
             render_step = make_distributed_render_step(
-                current_config, eval_width, eval_height,
-                world_size=world_size, axis_name=_RANK_AXIS, _return_info=True,
+                current_config,
+                eval_width,
+                eval_height,
+                world_size=world_size,
+                axis_name=_RANK_AXIS,
+                _return_info=True,
             )
 
             @nnx.pmap(
@@ -700,17 +707,28 @@ def train_distributed(
                 devices=devices,
             )
             def configured_render_step(
-                current_model, current_appearance, viewmat, K, sh_degree,
+                current_model,
+                current_appearance,
+                viewmat,
+                K,
+                sh_degree,
             ):
                 return render_step(
-                    current_model, viewmat, K, sh_degree,
+                    current_model,
+                    viewmat,
+                    K,
+                    sh_degree,
                     appearance_module=current_appearance,
                 )
 
             return configured_render_step
 
         mapped_render_step = _EvaluationRenderer(
-            config, eval_width, eval_height, make_mapped_render_step, devices=devices,
+            config,
+            eval_width,
+            eval_height,
+            make_mapped_render_step,
+            devices=devices,
         )
 
     def reset_safety_state() -> None:

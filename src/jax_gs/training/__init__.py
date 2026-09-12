@@ -62,6 +62,7 @@ from ._data import (
     _sample_patches,
     shard_camera_batch,
 )
+from ._distributed_loop import train_distributed
 from ._loop import (
     TrainingResult,
     _prewarm_train_step,
@@ -129,7 +130,6 @@ from ._step import (
     make_distributed_train_step,
     make_train_step,
 )
-from ._distributed_loop import train_distributed
 from .appearance import (
     APPEARANCE_FEATURE_DIM,
     AppearanceOptModule,

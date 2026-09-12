@@ -1,10 +1,10 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
-import jax_gs.regularizers as regularizers
+from jax_gs import regularizers
 from jax_gs.regularizers import (
     compute_tv_loss_targeted,
     create_invisible_mask,

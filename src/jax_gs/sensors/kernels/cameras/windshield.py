@@ -7,7 +7,6 @@ import jax.numpy as jnp
 
 from .types import BivariateWindshieldDistortion, ReferencePolynomial
 
-
 MAX_H_POLYNOMIAL_TERMS = 6
 MAX_V_POLYNOMIAL_TERMS = 15
 
@@ -30,9 +29,7 @@ def _compute_poly_order(poly_coeffs: jax.Array) -> int:
     )
 
 
-def _pad_poly_to_max_terms(
-    poly: jax.Array, max_terms: int, name: str
-) -> jax.Array:
+def _pad_poly_to_max_terms(poly: jax.Array, max_terms: int, name: str) -> jax.Array:
     if poly.ndim != 1:
         raise ValueError(f"{name} must be 1D")
     if poly.shape[0] > max_terms:
@@ -76,12 +73,8 @@ def from_components(
         (
             _pad_poly_to_max_terms(h_poly, MAX_H_POLYNOMIAL_TERMS, "h_poly"),
             _pad_poly_to_max_terms(v_poly, MAX_V_POLYNOMIAL_TERMS, "v_poly"),
-            _pad_poly_to_max_terms(
-                h_poly_inv, MAX_H_POLYNOMIAL_TERMS, "h_poly_inv"
-            ),
-            _pad_poly_to_max_terms(
-                v_poly_inv, MAX_V_POLYNOMIAL_TERMS, "v_poly_inv"
-            ),
+            _pad_poly_to_max_terms(h_poly_inv, MAX_H_POLYNOMIAL_TERMS, "h_poly_inv"),
+            _pad_poly_to_max_terms(v_poly_inv, MAX_V_POLYNOMIAL_TERMS, "v_poly_inv"),
         )
     )
     return BivariateWindshieldDistortion(
@@ -92,7 +85,7 @@ def from_components(
     )
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "BivariateWindshieldDistortion",
     "MAX_H_POLYNOMIAL_TERMS",
     "MAX_V_POLYNOMIAL_TERMS",

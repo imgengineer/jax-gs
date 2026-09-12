@@ -13,6 +13,7 @@ import jax.numpy as jnp
 _COUNT_BLOCK_SIZE = 128
 _EMIT_BLOCK_SIZE = 128
 _PREFIX_BLOCK_SIZE = 256
+_PREFIX_SCAN_CHUNK_SIZE = 256
 _RADIX_BLOCK_SIZE = 256
 _RADIX_LARGE_BLOCK_SIZE = 512
 _RADIX_LARGE_CAPACITY = 1 << 22
@@ -303,8 +304,10 @@ def _kernels():
         argmax_outer_ref,
         cumulative_ref,
         valid_count_ref,
-        gaussian_ids_ref,
-        tile_ids_ref,
+        depths_ref,
+        first_output_ref,
+        second_output_ref,
+        encode_sort_keys: _Constant[bool],
         tile_size: _Constant[int],
         tile_width: _Constant[int],
         outer_steps: _Constant[int],
@@ -322,9 +325,23 @@ def _kernels():
         )
         output_valid = rank < valid_count
         if block_id * block_size >= valid_count:
-            padding = ct.full(shape, -1, ct.int32)
-            ct.store(gaussian_ids_ref, (block_id,), padding)
-            ct.store(tile_ids_ref, (block_id,), padding)
+            if encode_sort_keys:
+                ct.store(
+                    first_output_ref,
+                    (block_id,),
+                    ct.full(shape, _UINT64_MAX, ct.uint64),
+                )
+            else:
+                ct.store(
+                    first_output_ref,
+                    (block_id,),
+                    ct.full(shape, -1, ct.int32),
+                )
+            ct.store(
+                second_output_ref,
+                (block_id,),
+                ct.full(shape, -1, ct.int32),
+            )
             return
 
         low = ct.zeros(shape, ct.int32)
@@ -438,16 +455,39 @@ def _kernels():
             selected_cross * tile_width + selected_outer,
         )
         final_valid = output_valid & found
-        ct.store(
-            gaussian_ids_ref,
-            (block_id,),
-            ct.where(final_valid, owner, -1),
-        )
-        ct.store(
-            tile_ids_ref,
-            (block_id,),
-            ct.where(final_valid, tile_id, -1),
-        )
+        if encode_sort_keys:
+            depth = ct.gather(depths_ref, owner)
+            depth = ct.where(depth == 0.0, 0.0, depth)
+            bits = ct.bitcast(depth, ct.uint32)
+            ordered = ct.where(
+                (bits & ct.astype(0x80000000, ct.uint32)) != 0,
+                ~bits,
+                bits ^ ct.astype(0x80000000, ct.uint32),
+            )
+            key = (
+                ct.astype(tile_id, ct.uint64) << ct.astype(32, ct.uint64)
+            ) | ct.astype(ordered, ct.uint64)
+            ct.store(
+                first_output_ref,
+                (block_id,),
+                ct.where(final_valid, key, ct.astype(_UINT64_MAX, ct.uint64)),
+            )
+            ct.store(
+                second_output_ref,
+                (block_id,),
+                ct.where(final_valid, owner, -1),
+            )
+        else:
+            ct.store(
+                first_output_ref,
+                (block_id,),
+                ct.where(final_valid, owner, -1),
+            )
+            ct.store(
+                second_output_ref,
+                (block_id,),
+                ct.where(final_valid, tile_id, -1),
+            )
 
     _, _, count_occupancy, emit_occupancy = _tuning_profile()
     if count_occupancy is not None:
@@ -727,6 +767,7 @@ def _prefix_local_kernel(
 def _prefix_blocks_kernel(
     block_sums,
     block_bases,
+    chunk_bases,
     valid_count_out,
     overflow_out,
     required_count_out,
@@ -740,6 +781,66 @@ def _prefix_blocks_kernel(
         ct.store(block_bases, (block,), running)
         running += value
         block += 1
+    ct.store(chunk_bases, (0,), ct.astype(0, ct.int64))
+    saturated = ct.minimum(running, ct.astype((1 << 30) - 1, ct.int64))
+    required = ct.astype(saturated, ct.int32)
+    ct.store(required_count_out, (0,), required)
+    ct.store(valid_count_out, (0,), ct.minimum(required, capacity))
+    ct.store(
+        overflow_out,
+        (0,),
+        ct.astype(required > capacity, ct.uint8),
+    )
+
+
+@ct.kernel
+def _prefix_scan_local_kernel(
+    block_sums,
+    block_bases,
+    chunk_sums,
+    block_count: ct.Constant[int],
+    scan_chunk_size: ct.Constant[int],
+):
+    chunk_id = ct.bid(0)
+    block = ct.arange(
+        scan_chunk_size,
+        start=chunk_id * scan_chunk_size,
+        dtype=ct.int32,
+    )
+    values = ct.load(
+        block_sums,
+        (chunk_id,),
+        shape=(scan_chunk_size,),
+        padding_mode=ct.PaddingMode.ZERO,
+    )
+    values = ct.where(block < block_count, values, 0)
+    inclusive = ct.cumsum(values)
+    ct.store(block_bases, (chunk_id,), inclusive - values)
+    ct.store(chunk_sums, (chunk_id,), ct.sum(values))
+
+
+@ct.kernel
+def _prefix_scan_chunks_kernel(
+    chunk_sums,
+    chunk_bases,
+    valid_count_out,
+    overflow_out,
+    required_count_out,
+    capacity: ct.Constant[int],
+    chunk_count: ct.Constant[int],
+    scan_chunk_size: ct.Constant[int],
+):
+    chunk = ct.arange(scan_chunk_size, dtype=ct.int32)
+    values = ct.load(
+        chunk_sums,
+        (0,),
+        shape=(scan_chunk_size,),
+        padding_mode=ct.PaddingMode.ZERO,
+    )
+    values = ct.where(chunk < chunk_count, values, 0)
+    inclusive = ct.cumsum(values)
+    ct.store(chunk_bases, (0,), inclusive - values)
+    running = ct.sum(values)
     saturated = ct.minimum(running, ct.astype((1 << 30) - 1, ct.int64))
     required = ct.astype(saturated, ct.int32)
     ct.store(required_count_out, (0,), required)
@@ -755,10 +856,12 @@ def _prefix_blocks_kernel(
 def _prefix_finalize_kernel(
     local_prefix,
     block_bases,
+    chunk_bases,
     cumulative,
     gaussian_count: ct.Constant[int],
     capacity: ct.Constant[int],
     block_size: ct.Constant[int],
+    scan_chunk_size: ct.Constant[int],
 ):
     block_id = ct.bid(0)
     rank = ct.arange(block_size, start=block_id * block_size, dtype=ct.int32)
@@ -769,7 +872,11 @@ def _prefix_finalize_kernel(
         shape=(block_size,),
         padding_mode=ct.PaddingMode.ZERO,
     )
-    base = ct.load(block_bases, (block_id,), shape=())
+    base = ct.load(block_bases, (block_id,), shape=()) + ct.load(
+        chunk_bases,
+        (block_id // scan_chunk_size,),
+        shape=(),
+    )
     capped = ct.minimum(base + local, ct.astype(capacity + 1, ct.int64))
     ct.scatter(
         cumulative,
@@ -862,13 +969,47 @@ def _radix_histogram_kernel(
         (key >> ct.astype(shift, ct.uint64)) & ct.astype(radix_size - 1, ct.uint64),
         ct.int32,
     )
-    bucket = ct.arange(radix_size, dtype=ct.int32)
-    matches = (bucket[:, None] == digit[None, :]) & in_bounds[None, :]
-    inclusive = ct.cumsum(ct.astype(matches, ct.int32), axis=1)
-    ranks = ct.sum(ct.where(matches, inclusive - 1, 0), axis=0)
-    counts = ct.sum(ct.astype(matches, ct.int32), axis=1)
+    subgroups = block_size // 32
+    digit = ct.reshape(digit, (subgroups, 32))
+    valid = ct.reshape(in_bounds, (subgroups, 32))
+    packed_buckets = (radix_size + 3) // 4
+    bucket_group = ct.arange(packed_buckets, dtype=ct.int32)
+    matches = (bucket_group[:, None, None] == digit[None, :, :] // 4) & valid[
+        None, :, :
+    ]
+    slot = ct.astype(digit & 3, ct.uint32)
+    # Four six-bit fields hold independent counts within 32-lane subgroups.
+    packed = ct.astype(matches, ct.uint32) << (slot[None, :, :] * 6)
+    local = ct.cumsum(packed, axis=2)
+    local_count = ct.astype((local >> (slot[None, :, :] * 6)) & 63, ct.uint16)
+    totals = ct.astype(ct.sum(packed, axis=2), ct.uint64)
+    field = ct.arange(4, dtype=ct.uint64)
+    # Expand subgroup totals before accumulating up to 512 lanes per bucket.
+    wide = ct.sum(
+        ((totals[:, :, None] >> (field[None, None, :] * 6)) & 63)
+        << (field[None, None, :] * 16),
+        axis=2,
+    )
+    bases = ct.cumsum(wide, axis=1) - wide
+    group_bases = ct.astype(
+        (bases[:, :, None] >> ct.astype(slot[None, :, :] * 16, ct.uint64)) & 0xFFFF,
+        ct.uint16,
+    )
+    ranks = ct.reshape(
+        ct.sum(ct.where(matches, group_bases + local_count - 1, 0), axis=0),
+        (block_size,),
+    )
+    bucket_totals = ct.sum(wide, axis=1)
+    counts = ct.astype(
+        ct.reshape(
+            (bucket_totals[:, None] >> (field[None, :] * 16)) & 0xFFFF,
+            (packed_buckets * 4,),
+        ),
+        ct.int32,
+    )
     ct.store(histogram, (block_id, 0), counts[None, :])
-    ct.store(local_ranks, (block_id,), ranks)
+    # A rank is local to a block of at most 512 entries, so uint16 is exact.
+    ct.store(local_ranks, (block_id,), ct.astype(ranks, ct.uint16))
 
 
 @ct.kernel
@@ -917,37 +1058,47 @@ def _radix_scan_chunks_kernel(
     chunk_sums,
     valid_count,
     chunk_prefix,
-    bucket_totals,
     capacity: ct.Constant[int],
     radix_block_size: ct.Constant[int],
     scan_chunk_size: ct.Constant[int],
+    radix_size: ct.Constant[int],
+    chunk_scan_size: ct.Constant[int],
 ):
-    bucket = ct.bid(0)
     count = ct.maximum(
         0,
         ct.minimum(ct.load(valid_count, (0,), shape=()), capacity),
     )
     active_blocks = (count + radix_block_size - 1) // radix_block_size
     active_chunks = (active_blocks + scan_chunk_size - 1) // scan_chunk_size
-    running = ct.astype(0, ct.int32)
-    chunk = 0
-    while chunk < active_chunks:
-        value = ct.load(chunk_sums, (chunk, bucket), shape=())
-        ct.store(chunk_prefix, (chunk, bucket), running)
-        running += value
-        chunk += 1
-    ct.store(bucket_totals, (bucket,), running)
+    groups = ct.cdiv(chunk_sums.shape[0], chunk_scan_size)
+    lane = ct.arange(chunk_scan_size, dtype=ct.int32)
+    totals = ct.zeros((radix_size,), ct.int32)
+    for group in range(groups):
+        values = ct.load(
+            chunk_sums,
+            (group, 0),
+            shape=(chunk_scan_size, radix_size),
+            padding_mode=ct.PaddingMode.ZERO,
+        )
+        active = group * chunk_scan_size + lane < active_chunks
+        values = ct.where(active[:, None], values, 0)
+        totals += ct.sum(values, axis=0)
 
-
-@ct.kernel
-def _radix_bucket_base_kernel(
-    bucket_totals,
-    bucket_base,
-    radix_size: ct.Constant[int],
-):
-    totals = ct.load(bucket_totals, (0,), shape=(radix_size,))
-    inclusive = ct.cumsum(totals)
-    ct.store(bucket_base, (0,), inclusive - totals)
+    # Include the bucket base in each chunk prefix, eliminating a separate
+    # kernel and one metadata gather per scattered intersection.
+    running = ct.cumsum(totals) - totals
+    for group in range(groups):
+        values = ct.load(
+            chunk_sums,
+            (group, 0),
+            shape=(chunk_scan_size, radix_size),
+            padding_mode=ct.PaddingMode.ZERO,
+        )
+        active = group * chunk_scan_size + lane < active_chunks
+        values = ct.where(active[:, None], values, 0)
+        inclusive = ct.cumsum(values, axis=0)
+        ct.store(chunk_prefix, (group, 0), inclusive - values + running[None, :])
+        running += ct.sum(values, axis=0)
 
 
 @ct.kernel
@@ -957,7 +1108,6 @@ def _radix_scatter_kernel(
     valid_count,
     block_prefix,
     chunk_prefix,
-    bucket_base,
     local_ranks,
     output_keys,
     output_values,
@@ -989,11 +1139,14 @@ def _radix_scatter_kernel(
         shape=(block_size,),
         padding_mode=ct.PaddingMode.ZERO,
     )
-    local = ct.load(
-        local_ranks,
-        (block_id,),
-        shape=(block_size,),
-        padding_mode=ct.PaddingMode.ZERO,
+    local = ct.astype(
+        ct.load(
+            local_ranks,
+            (block_id,),
+            shape=(block_size,),
+            padding_mode=ct.PaddingMode.ZERO,
+        ),
+        ct.int32,
     )
     digit = ct.astype(
         (key >> ct.astype(shift, ct.uint64)) & ct.astype(radix_size - 1, ct.uint64),
@@ -1002,8 +1155,7 @@ def _radix_scatter_kernel(
     prefix = ct.gather(block_prefix, (block_id, digit)) + ct.gather(
         chunk_prefix, (block_id // scan_chunk_size, digit)
     )
-    base = ct.gather(bucket_base, digit)
-    target = base + prefix + local
+    target = prefix + local
     ct.scatter(output_keys, target, key, mask=in_bounds)
     ct.scatter(output_values, target, value, mask=in_bounds)
 
@@ -1159,37 +1311,43 @@ def count_accutile_intersections_cutile(
             *_state_arguments(state),
             output,
             tile_size,
-            max(tile_width, tile_height),
+            min(tile_width, tile_height),
             count_block_size,
         ),
     )
 
 
-def emit_accutile_intersections_cutile(
+def _emit_accutile_cutile(
     state: Any,
     cumulative: jax.Array,
     valid_count: jax.Array,
+    depths: jax.Array,
     *,
     capacity: int,
     tile_size: int,
     tile_width: int,
     tile_height: int,
+    encode_sort_keys: bool,
 ) -> tuple[jax.Array, jax.Array]:
-    """Emit the fixed Gaussian-major AccuTile prefix with NVIDIA cuTile."""
-
     gaussian_count = state.valid.shape[0]
+    first_dtype = jnp.uint64 if encode_sort_keys else jnp.int32
     if capacity == 0:
-        empty = jnp.zeros((0,), dtype=jnp.int32)
-        return empty, empty
+        return (
+            jnp.zeros((0,), dtype=first_dtype),
+            jnp.zeros((0,), dtype=jnp.int32),
+        )
     if gaussian_count == 0:
-        padding = jnp.full((capacity,), -1, dtype=jnp.int32)
-        return padding, padding
+        first_padding = _UINT64_MAX if encode_sort_keys else -1
+        return (
+            jnp.full((capacity,), first_padding, dtype=first_dtype),
+            jnp.full((capacity,), -1, dtype=jnp.int32),
+        )
     _require_cuda_tile_device()
     ct, ctj = _cutile()
     _, emit_kernel = _kernels()
     _, emit_block_size, _, _ = _tuning_profile()
-    gaussian_output = ctj.OutputPlaceholder((capacity,), jnp.int32)
-    tile_output = ctj.OutputPlaceholder((capacity,), jnp.int32)
+    first_output = ctj.OutputPlaceholder((capacity,), first_dtype)
+    second_output = ctj.OutputPlaceholder((capacity,), jnp.int32)
     return ctj.cutile_call(
         (ct.cdiv(capacity, emit_block_size),),
         emit_kernel,
@@ -1214,16 +1372,43 @@ def emit_accutile_intersections_cutile(
             state.argmax_outer,
             cumulative,
             jnp.asarray(valid_count, dtype=jnp.int32).reshape((1,)),
-            gaussian_output,
-            tile_output,
+            depths,
+            first_output,
+            second_output,
+            encode_sort_keys,
             tile_size,
             tile_width,
-            max(tile_width, tile_height),
+            min(tile_width, tile_height),
             capacity,
             gaussian_count,
             math.ceil(math.log2(gaussian_count + 1)),
             emit_block_size,
         ),
+    )
+
+
+def emit_accutile_intersections_cutile(
+    state: Any,
+    cumulative: jax.Array,
+    valid_count: jax.Array,
+    *,
+    capacity: int,
+    tile_size: int,
+    tile_width: int,
+    tile_height: int,
+) -> tuple[jax.Array, jax.Array]:
+    """Emit the fixed Gaussian-major AccuTile prefix with NVIDIA cuTile."""
+
+    return _emit_accutile_cutile(
+        state,
+        cumulative,
+        valid_count,
+        state.b,
+        capacity=capacity,
+        tile_size=tile_size,
+        tile_width=tile_width,
+        tile_height=tile_height,
+        encode_sort_keys=False,
     )
 
 
@@ -1269,29 +1454,63 @@ def _prefix_counts_cutile(
             _PREFIX_BLOCK_SIZE,
         ),
     )
-    block_bases, valid_count, overflow, required_count = ctj.cutile_call(
-        (1,),
-        _prefix_blocks_kernel,
-        (
-            block_sums,
-            ctj.OutputPlaceholder((block_count,), jnp.int64),
-            ctj.OutputPlaceholder((1,), jnp.int32),
-            ctj.OutputPlaceholder((1,), jnp.uint8),
-            ctj.OutputPlaceholder((1,), jnp.int32),
-            capacity,
-            block_count,
-        ),
-    )
+    if block_count <= _PREFIX_SCAN_CHUNK_SIZE:
+        block_bases, chunk_bases, valid_count, overflow, required_count = (
+            ctj.cutile_call(
+                (1,),
+                _prefix_blocks_kernel,
+                (
+                    block_sums,
+                    ctj.OutputPlaceholder((block_count,), jnp.int64),
+                    ctj.OutputPlaceholder((1,), jnp.int64),
+                    ctj.OutputPlaceholder((1,), jnp.int32),
+                    ctj.OutputPlaceholder((1,), jnp.uint8),
+                    ctj.OutputPlaceholder((1,), jnp.int32),
+                    capacity,
+                    block_count,
+                ),
+            )
+        )
+    else:
+        chunk_count = math.ceil(block_count / _PREFIX_SCAN_CHUNK_SIZE)
+        block_bases, chunk_sums = ctj.cutile_call(
+            (chunk_count,),
+            _prefix_scan_local_kernel,
+            (
+                block_sums,
+                ctj.OutputPlaceholder((block_count,), jnp.int64),
+                ctj.OutputPlaceholder((chunk_count,), jnp.int64),
+                block_count,
+                _PREFIX_SCAN_CHUNK_SIZE,
+            ),
+        )
+        chunk_bases, valid_count, overflow, required_count = ctj.cutile_call(
+            (1,),
+            _prefix_scan_chunks_kernel,
+            (
+                chunk_sums,
+                ctj.OutputPlaceholder((chunk_count,), jnp.int64),
+                ctj.OutputPlaceholder((1,), jnp.int32),
+                ctj.OutputPlaceholder((1,), jnp.uint8),
+                ctj.OutputPlaceholder((1,), jnp.int32),
+                capacity,
+                chunk_count,
+                # The top level can exceed 256 chunks for more than 256**3 rows.
+                1 << (chunk_count - 1).bit_length(),
+            ),
+        )
     cumulative = ctj.cutile_call(
         (block_count,),
         _prefix_finalize_kernel,
         (
             local,
             block_bases,
+            chunk_bases,
             ctj.OutputPlaceholder((gaussian_count,), jnp.int32),
             gaussian_count,
             capacity,
             _PREFIX_BLOCK_SIZE,
+            _PREFIX_SCAN_CHUNK_SIZE,
         ),
     )
     return (
@@ -1327,7 +1546,7 @@ def _radix_pass_cutile(
             keys,
             valid_count.reshape((1,)),
             ctj.OutputPlaceholder((padded_block_count, radix_size), jnp.int32),
-            ctj.OutputPlaceholder((capacity,), jnp.int32),
+            ctj.OutputPlaceholder((capacity,), jnp.uint16),
             capacity,
             shift,
             radix_size,
@@ -1350,26 +1569,18 @@ def _radix_pass_cutile(
             radix_size,
         ),
     )
-    chunk_prefix, bucket_totals = ctj.cutile_call(
-        (radix_size,),
+    chunk_prefix = ctj.cutile_call(
+        (1,),
         _radix_scan_chunks_kernel,
         (
             chunk_sums,
             valid_count.reshape((1,)),
             ctj.OutputPlaceholder(chunk_sums.shape, jnp.int32),
-            ctj.OutputPlaceholder((radix_size,), jnp.int32),
             capacity,
             block_size,
             _RADIX_SCAN_CHUNK_SIZE,
-        ),
-    )
-    bucket_base = ctj.cutile_call(
-        (1,),
-        _radix_bucket_base_kernel,
-        (
-            bucket_totals,
-            ctj.OutputPlaceholder((radix_size,), jnp.int32),
             radix_size,
+            min(_RADIX_SCAN_CHUNK_SIZE, 1 << (chunk_count - 1).bit_length()),
         ),
     )
     return ctj.cutile_call(
@@ -1381,7 +1592,6 @@ def _radix_pass_cutile(
             valid_count.reshape((1,)),
             block_prefix,
             chunk_prefix,
-            bucket_base,
             local_ranks,
             ctj.OutputPlaceholder((capacity,), jnp.uint64),
             ctj.OutputPlaceholder((capacity,), jnp.int32),
@@ -1394,32 +1604,15 @@ def _radix_pass_cutile(
     )
 
 
-def _sort_offsets_cutile(
-    gaussian_ids: jax.Array,
-    tile_ids: jax.Array,
-    depths: jax.Array,
+def _sort_prepared_offsets_cutile(
+    keys: jax.Array,
+    values: jax.Array,
     valid_count: jax.Array,
     *,
     tile_count: int,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
-    capacity = gaussian_ids.shape[0]
+    capacity = keys.shape[0]
     block_count = math.ceil(capacity / _RADIX_BLOCK_SIZE)
-    keys, values = ctj.cutile_call(
-        (block_count,),
-        _prepare_sort_keys_kernel,
-        (
-            gaussian_ids,
-            tile_ids,
-            depths,
-            valid_count.reshape((1,)),
-            ctj.OutputPlaceholder((capacity,), jnp.uint64),
-            ctj.OutputPlaceholder((capacity,), jnp.int32),
-            capacity,
-            depths.shape[0],
-            tile_count,
-            _RADIX_BLOCK_SIZE,
-        ),
-    )
     end_bit = 32 + tile_count.bit_length()
     for shift in range(0, end_bit, _RADIX_BITS):
         # Do not pay for 32 buckets when the final pass has fewer than five bits.
@@ -1471,6 +1664,40 @@ def _sort_offsets_cutile(
     return sorted_gaussians, sorted_tiles, offsets, effective_count[0]
 
 
+def _sort_offsets_cutile(
+    gaussian_ids: jax.Array,
+    tile_ids: jax.Array,
+    depths: jax.Array,
+    valid_count: jax.Array,
+    *,
+    tile_count: int,
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    capacity = gaussian_ids.shape[0]
+    block_count = math.ceil(capacity / _RADIX_BLOCK_SIZE)
+    keys, values = ctj.cutile_call(
+        (block_count,),
+        _prepare_sort_keys_kernel,
+        (
+            gaussian_ids,
+            tile_ids,
+            depths,
+            valid_count.reshape((1,)),
+            ctj.OutputPlaceholder((capacity,), jnp.uint64),
+            ctj.OutputPlaceholder((capacity,), jnp.int32),
+            capacity,
+            depths.shape[0],
+            tile_count,
+            _RADIX_BLOCK_SIZE,
+        ),
+    )
+    return _sort_prepared_offsets_cutile(
+        keys,
+        values,
+        valid_count,
+        tile_count=tile_count,
+    )
+
+
 def intersect_tiles_cutile(
     means2d: jax.Array,
     radii: jax.Array,
@@ -1510,7 +1737,8 @@ def intersect_tiles_cutile(
             tile_width,
             tile_height,
             alpha_threshold,
-            max(tile_width, tile_height),
+            # AccuTile walks the shorter clipped span, bounded by either grid axis.
+            min(tile_width, tile_height),
             count_block,
         ),
     )
@@ -1522,19 +1750,20 @@ def intersect_tiles_cutile(
         offsets = jnp.zeros((tile_height * tile_width,), jnp.int32)
         return empty, empty, offsets, valid_count, overflow, required_count
     state = _native_state(state_floats, state_bounds, state_flags)
-    gaussian_ids, tile_ids = emit_accutile_intersections_cutile(
+    keys, values = _emit_accutile_cutile(
         state,
         cumulative,
         valid_count,
+        depths,
         capacity=capacity,
         tile_size=tile_size,
         tile_width=tile_width,
         tile_height=tile_height,
+        encode_sort_keys=True,
     )
-    gaussian_ids, tile_ids, offsets, valid_count = _sort_offsets_cutile(
-        gaussian_ids,
-        tile_ids,
-        depths,
+    gaussian_ids, tile_ids, offsets, valid_count = _sort_prepared_offsets_cutile(
+        keys,
+        values,
         valid_count,
         tile_count=tile_width * tile_height,
     )

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import IntEnum
-import math
 
 import jax
 import jax.numpy as jnp
@@ -40,12 +40,8 @@ class RowOffsetStructuredSpinningLidarProjection:
 
     def __post_init__(self) -> None:
         row_elevations = _vector(self.row_elevations_rad, "row_elevations_rad")
-        column_azimuths = _vector(
-            self.column_azimuths_rad, "column_azimuths_rad"
-        )
-        row_offsets = _vector(
-            self.row_azimuth_offsets_rad, "row_azimuth_offsets_rad"
-        )
+        column_azimuths = _vector(self.column_azimuths_rad, "column_azimuths_rad")
+        row_offsets = _vector(self.row_azimuth_offsets_rad, "row_azimuth_offsets_rad")
         if row_elevations.size == 0:
             raise ValueError("row_elevations_rad must be non-empty")
         if column_azimuths.size == 0:
@@ -81,9 +77,7 @@ class RowOffsetStructuredSpinningLidarProjection:
 
 
 REGISTERED_LIDAR_PROJECTIONS = (RowOffsetStructuredSpinningLidarProjection,)
-REGISTERED_LIDAR_PROJECTION_NAMES = (
-    "RowOffsetStructuredSpinningLidarProjection",
-)
+REGISTERED_LIDAR_PROJECTION_NAMES = ("RowOffsetStructuredSpinningLidarProjection",)
 
 
 def script_class_name(obj: object) -> str:

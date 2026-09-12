@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from .base import Scene
 
@@ -60,9 +60,7 @@ class GaussianScene(nnx.Module, Scene):
         self.component_names: list[str] = []
         self.component_index = jnp.zeros((0,), dtype=jnp.int32)
 
-    def put(
-        self, name: str, component: Mapping[str, Any] | nnx.Dict
-    ) -> None:
+    def put(self, name: str, component: Mapping[str, Any] | nnx.Dict) -> None:
         """Append a component during initialization and keep sidecars aligned."""
 
         if not name:
@@ -78,9 +76,7 @@ class GaussianScene(nnx.Module, Scene):
             # Preserve nnx.Dict identity, matching the first-ParameterDict rule.
             self.splats = component
             self.component_names = [name]
-            self.component_index = jnp.zeros(
-                (component_count,), dtype=jnp.int32
-            )
+            self.component_index = jnp.zeros((component_count,), dtype=jnp.int32)
         else:
             appended = {}
             for key, current in self.splats.items():
@@ -102,9 +98,7 @@ class GaussianScene(nnx.Module, Scene):
                 )
             )
             for key, value in self.signal.items():
-                pad = jnp.zeros(
-                    (component_count,) + value.shape[1:], dtype=value.dtype
-                )
+                pad = jnp.zeros((component_count,) + value.shape[1:], dtype=value.dtype)
                 self.signal[key] = jnp.concatenate((value, pad), axis=0)
         self.validate()
 
@@ -114,7 +108,7 @@ class GaussianScene(nnx.Module, Scene):
         splats: Mapping[str, Any] | nnx.Dict,
         id: str,
         signal: Mapping[str, Any] | None = None,
-    ) -> "GaussianScene":
+    ) -> GaussianScene:
         splats = _component_dict(splats)
         if len(splats) == 0 or "means" not in splats:
             raise ValueError(
@@ -137,13 +131,11 @@ class GaussianScene(nnx.Module, Scene):
         count = self.num_gaussians()
         if not all(_array(value).shape[0] == count for value in self.splats.values()):
             raise ValueError(
-                "every splat array must have leading dim == "
-                f"num_gaussians: {count}"
+                f"every splat array must have leading dim == num_gaussians: {count}"
             )
         if not all(value.shape[0] == count for value in self.signal.values()):
             raise ValueError(
-                "every signal array must have leading dim == "
-                f"num_gaussians: {count}"
+                f"every signal array must have leading dim == num_gaussians: {count}"
             )
         if self.component_index.shape != (count,):
             raise ValueError(
@@ -158,12 +150,12 @@ class GaussianScene(nnx.Module, Scene):
                 if minimum < 0:
                     raise ValueError("component_index must be non-negative")
                 if maximum >= len(self.component_names):
-                    raise ValueError(
-                        "component_index refers to an unknown component"
-                    )
+                    raise ValueError("component_index refers to an unknown component")
 
     def num_gaussians(self) -> int:
-        return int(_array(self.splats["means"]).shape[0]) if "means" in self.splats else 0
+        return (
+            int(_array(self.splats["means"]).shape[0]) if "means" in self.splats else 0
+        )
 
     def _component_id(self, component: str | int) -> int:
         if isinstance(component, int):
@@ -182,9 +174,7 @@ class GaussianScene(nnx.Module, Scene):
             "name": self.component_names[component_id],
             "index": component_id,
             "mask": mask,
-            "splats": {
-                key: _array(value)[mask] for key, value in self.splats.items()
-            },
+            "splats": {key: _array(value)[mask] for key, value in self.splats.items()},
             "signal": {key: value[mask] for key, value in self.signal.items()},
         }
 
@@ -195,18 +185,15 @@ class GaussianScene(nnx.Module, Scene):
                 key: jnp.array(_array(value)) for key, value in self.splats.items()
             },
             "splats_requires_grad": {
-                key: isinstance(value, nnx.Param)
-                for key, value in self.splats.items()
+                key: isinstance(value, nnx.Param) for key, value in self.splats.items()
             },
-            "signal": {
-                key: jnp.array(value) for key, value in self.signal.items()
-            },
+            "signal": {key: jnp.array(value) for key, value in self.signal.items()},
             "component_names": list(self.component_names),
             "component_index": jnp.array(self.component_index),
         }
 
     @classmethod
-    def from_state_dict(cls, state: Mapping[str, object]) -> "GaussianScene":
+    def from_state_dict(cls, state: Mapping[str, object]) -> GaussianScene:
         if "id" not in state:
             raise KeyError("state_dict missing required 'id' entry")
         scene = cls(state["id"])
@@ -220,10 +207,7 @@ class GaussianScene(nnx.Module, Scene):
             }
         )
         scene.signal = nnx.Dict(
-            {
-                key: jnp.array(value)
-                for key, value in state.get("signal", {}).items()
-            }
+            {key: jnp.array(value) for key, value in state.get("signal", {}).items()}
         )
         scene.component_names = list(state.get("component_names", []))
         has_splats = "means" in scene.splats
@@ -281,9 +265,7 @@ class GaussianScene(nnx.Module, Scene):
         self.validate_slot_capacity(old_capacity)
         new_capacity = int(new_capacity)
         if new_capacity <= old_capacity:
-            raise ValueError(
-                "new scene slot capacity must exceed the current capacity"
-            )
+            raise ValueError("new scene slot capacity must exceed the current capacity")
         padding = new_capacity - old_capacity
         for key, value in self.splats.items():
             rows = _array(value)
@@ -323,9 +305,7 @@ class GaussianScene(nnx.Module, Scene):
             else:
                 self.splats[key] = reordered
         component_snapshot = jnp.array(self.component_index)
-        signal_snapshots = {
-            key: jnp.array(value) for key, value in self.signal.items()
-        }
+        signal_snapshots = {key: jnp.array(value) for key, value in self.signal.items()}
         self.component_index = component_snapshot[order]
         for key in self.signal:
             self.signal[key] = signal_snapshots[key][order]
@@ -379,16 +359,16 @@ class GaussianScene(nnx.Module, Scene):
         safe_sources = jnp.clip(source_slots, 0, capacity - 1)
         safe_targets = jnp.clip(target_slots, 0, capacity - 1)
         write_ids = jnp.arange(source_slots.shape[0], dtype=jnp.int32) + 1
-        last_write = jnp.zeros((capacity,), dtype=jnp.int32).at[
-            safe_targets
-        ].max(jnp.where(valid, write_ids, 0))
+        last_write = (
+            jnp.zeros((capacity,), dtype=jnp.int32)
+            .at[safe_targets]
+            .max(jnp.where(valid, write_ids, 0))
+        )
         selected_pair = jnp.maximum(last_write - 1, 0)
 
         def copy_from_snapshot(value: jax.Array) -> jax.Array:
             snapshot = jnp.array(value)
-            mask = (last_write > 0).reshape(
-                last_write.shape + (1,) * (value.ndim - 1)
-            )
+            mask = (last_write > 0).reshape(last_write.shape + (1,) * (value.ndim - 1))
             replacements = snapshot[safe_sources[selected_pair]]
             return jnp.where(mask, replacements, snapshot)
 
@@ -422,9 +402,7 @@ class GaussianScene(nnx.Module, Scene):
         for key, value in self.signal.items():
             self.signal[key] = value[keep]
 
-    def on_relocate(
-        self, dead_indices: jax.Array, sampled_indices: jax.Array
-    ) -> None:
+    def on_relocate(self, dead_indices: jax.Array, sampled_indices: jax.Array) -> None:
         self.component_index = self.component_index.at[dead_indices].set(
             self.component_index[sampled_indices]
         )

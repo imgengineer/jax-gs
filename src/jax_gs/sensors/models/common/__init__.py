@@ -11,7 +11,6 @@ from .utils import (
     xyzw_to_wxyz,
 )
 
-
 __all__ = [
     "Frame",
     "FrameId",

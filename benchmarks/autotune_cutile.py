@@ -39,9 +39,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--hot-iters", type=int, default=100)
     parser.add_argument("--backward-iters", type=int, default=30)
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument(
-        "--profiles", nargs="+", choices=_PROFILES, default=_PROFILES
-    )
+    parser.add_argument("--profiles", nargs="+", choices=_PROFILES, default=_PROFILES)
     parser.add_argument(
         "--cache-dir",
         type=Path,
@@ -153,8 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="jax-gs-cutile-tune-") as temporary:
         directory = Path(temporary)
         measurements = [
-            _run_profile(args, profile, directory)
-            for profile in args.profiles
+            _run_profile(args, profile, directory) for profile in args.profiles
         ]
     best = min(
         measurements,
@@ -181,9 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     os.replace(temporary, path)
     print(json.dumps(record, indent=2, sort_keys=True))
-    print(
-        f"export JAX_GS_CUTILE_TUNING={best['profile']}  # cached in {path}"
-    )
+    print(f"export JAX_GS_CUTILE_TUNING={best['profile']}  # cached in {path}")
     return 0
 
 

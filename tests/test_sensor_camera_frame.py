@@ -1,8 +1,8 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 from jax_gs.sensors.kernels.cameras import (
     NoExternalDistortion,

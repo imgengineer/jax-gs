@@ -1,6 +1,6 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from jax_gs.losses import (
     gaussian_density_reg,

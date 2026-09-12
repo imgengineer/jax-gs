@@ -50,6 +50,7 @@ from .three_dgut import (
 )
 
 ColorInput = jax.Array | tuple[jax.Array, jax.Array]
+_DEFAULT_RASTERIZATION_CONFIG = RasterizationConfig()
 
 
 def _has_color(render_mode: RenderMode) -> bool:
@@ -783,9 +784,7 @@ def _render_camera_intersections(
 
     if config.compositor_backend == "cuda_tile":
         if absgrad_probe is not None:
-            raise NotImplementedError(
-                "the cuTile compositor does not support AbsGrad"
-            )
+            raise NotImplementedError("the cuTile compositor does not support AbsGrad")
         from ._cutile_compositor import rasterize_to_pixels_cutile
 
         with jax.named_scope("compositing_cuda_tile"):
@@ -1370,7 +1369,7 @@ def rasterization(
     renderer_config: RendererConfig | None = None,
     *,
     active_mask: jax.Array | None = None,
-    config: RasterizationConfig = RasterizationConfig(),
+    config: RasterizationConfig = _DEFAULT_RASTERIZATION_CONFIG,
     _means2d_offset: jax.Array | None = None,
     distributed_world_size: int = 1,
     distributed_axis_name: Hashable | None = None,
@@ -1899,7 +1898,6 @@ def rasterization(
     sparse_grad_requested = jnp.asarray(sparse_grad)
     absgrad_requested = jnp.asarray(absgrad)
     absgrad_probe_enabled = _means2d_absgrad_probe is not None
-    del packed, sparse_grad, absgrad, channel_chunk, segmented
     if viewmats.ndim == 2:
         viewmats = viewmats[None, ...]
     if Ks.ndim == 2:
@@ -1949,7 +1947,10 @@ def rasterization(
         overrides["tile_size"] = tile_size
     if rasterize_mode is not None:
         overrides["rasterize_mode"] = rasterize_mode
-    if tile_size is None and config.tile_size == RasterizationConfig().tile_size:
+    if (
+        tile_size is None
+        and config.tile_size == _DEFAULT_RASTERIZATION_CONFIG.tile_size
+    ):
         overrides["tile_size"] = resolve_tile_size(
             None,
             with_eval3d=with_eval3d,

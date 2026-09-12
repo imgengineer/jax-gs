@@ -1,8 +1,8 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 import jax_gs.training as training_module
 from jax_gs.config import (
@@ -56,23 +56,17 @@ def _overflow_rasterization(
     capacity = means.shape[0]
     screen_probe = kwargs["_means2d_offset"]
     signal = 0.25 + 0.0 * jnp.sum(means) + 0.0 * jnp.sum(screen_probe)
-    renders = jnp.full(
-        (camera_count, height, width, 3), signal, dtype=means.dtype
-    )
+    renders = jnp.full((camera_count, height, width, 3), signal, dtype=means.dtype)
     alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
     info = {
         "radii": jnp.ones((camera_count, capacity, 2), means.dtype),
         "valid": jnp.ones((camera_count, capacity), jnp.bool_),
         "tile_overflow": jnp.zeros((camera_count, 1, 1), jnp.bool_),
-        "candidate_limit_exceeded": jnp.zeros(
-            (camera_count, 1, 1), jnp.bool_
-        ),
+        "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), jnp.bool_),
         "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
         "intersection_overflow": jnp.ones((camera_count,), jnp.bool_),
         "intersection_count": jnp.ones((camera_count,), jnp.int32),
-        "intersection_required_count": jnp.full(
-            (camera_count,), 2, jnp.int32
-        ),
+        "intersection_required_count": jnp.full((camera_count,), 2, jnp.int32),
     }
     return renders, alphas, info
 
@@ -124,9 +118,7 @@ def test_real_rasterizers_train_features_colors_and_selected_camera(
         feature_key=jax.random.key(11),
     )
     optimizer = create_optimizer(model, config.optimizer)
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
     appearance = AppearanceOptModule(
         2,
         APPEARANCE_FEATURE_DIM,
@@ -139,18 +131,18 @@ def test_real_rasterizers_train_features_colors_and_selected_camera(
     features_before = np.asarray(model.features[...]).copy()
     colors_before = np.asarray(model.colors[...]).copy()
     embedding_before = np.asarray(appearance.embeds.embedding[...]).copy()
-    inputs = dict(
-        images=jnp.zeros((1, 16, 16, 3), jnp.float32),
-        intrinsics=jnp.asarray(
+    inputs = {
+        "images": jnp.zeros((1, 16, 16, 3), jnp.float32),
+        "intrinsics": jnp.asarray(
             [[[20.0, 0.0, 8.0], [0.0, 20.0, 8.0], [0.0, 0.0, 1.0]]]
         ),
-        viewmats=jnp.eye(4, dtype=jnp.float32)[None],
-        sh_degree=jnp.asarray(1),
-        appearance_module=appearance,
-        appearance_optimizer=appearance_optimizer,
-        camtoworlds=jnp.eye(4, dtype=jnp.float32)[None],
-        image_ids=jnp.asarray([1], dtype=jnp.int32),
-    )
+        "viewmats": jnp.eye(4, dtype=jnp.float32)[None],
+        "sh_degree": jnp.asarray(1),
+        "appearance_module": appearance,
+        "appearance_optimizer": appearance_optimizer,
+        "camtoworlds": jnp.eye(4, dtype=jnp.float32)[None],
+        "image_ids": jnp.asarray([1], dtype=jnp.int32),
+    }
 
     first = train_step(
         model,
@@ -173,12 +165,8 @@ def test_real_rasterizers_train_features_colors_and_selected_camera(
     assert np.isfinite(float(second["loss"]))
     assert not np.array_equal(model.colors[...], colors_before)
     assert not np.array_equal(model.features[...], features_before)
-    np.testing.assert_array_equal(
-        appearance.embeds.embedding[0], embedding_before[0]
-    )
-    assert not np.array_equal(
-        appearance.embeds.embedding[1], embedding_before[1]
-    )
+    np.testing.assert_array_equal(appearance.embeds.embedding[0], embedding_before[0])
+    assert not np.array_equal(appearance.embeds.embedding[1], embedding_before[1])
     assert int(optimizer.step[...]) == 2
     assert int(appearance_optimizer.step[...]) == 2
 
@@ -205,9 +193,7 @@ def test_overflow_atomically_skips_shared_appearance_module(monkeypatch):
     )
     optimizer = create_optimizer(model, config.optimizer)
     state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
-    appearance = AppearanceOptModule(
-        1, APPEARANCE_FEATURE_DIM, rngs=nnx.Rngs(14)
-    )
+    appearance = AppearanceOptModule(1, APPEARANCE_FEATURE_DIM, rngs=nnx.Rngs(14))
     appearance_optimizer = create_appearance_optimizer(appearance, config)
     monkeypatch.setattr(training_module, "rasterization", _overflow_rasterization)
     before = _snapshot_array_state(appearance, appearance_optimizer)
@@ -218,9 +204,7 @@ def test_overflow_atomically_skips_shared_appearance_module(monkeypatch):
         state,
         TrainingSafetyState(),
         jnp.zeros((1, 4, 4, 3), jnp.float32),
-        jnp.asarray(
-            [[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),

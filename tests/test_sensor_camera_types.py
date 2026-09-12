@@ -135,27 +135,25 @@ def test_projection_types_are_jax_pytrees_and_value_validation_is_opt_in():
     )
     assert jax.tree_util.tree_leaves(NoExternalDistortion()) == []
 
-    singular = FThetaProjection(
-        **{**projection.__dict__, "A": jnp.zeros(4)}
-    )
+    singular = FThetaProjection(**{**projection.__dict__, "A": jnp.zeros(4)})
     with pytest.raises(ValueError, match="non-singular"):
         validate_camera_projection(singular)
 
 
 def test_constructor_rejects_nonfinite_or_out_of_range_scalar_configuration():
-    base = dict(
-        principal_point=jnp.zeros(2),
-        fw_poly=jnp.zeros(6),
-        bw_poly=jnp.zeros(6),
-        A=jnp.array([1.0, 0.0, 0.0, 1.0]),
-        resolution=(1, 1),
-        reference_polynomial=0,
-        fw_poly_degree=0,
-        bw_poly_degree=0,
-        newton_iterations=0,
-        max_angle=math.pi,
-        min_2d_norm=1.0e-6,
-    )
+    base = {
+        "principal_point": jnp.zeros(2),
+        "fw_poly": jnp.zeros(6),
+        "bw_poly": jnp.zeros(6),
+        "A": jnp.array([1.0, 0.0, 0.0, 1.0]),
+        "resolution": (1, 1),
+        "reference_polynomial": 0,
+        "fw_poly_degree": 0,
+        "bw_poly_degree": 0,
+        "newton_iterations": 0,
+        "max_angle": math.pi,
+        "min_2d_norm": 1.0e-6,
+    }
     with pytest.raises(ValueError, match="max_angle"):
         FThetaProjection(**{**base, "max_angle": math.inf})
     with pytest.raises(ValueError, match="strictly positive"):

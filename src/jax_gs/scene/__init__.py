@@ -5,7 +5,7 @@ from .components.gaussian_inference_scene import GaussianInferenceScene
 from .components.gaussian_scene import GaussianScene
 from .sh_compression import SHCompressionMode
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "functional",
     "Scene",
     "GaussianScene",

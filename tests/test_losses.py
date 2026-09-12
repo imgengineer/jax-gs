@@ -65,8 +65,6 @@ def test_normal_and_depth_normal_losses_have_finite_gradients() -> None:
     rendered = jnp.broadcast_to(normal, (4, 4, 3))
     camtoworld = jnp.eye(4, dtype=jnp.float32)
     intrinsics = jnp.eye(3, dtype=jnp.float32)
-    objective = lambda value: depth_normal_loss(
-        value, rendered, camtoworld, intrinsics
-    )
+    objective = lambda value: depth_normal_loss(value, rendered, camtoworld, intrinsics)
     gradient = jax.jit(jax.grad(objective))(depths)
     assert jnp.all(jnp.isfinite(gradient))

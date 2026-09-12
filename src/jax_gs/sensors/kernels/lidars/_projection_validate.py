@@ -19,9 +19,7 @@ def validate_lidar_projection(
     projection: RowOffsetStructuredSpinningLidarProjection,
 ) -> None:
     if not isinstance(projection, RowOffsetStructuredSpinningLidarProjection):
-        raise TypeError(
-            f"Unknown LiDAR projection class: {type(projection).__name__}"
-        )
+        raise TypeError(f"Unknown LiDAR projection class: {type(projection).__name__}")
     _check_finite(projection.row_elevations_rad, "row_elevations_rad")
     _check_finite(projection.column_azimuths_rad, "column_azimuths_rad")
     if projection.has_row_offsets:

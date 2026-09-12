@@ -40,9 +40,7 @@ def test_ut_sigma_points_reconstruct_gaussian_moments() -> None:
     reconstructed_mean = jnp.sum(sigma_points * weights_mean[:, None], axis=-2)
     delta = sigma_points - reconstructed_mean[..., None, :]
     reconstructed_covariance = jnp.sum(
-        weights_cov[:, None, None]
-        * delta[..., :, :, None]
-        * delta[..., :, None, :],
+        weights_cov[:, None, None] * delta[..., :, :, None] * delta[..., :, None, :],
         axis=-3,
     )
 
@@ -111,9 +109,7 @@ def test_ftheta_projection_uses_polynomial_and_half_pixel_origin() -> None:
         max_angle=math.pi / 2.0,
         linear_cde=(1.0, 0.0, 0.0),
     )
-    camera_points = jnp.asarray(
-        [[[0.0, 0.0, 1.0], [1.0, 0.0, 1.0]]], dtype=jnp.float32
-    )
+    camera_points = jnp.asarray([[[0.0, 0.0, 1.0], [1.0, 0.0, 1.0]]], dtype=jnp.float32)
     K = jnp.asarray(
         [[[1.0, 0.0, 10.0], [0.0, 1.0, 20.0], [0.0, 0.0, 1.0]]],
         dtype=jnp.float32,
@@ -269,9 +265,7 @@ def test_rolling_shutter_iterates_pose_at_pixel_readout_time() -> None:
     )
     world_point = jnp.asarray([[[0.0, 0.5, 2.0]]], dtype=jnp.float32)
 
-    global_image, _ = project_world_points(
-        world_point, start_view, K, 101, 101
-    )
+    global_image, _ = project_world_points(world_point, start_view, K, 101, 101)
     rolling_image, rolling_valid = project_world_points(
         world_point,
         start_view,

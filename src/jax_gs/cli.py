@@ -713,10 +713,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument(
         "--projection-backend",
         choices=("jax", "cuda_tile"),
-        help=(
-            "dense pinhole projection backend; cuda_tile uses NVIDIA cuTile "
-            "Python"
-        ),
+        help=("dense pinhole projection backend; cuda_tile uses NVIDIA cuTile Python"),
     )
     train_parser.add_argument(
         "--compositor-backend",

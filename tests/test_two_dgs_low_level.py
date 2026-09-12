@@ -13,14 +13,11 @@ from jax_gs.two_dgs import (
     rasterize_to_pixels_2dgs,
 )
 
-
 pytestmark = pytest.mark.resource_heavy
 
 
 def test_packed_projection_is_static_jittable_and_preserves_ids():
-    means = jnp.asarray(
-        [[0.0, 0.0, 2.0], [0.0, 0.0, -1.0]], dtype=jnp.float32
-    )
+    means = jnp.asarray([[0.0, 0.0, 2.0], [0.0, 0.0, -1.0]], dtype=jnp.float32)
     quats = jnp.asarray([[1.0, 0.0, 0.0, 0.0]] * 2, dtype=jnp.float32)
     scales = jnp.asarray([[0.2, 0.2, 0.01]] * 2, dtype=jnp.float32)
     viewmats = jnp.eye(4, dtype=jnp.float32)[None]
@@ -59,13 +56,9 @@ def test_packed_projection_indptr_tracks_batch_camera_groups_and_pytree():
         ],
         dtype=jnp.float32,
     )
-    quats = jnp.broadcast_to(
-        jnp.asarray([1.0, 0.0, 0.0, 0.0], jnp.float32), (2, 2, 4)
-    )
+    quats = jnp.broadcast_to(jnp.asarray([1.0, 0.0, 0.0, 0.0], jnp.float32), (2, 2, 4))
     scales = jnp.full((2, 2, 3), 0.2, dtype=jnp.float32)
-    viewmats = jnp.broadcast_to(
-        jnp.eye(4, dtype=jnp.float32), (2, 3, 4, 4)
-    )
+    viewmats = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32), (2, 3, 4, 4))
     viewmats = viewmats.at[:, 1, 2, 3].set(-4.0)
     Ks = jnp.broadcast_to(
         jnp.asarray(
@@ -142,9 +135,7 @@ def test_packed_low_level_pixels_match_dense_layout():
     means = jnp.asarray([[0.0, 0.0, 2.0]], dtype=jnp.float32)
     quats = jnp.asarray([[1.0, 0.0, 0.0, 0.0]], dtype=jnp.float32)
     scales = jnp.asarray([[0.2, 0.2, 0.01]], dtype=jnp.float32)
-    viewmats = jnp.stack(
-        (jnp.eye(4, dtype=jnp.float32), jnp.eye(4, dtype=jnp.float32))
-    )
+    viewmats = jnp.stack((jnp.eye(4, dtype=jnp.float32), jnp.eye(4, dtype=jnp.float32)))
     viewmats = viewmats.at[1, 0, 3].set(0.05)
     Ks = jnp.broadcast_to(
         jnp.asarray(
@@ -153,17 +144,13 @@ def test_packed_low_level_pixels_match_dense_layout():
         ),
         (2, 3, 3),
     )
-    dense = fully_fused_projection_2dgs(
-        means, quats, scales, viewmats, Ks, 8, 8
-    )
+    dense = fully_fused_projection_2dgs(means, quats, scales, viewmats, Ks, 8, 8)
     packed = fully_fused_projection_2dgs(
         means, quats, scales, viewmats, Ks, 8, 8, packed=True
     )
     assert isinstance(packed, PaddedProjection2DGS)
     radii, means2d, depths, transforms, normals = dense
-    colors = jnp.asarray(
-        [[[1.0, 0.25, 0.5]], [[0.1, 0.75, 0.3]]], dtype=jnp.float32
-    )
+    colors = jnp.asarray([[[1.0, 0.25, 0.5]], [[0.1, 0.75, 0.3]]], dtype=jnp.float32)
     opacities = jnp.asarray([[0.8], [0.6]], dtype=jnp.float32)
     tile_size = 4
     tile_width = tile_height = 2
@@ -262,9 +249,7 @@ def test_low_level_2dgs_padded_indices_accumulate_and_pixels():
     radii, means2d, depths, transforms, normals = fully_fused_projection_2dgs(
         means, quats, scales, viewmats, Ks, 8, 8
     )
-    intersections = isect_tiles(
-        means2d, radii, depths, 4, 2, 2, max_intersections=4
-    )
+    intersections = isect_tiles(means2d, radii, depths, 4, 2, 2, max_intersections=4)
     offsets = isect_offset_encode(
         intersections.isect_ids,
         1,
@@ -388,14 +373,10 @@ def test_low_level_2dgs_densify_probe_matches_ray_transform_vjp():
         [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]],
         dtype=jnp.float32,
     )
-    radii, means2d, depths, transforms, normals = (
-        fully_fused_projection_2dgs(
-            means, quats, scales, viewmats, Ks, 8, 8
-        )
+    radii, means2d, depths, transforms, normals = fully_fused_projection_2dgs(
+        means, quats, scales, viewmats, Ks, 8, 8
     )
-    intersections = isect_tiles(
-        means2d, radii, depths, 4, 2, 2, max_intersections=4
-    )
+    intersections = isect_tiles(means2d, radii, depths, 4, 2, 2, max_intersections=4)
     offsets = isect_offset_encode(
         intersections.isect_ids,
         1,
@@ -403,9 +384,7 @@ def test_low_level_2dgs_densify_probe_matches_ray_transform_vjp():
         2,
         valid_count=intersections.valid_count,
     )
-    color_cotangent = jnp.linspace(0.1, 1.0, 8 * 8 * 3).reshape(
-        1, 8, 8, 3
-    )
+    color_cotangent = jnp.linspace(0.1, 1.0, 8 * 8 * 3).reshape(1, 8, 8, 3)
     alpha_cotangent = jnp.linspace(0.2, 0.9, 8 * 8).reshape(1, 8, 8, 1)
 
     def loss(current_transforms, densify):
@@ -423,13 +402,11 @@ def test_low_level_2dgs_densify_probe_matches_ray_transform_vjp():
             intersections.flatten_ids,
             max_gaussians_per_tile=1,
         )
-        return jnp.sum(rendered * color_cotangent) + jnp.sum(
-            alpha * alpha_cotangent
-        )
+        return jnp.sum(rendered * color_cotangent) + jnp.sum(alpha * alpha_cotangent)
 
-    transform_gradient, densify_gradient = jax.jit(
-        jax.grad(loss, argnums=(0, 1))
-    )(transforms, jnp.zeros_like(means2d))
+    transform_gradient, densify_gradient = jax.jit(jax.grad(loss, argnums=(0, 1)))(
+        transforms, jnp.zeros_like(means2d)
+    )
     expected_densify = jnp.stack(
         (
             transform_gradient[..., 0, 2] * transforms[..., 2, 2],
@@ -439,9 +416,7 @@ def test_low_level_2dgs_densify_probe_matches_ray_transform_vjp():
     )
 
     assert jnp.any(jnp.abs(expected_densify) > 1.0e-6)
-    assert jnp.allclose(
-        densify_gradient, expected_densify, rtol=1.0e-5, atol=1.0e-6
-    )
+    assert jnp.allclose(densify_gradient, expected_densify, rtol=1.0e-5, atol=1.0e-6)
     assert loss(transforms, jnp.zeros_like(means2d)) == loss(
         transforms, jnp.ones_like(means2d)
     )

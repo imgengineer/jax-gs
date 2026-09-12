@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import struct
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -58,11 +58,7 @@ def _write_images(path: Path) -> None:
 def _write_points(path: Path) -> None:
     with path.open("wb") as file:
         file.write(struct.pack("<Q", 1))
-        file.write(
-            struct.pack(
-                "<QdddBBBd", 21, 1.25, -2.5, 3.75, 10, 20, 30, 0.125
-            )
-        )
+        file.write(struct.pack("<QdddBBBd", 21, 1.25, -2.5, 3.75, 10, 20, 30, 0.125))
         file.write(struct.pack("<Q", 2))
         file.write(struct.pack("<iiii", 7, 0, 3, 5))
 
@@ -143,6 +139,8 @@ def test_rejects_truncated_binary(tmp_path: Path) -> None:
 
 
 def test_qvec_is_normalized_and_validated() -> None:
-    np.testing.assert_allclose(qvec_to_rotation_matrix(np.array([2.0, 0, 0, 0])), np.eye(3))
+    np.testing.assert_allclose(
+        qvec_to_rotation_matrix(np.array([2.0, 0, 0, 0])), np.eye(3)
+    )
     with pytest.raises(ValueError, match="non-zero"):
         qvec_to_rotation_matrix(np.zeros(4))

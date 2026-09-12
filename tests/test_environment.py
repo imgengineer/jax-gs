@@ -3,7 +3,6 @@ import os
 import subprocess
 import sys
 
-
 _THREAD_VARIABLES = (
     "OMP_NUM_THREADS",
     "OPENBLAS_NUM_THREADS",
@@ -28,9 +27,7 @@ def _imported_thread_environment(environment):
 def _imported_cache_environment(environment, *, import_jax_first=False):
     prefix = "import jax; " if import_jax_first else ""
     code = (
-        "import json, os, stat; "
-        + prefix
-        + "import jax_gs; import jax; "
+        "import json, os, stat; " + prefix + "import jax_gs; import jax; "
         "path = jax.config.jax_compilation_cache_dir; "
         "print(json.dumps({'path': path, 'env': os.environ.get("
         "'JAX_COMPILATION_CACHE_DIR'), 'mode': None if not path or '://' in path "

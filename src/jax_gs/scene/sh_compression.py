@@ -18,7 +18,7 @@ SH_COMPRESSION_MAP = {
 }
 SH_COMPRESSION_MODE_VALUES = frozenset(SHCompressionMode)
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "SHCompressionMode",
     "SH_COMPRESSION_MAP",
     "SH_COMPRESSION_MODE_VALUES",

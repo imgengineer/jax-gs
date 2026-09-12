@@ -1,6 +1,6 @@
 # 性能实验记录
 
-更新日期：2026-09-11。
+更新日期：2026-09-12。
 
 ## 记录规范
 
@@ -58,6 +58,79 @@ benchmark 的保守工作集估算为 4.34 GiB；JAX device allocator 报告的�
 相对第一轮 1M 基线，forward / value-and-grad 中位数分别下降 26.0% / 22.9%。最终 trace 中 radix sort 为 4.770 ms/帧（58.7%），已经是下一阶段的主要瓶颈；compositor forward 降至 1.511 ms/帧。大规模 512-block 变体的 JAX allocator 峰值为约 642 MiB，观察到的首次 forward compile 为 8.60 s；这是用约 96 MiB allocator 峰值和更长冷编译换取热态吞吐。
 
 回退的实验：4-bit radix 从 6.82 ms 回退到 8.27 ms；12-float AccuTile state 相比 16-float 对齐布局没有稳定收益；128-block radix 在 1M 上从 11.572 回退到 12.672 ms。固定 512-block 虽对 1M 有利，但使 10k 从 0.409 回退到 0.436 ms，最终改为按 capacity 静态选择。6,291,456 的紧 intersection capacity 可把 1M 前向进一步压到 8.348 ms，但只留 1.8% headroom，不作为生产默认值。
+
+### 1M 第三轮排序流水线优化
+
+协议保持不变：1M active/capacity、640×360、8,388,608 intersection capacity、16,384 candidate bound、10 次 warmup、30 次前向和 30 次 value-and-grad；实际 intersections 仍为 6,179,684，最大 tile candidates 仍为 8,905，无 overflow，loss 仍为 0.4960950315。
+
+保留三项语义等价改动：
+
+- Gaussian count 的 3,907 个 block sums 从单 kernel 串行遍历改为 256-block 局部 scan 加 16-chunk scan；该阶段在 20 帧 trace 中从 0.265 降至 0.035 ms/帧，整帧 GPU events 从 8.143 降至 7.922 ms。
+- AccuTile emission 在流水线路径直接产生 `(uint64 sort key, gaussian id)`，不再先写 `(gaussian id, tile id)` 后由独立 kernel 重新读取并编码；去掉了 0.103 ms/帧的 key preparation，整帧 GPU events 进一步降至 7.838 ms，前向 allocator 峰值从 368,100,864 降至 344,088,064 bytes。
+- radix block-local rank 的上界为 511，暂存类型从 int32 收窄为无损的 uint16；radix scatter 从 0.886 降至 0.695 ms/帧，最终整帧 GPU events 为 7.599 ms，相对本轮起点下降 6.7%。
+
+| 指标 | 第二轮中位数 | 第三轮中位数 | 第三轮均值 | 第三轮最小值 | 第三轮 P90 | 最终吞吐 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Forward | 8.560 ms | 7.700 ms | 7.739 ms | 7.668 ms | 7.757 ms | 129.21 FPS |
+| Value and grad | 11.918 ms | 11.440 ms | 11.444 ms | 11.311 ms | 11.554 ms | 87.39 iter/s |
+
+相对第二轮最终基线，forward / value-and-grad 中位数分别下降 10.0% / 4.0%。新增的 70,013 项分层前缀测试覆盖 overflow 与非 overflow，cuTile 的稳定排序、畸形前缀和完整 AccuTile/JAX 拓扑对拍均通过。
+
+本轮回退的实验：6-bit × 512 radix 超出 TileIR 编译资源；6-bit × 256 虽少两轮 scatter，但前向中位数 8.884 ms，相对同轮 8.675 ms 基线回退 2.4%；从已有 cumsum 末列提取 bucket totals 使 histogram trace 慢 4.0%；移除无效 lane 的 key padding select 没有可测收益。
+
+## 2026-09-12 代码审查与第四轮优化
+
+审查修复：`_prefix_counts_cutile` 的顶层扫描固定为 256 个 chunk，在直接输入超过 16,777,216 行时会漏计，并读取未写入的后续 chunk base。顶层扫描现按实际 chunk 数向上取 2 的幂。训练配置上限为 10M，不受该边界影响；直接交集 API 需要此修复。缩小层级后的边界回归，以及真实 16,777,217 行的完整 cumulative、required count、overflow / 非 overflow 两种容量验证均通过。
+
+保留的语义等价优化：
+
+- radix histogram 的局部 **扫描中间值**从 int32 改为 uint16；每个 block 的 inclusive count 最多为 512，不会溢出。上一轮只收窄了写入显存的 local-rank buffer，本轮进一步缩小 kernel 内扫描的工作集。
+- radix chunk totals 并行扫描，并把 bucket base 融入 chunk prefix，1M 每帧少启动 9 个 kernel，scatter 每项少读取一个定位值。扫描按最多 256 个 chunk 分组，保留大容量支持。
+- AccuTile 始终选择 clipped rectangle 的较短轴，count / emission 的静态遍历上限从网格较长边改为较短边；640×360、tile size 16 时从 40 缩短为 23。
+
+环境与上一轮一致：RTX 5090、JAX 0.11.0、cuTile 1.6.0，禁止 JAX 显存预分配。大场景仍为 synthetic(seed=42)、1M active / physical capacity、640×360、8,388,608 intersection capacity、16,384 candidate bound。基线为本轮开始时的第三轮工作区实现；两版在同一进程内分别编译，每版 warmup 10 次，再交替执行 100 次同步调用，交替顺序逐次反转。另交替运行每版 30 组连续排队调用，每组 20 次、组末同步，用每组每调用耗时的中位数对照。桌面 GPU 有周期性长尾，以下报告中位数；不将不同日期、不同协议的绝对耗时直接比较。
+
+| 1M 指标 | 本轮基线 | 优化后 | 耗时下降 |
+| --- | ---: | ---: | ---: |
+| Forward，逐调用同步 | 7.772 ms | 6.822 ms | 12.2% |
+| Value and grad，逐调用同步 | 11.511 ms | 10.518 ms | 8.6% |
+| Forward，连续排队 | 7.765 ms | 6.810 ms | 12.3% |
+| Value and grad，连续排队 | 12.120 ms | 11.151 ms | 8.0% |
+
+独立运行仓库 benchmark（10 warmup、30 hot、30 backward，均逐调用同步）的最终 forward / value-and-grad 中位数为 6.825 / 10.733 ms；实际 intersections 6,179,684，最大 tile candidates 8,905，所有 overflow 标志为 false，loss 保持 0.49609503149986267。JAX allocator 的 forward / backward 峰值为 344,088,064 / 553,523,712 bytes。20 帧 GPU trace 中，emission 从 0.611 降到 0.400 ms/帧，radix scan 与 bucket-base 合计从 0.113 降到 0.070 ms/帧；全部 GPU events 的平均和为 7.660 → 7.146 ms/帧，包含桌面干扰的长尾，不能与上表中位数视为同一统计量。
+
+图像、alpha 和 overflow / count metadata 与基线逐值一致；完整梯度最大绝对差为 2.794e-9，通过 `atol=1e-6, rtol=1e-4` 检查。小场景另测 synthetic(seed=42)、10k active / capacity、320×180、131,072 intersection capacity、512 candidate bound，同样使用上述交替协议。实际 intersections 为 31,379，最大 tile candidates 为 206，无 overflow。Forward 中位数 0.3168 → 0.3142 ms，value-and-grad 0.8327 → 0.8295 ms；连续排队分别为 0.2559 → 0.2578 ms 和 0.7905 → 0.7849 ms，基本持平。早期 128 candidate bound 的小场景测量会截断候选，不纳入性能结论。
+
+本轮验证：61 项 cuTile / AccuTile / 投影 / compositor / 训练相关测试通过，使用 `-W error::UserWarning`；新增或扩展了顶层 chunk 边界、256 / 512 block、多组 chunk 扫描、整 block 相同键的稳定排序、空输入有效前缀以及横向 / 纵向窄网格对拍。
+
+回退实验：按每个 block 实际最大 span 引入动态循环，虽减少迭代数，却使 1M forward 从 uint16 变体约 7.05 ms 回退至约 7.68 ms；最终保留静态较短边上限。
+
+## 2026-09-12 第五轮：并发训练负载下的打包排序优化
+
+基线为第四轮完成后的工作区快照，不是 Git HEAD。环境仍为 RTX 5090、JAX 0.11.0、cuTile 1.6.0，禁止 JAX 显存预分配。测试期间另一个 `train.py` 持续运行，观察到 GPU 利用率约 96–98%，期间也有短暂波动；未干预该任务。按用户要求在负载下比较相对性能，以下绝对耗时不能与第四轮较空闲时的结果直接比较，也不能推算独占 GPU 延迟。
+
+保留的改动仅在 radix histogram / local rank：把四个 bucket 的计数打包进 uint32 的四个 6-bit 字段，先在 32 元素子组内扫描，再将子组总数展开为 uint64 中的四个 16-bit 字段，扫描子组总数并合成稳定的 block-local rank。子组计数最多 32，block 总数最多 512，均不会跨字段进位。32-bucket、512-block 的主扫描张量从 32,768 降到 16,384 bytes，扫描长度从 512 缩短为 32；这不是整个 kernel 实际寄存器或 shared-memory 用量的测量。排序键、深度精度、稳定性和全局暂存 buffer 接口不变，仍使用 5-bit radix。
+
+协议：synthetic(seed=42)、1M active / physical capacity、640×360、tile size 16、classic RGB、8,388,608 intersection capacity、16,384 candidate bound。两版在同一进程分别编译，复用同一组 device arrays，每版 warmup 10 次；交替执行每版 100 次逐调用同步测量，逐次反转 A/B 顺序；另交替测量每版 30 组连续排队调用，每组 20 次、组末同步。下表为第二次完整复测的中位数。
+
+| 1M 指标 | 第四轮基线 | 打包扫描 | 耗时下降 |
+| --- | ---: | ---: | ---: |
+| Forward，逐调用同步 | 16.121 ms | 12.121 ms | 24.8% |
+| Value and grad，逐调用同步 | 24.594 ms | 20.637 ms | 16.1% |
+| Forward，连续排队 | 12.769 ms | 10.129 ms | 20.7% |
+| Value and grad，连续排队 | 20.125 ms | 17.256 ms | 14.3% |
+
+第一次完整复测的逐调用 forward 为 16.094 → 12.075 ms（-25.0%），value-and-grad 为 24.635 → 20.626 ms（-16.3%）；连续排队分别下降 23.7% / 11.4%。两次方向一致，但并发负载下的百分比仍有波动。
+
+两次 1M 对拍的图像、alpha、count / overflow metadata 与基线逐值一致；完整 value-and-grad 最大绝对差分别为 2.980e-8 / 3.725e-9，通过 `atol=1e-6, rtol=1e-4`。实际 intersections 6,179,684，最大 tile candidates 8,905，无 intersection、candidate、tile 或 visible overflow。
+
+10k 小场景使用相同交替协议，320×180、131,072 intersection capacity、512 candidate bound，实际 intersections 31,379、最大 tile candidates 206，无 overflow。逐调用 forward 为 2.534 → 2.523 ms，value-and-grad 为 3.067 → 3.053 ms，基本持平；连续排队分别为 0.5946 → 0.5832 ms 和 1.6530 → 1.5926 ms。图像与 alpha 逐值一致，value-and-grad 最大绝对差 5.960e-8。
+
+验证：69 项 cuTile / AccuTile / 投影 / compositor / 训练相关测试通过，启用 `-W error::UserWarning`。新增 8 组 packed radix 参数组合，覆盖 256 / 512 block、2 / 4 / 32 / 64 buckets、空前缀、32 元素子组边界、512 元素 block 边界、部分 block，以及最高字段连续 512 个相同 digit 的稳定排序。Ruff、格式、锁文件和 diff 检查通过。
+
+未保留的实验：双 bucket 打包收益较小；64 / 128 元素子组、4 / 6-bit radix、同 digit block 快路径和 compositor 8×8 子 tile 均未超过最终方案的稳定收益；未打包的 uint8 分层扫描遇到 TileIR 编译失败。生产 compositor 未改动。
+
+本机原始记录与 A/B 脚本保存在 `/tmp/jax-gs-extreme-fOhgjC/`：`ab-pack4-1m-shared.json`、`ab-final-1m-round2.json`、`ab-final-10k.json`、`ab_benchmark.py` 和第四轮 `intersections_baseline.py` 快照；这些临时实验文件不属于仓库交付内容。
 
 ## 重建命令
 

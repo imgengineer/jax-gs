@@ -63,16 +63,8 @@ def multi_frame_depth_unprojection(
             continue
         depth = depths_f[frame_index][valid]
         intrinsic = intrinsics[frame_index].astype(jnp.float32)
-        x_camera = (
-            (u_coords[valid] - intrinsic[0, 2])
-            * depth
-            / intrinsic[0, 0]
-        )
-        y_camera = (
-            (v_coords[valid] - intrinsic[1, 2])
-            * depth
-            / intrinsic[1, 1]
-        )
+        x_camera = (u_coords[valid] - intrinsic[0, 2]) * depth / intrinsic[0, 0]
+        y_camera = (v_coords[valid] - intrinsic[1, 2]) * depth / intrinsic[1, 1]
         camera_homogeneous = jnp.stack(
             (x_camera, y_camera, depth, jnp.ones_like(depth)), axis=-1
         )
@@ -116,8 +108,7 @@ def knn_scale_init(
     point_count = xyz.shape[0]
     if point_count <= k:
         raise ValueError(
-            f"knn_scale_init: need at least k+1={k + 1} points, "
-            f"got {point_count}"
+            f"knn_scale_init: need at least k+1={k + 1} points, got {point_count}"
         )
 
     chunk = max(1, min(int(chunk_size), point_count))

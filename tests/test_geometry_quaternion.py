@@ -48,9 +48,9 @@ def test_normalize_safe_degenerate_rows_and_zero_gradient():
     assert jnp.allclose(actual[:2], identity)
     assert jnp.allclose(jnp.linalg.norm(actual[2]), 1.0)
 
-    gradient = jax.grad(
-        lambda q: jnp.sum(geometry.quat_normalize_safe(q))
-    )(jnp.zeros((3, 4), dtype=jnp.float32))
+    gradient = jax.grad(lambda q: jnp.sum(geometry.quat_normalize_safe(q)))(
+        jnp.zeros((3, 4), dtype=jnp.float32)
+    )
     assert jnp.array_equal(gradient, jnp.zeros_like(gradient))
 
 
@@ -74,9 +74,7 @@ def test_multiply_composition_matches_rotation_matrices():
 
 
 def test_rotate_vector_matches_matrix_and_preserves_leading_shape():
-    q = _normalized(
-        jnp.arange(1, 1 + 2 * 3 * 4, dtype=jnp.float32).reshape((2, 3, 4))
-    )
+    q = _normalized(jnp.arange(1, 1 + 2 * 3 * 4, dtype=jnp.float32).reshape((2, 3, 4)))
     vectors = jnp.linspace(-1.0, 2.0, 2 * 3 * 3).reshape((2, 3, 3))
     actual = geometry.quat_rotate_vector(q, vectors)
     expected = jnp.einsum("...ij,...j->...i", geometry.quat_to_matrix(q), vectors)
@@ -142,9 +140,7 @@ def test_slerp_spherical_and_small_angle_paths():
 def test_slerp_accepts_flattened_batch_and_singleton_t():
     q1 = geometry.quat_identity((2, 3))
     angles = jnp.linspace(0.1, 1.2, 6, dtype=jnp.float32)
-    axes = jnp.broadcast_to(
-        jnp.asarray([0.0, 1.0, 0.0], dtype=jnp.float32), (6, 3)
-    )
+    axes = jnp.broadcast_to(jnp.asarray([0.0, 1.0, 0.0], dtype=jnp.float32), (6, 3))
     q2 = geometry.quat_from_axis_angle(axes, angles).reshape((2, 3, 4))
     per_row = geometry.quat_slerp(q1, q2, jnp.full((2, 3), 0.4))
     singleton = geometry.quat_slerp(q1, q2, jnp.asarray([0.4]))
@@ -194,9 +190,7 @@ def test_manifold_interpolation_is_jittable_and_differentiable():
     actual = jax.jit(geometry.quat_manifold_interp)(q1, q2, t)
     assert jnp.allclose(actual, expected, atol=2.0e-6)
     gradients = jax.grad(
-        lambda a, b, time: jnp.sum(
-            geometry.quat_manifold_interp(a, b, time)
-        ),
+        lambda a, b, time: jnp.sum(geometry.quat_manifold_interp(a, b, time)),
         argnums=(0, 1, 2),
     )(q1, q2, t)
     assert all(bool(jnp.all(jnp.isfinite(value))) for value in gradients)

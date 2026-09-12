@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from enum import IntEnum
-import math
 from typing import TypeAlias
 
 import jax
 import jax.numpy as jnp
-
 
 FTHETA_MAX_POLYNOMIAL_TERMS = 6
 FISHEYE_MAX_FORWARD_POLY_TERMS = 4
@@ -78,7 +77,9 @@ class OpenCVPinholeProjection:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "focal_length", _array_with_shape(self.focal_length, (2,), "focal_length")
+            self,
+            "focal_length",
+            _array_with_shape(self.focal_length, (2,), "focal_length"),
         )
         object.__setattr__(
             self,
@@ -100,14 +101,16 @@ class OpenCVPinholeProjection:
             "thin_prism_coeffs",
             _array_with_shape(self.thin_prism_coeffs, (4,), "thin_prism_coeffs"),
         )
-        object.__setattr__(self, "resolution", _resolution(self.resolution, positive=True))
+        object.__setattr__(
+            self, "resolution", _resolution(self.resolution, positive=True)
+        )
 
     def transform(
         self,
         scale: tuple[float, float],
         offset: tuple[float, float],
         new_resolution: tuple[int, int],
-    ) -> "OpenCVPinholeProjection":
+    ) -> OpenCVPinholeProjection:
         """Return intrinsics transformed into a scaled and cropped image."""
 
         scale_array, offset_array = _scale_offset(scale, offset)
@@ -144,19 +147,17 @@ class FThetaProjection:
         object.__setattr__(
             self,
             "fw_poly",
-            _array_with_shape(
-                self.fw_poly, (FTHETA_MAX_POLYNOMIAL_TERMS,), "fw_poly"
-            ),
+            _array_with_shape(self.fw_poly, (FTHETA_MAX_POLYNOMIAL_TERMS,), "fw_poly"),
         )
         object.__setattr__(
             self,
             "bw_poly",
-            _array_with_shape(
-                self.bw_poly, (FTHETA_MAX_POLYNOMIAL_TERMS,), "bw_poly"
-            ),
+            _array_with_shape(self.bw_poly, (FTHETA_MAX_POLYNOMIAL_TERMS,), "bw_poly"),
         )
         object.__setattr__(self, "A", _array_with_shape(self.A, (4,), "A"))
-        object.__setattr__(self, "resolution", _resolution(self.resolution, positive=False))
+        object.__setattr__(
+            self, "resolution", _resolution(self.resolution, positive=False)
+        )
         reference = int(self.reference_polynomial)
         if reference not in (0, 1):
             raise ValueError("reference_polynomial must be FORWARD (0) or BACKWARD (1)")
@@ -200,7 +201,7 @@ class FThetaProjection:
         scale: tuple[float, float],
         offset: tuple[float, float],
         new_resolution: tuple[int, int],
-    ) -> "FThetaProjection":
+    ) -> FThetaProjection:
         """Return the exact current-main image-domain intrinsic transform."""
 
         scale_array, offset_array = _scale_offset(scale, offset)
@@ -215,7 +216,8 @@ class FThetaProjection:
             - offset_array,
             fw_poly=self.fw_poly * scale_v,
             bw_poly=self.bw_poly * jnp.power(1.0 / scale_v, powers),
-            A=self.A * jnp.stack((ratio, ratio, jnp.ones_like(ratio), jnp.ones_like(ratio))),
+            A=self.A
+            * jnp.stack((ratio, ratio, jnp.ones_like(ratio), jnp.ones_like(ratio))),
             resolution=_resolution(new_resolution, positive=False),
         )
 
@@ -240,7 +242,9 @@ class OpenCVFisheyeProjection:
             _array_with_shape(self.principal_point, (2,), "principal_point"),
         )
         object.__setattr__(
-            self, "focal_length", _array_with_shape(self.focal_length, (2,), "focal_length")
+            self,
+            "focal_length",
+            _array_with_shape(self.focal_length, (2,), "focal_length"),
         )
         object.__setattr__(
             self,
@@ -258,7 +262,9 @@ class OpenCVFisheyeProjection:
                 self.approx_backward_factor, (1,), "approx_backward_factor"
             ),
         )
-        object.__setattr__(self, "resolution", _resolution(self.resolution, positive=False))
+        object.__setattr__(
+            self, "resolution", _resolution(self.resolution, positive=False)
+        )
         iterations = int(self.newton_iterations)
         if not 0 <= iterations <= _MAX_NEWTON_ITERATIONS:
             raise ValueError(
@@ -283,7 +289,7 @@ class OpenCVFisheyeProjection:
         scale: tuple[float, float],
         offset: tuple[float, float],
         new_resolution: tuple[int, int],
-    ) -> "OpenCVFisheyeProjection":
+    ) -> OpenCVFisheyeProjection:
         """Return transformed fisheye intrinsics without mutating this object."""
 
         scale_array, offset_array = _scale_offset(scale, offset)
@@ -340,10 +346,12 @@ class BivariateWindshieldDistortion:
         object.__setattr__(self, "v_poly_degree", v_degree)
 
 
-CameraProjection: TypeAlias = (
+CameraProjection: TypeAlias = (  # noqa: UP040 - runtime alias API
     OpenCVPinholeProjection | FThetaProjection | OpenCVFisheyeProjection
 )
-ExternalDistortion: TypeAlias = NoExternalDistortion | BivariateWindshieldDistortion
+ExternalDistortion: TypeAlias = (  # noqa: UP040 - runtime alias API
+    NoExternalDistortion | BivariateWindshieldDistortion
+)
 
 REGISTERED_CAMERA_PROJECTIONS = (
     OpenCVPinholeProjection,
@@ -412,7 +420,7 @@ jax.tree_util.register_dataclass(
 )
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "BivariateWindshieldDistortion",
     "CameraProjection",
     "ExternalDistortion",

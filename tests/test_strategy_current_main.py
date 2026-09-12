@@ -47,9 +47,7 @@ def _stateful_model(capacity=6, active=2):
         ModelConfig(capacity=capacity, bucket_min_capacity=capacity, sh_degree=0)
     )
     model.active_mask[:active] = True
-    model.means[:active] = jnp.arange(active * 3, dtype=jnp.float32).reshape(
-        active, 3
-    )
+    model.means[:active] = jnp.arange(active * 3, dtype=jnp.float32).reshape(active, 3)
     model.log_scales[:active] = jnp.log(0.1)
     model.opacity_logits[:active] = jnp.log(4.0)
     optimizer = create_optimizer(model, OptimizerConfig(max_steps=10))
@@ -204,9 +202,7 @@ def test_dense_densification_stats_match_upstream_multicamera_oracle():
         ],
         jnp.float32,
     )
-    valid = jnp.asarray(
-        [[True, True, True, True], [True, False, True, True]]
-    )
+    valid = jnp.asarray([[True, True, True, True], [True, False, True, True]])
     active = jnp.asarray([True, True, False, True])
 
     stats = jax.jit(build_densification_stats)(
@@ -228,9 +224,7 @@ def test_dense_densification_stats_match_upstream_multicamera_oracle():
         jnp.float32,
     )
     assert jnp.allclose(stats.grad_sum, expected_grad_sum)
-    assert jnp.array_equal(
-        stats.count, jnp.asarray([2.0, 1.0, 0.0, 0.0], jnp.float32)
-    )
+    assert jnp.array_equal(stats.count, jnp.asarray([2.0, 1.0, 0.0, 0.0], jnp.float32))
     assert jnp.allclose(
         stats.max_radii, jnp.asarray([0.75, 0.25, 0.0, 0.0], jnp.float32)
     )
@@ -253,9 +247,7 @@ def test_densification_stats_accumulator_adds_counts_and_takes_radius_maximum():
     accumulate_densification_stats(state, stats)
 
     assert jnp.allclose(state.grad_accum[...], jnp.asarray([3.0, 4.0, 3.0]))
-    assert jnp.array_equal(
-        state.visible_count[...], jnp.asarray([5.0, 6.0, 6.0])
-    )
+    assert jnp.array_equal(state.visible_count[...], jnp.asarray([5.0, 6.0, 6.0]))
     assert jnp.allclose(state.max_radii[...], jnp.asarray([0.5, 1.0, 0.3]))
 
 
@@ -274,9 +266,7 @@ def test_legacy_update_strategy_state_keeps_one_gradient_one_count_semantics():
     )
 
     assert jnp.allclose(state.grad_accum[...], jnp.asarray([6.0, 4.0, 3.0]))
-    assert jnp.array_equal(
-        state.visible_count[...], jnp.asarray([5.0, 6.0, 6.0])
-    )
+    assert jnp.array_equal(state.visible_count[...], jnp.asarray([5.0, 6.0, 6.0]))
     assert jnp.allclose(state.max_radii[...], jnp.asarray([0.5, 0.8, 0.3]))
 
 
@@ -469,9 +459,7 @@ def test_mcmc_noise_matches_covariance_reference_and_alias_validation():
     assert _resolve_noise_scale(None, 0.25) == 0.25
     with pytest.raises(ValueError, match="different values"):
         _resolve_noise_scale(0.2, 0.3)
-    assert not _cuda_fused_mcmc_perturb(
-        positions, quats, log_scales, logits, 0.1
-    )
+    assert not _cuda_fused_mcmc_perturb(positions, quats, log_scales, logits, 0.1)
 
 
 def test_explicit_jax_strategy_hook_accumulates_and_refines():
@@ -582,7 +570,14 @@ def test_default_strategy_hook_scatter_accumulates_padded_packed_statistics():
                 jnp.float32,
             ),
             "radii": jnp.asarray(
-                [[2.0, 4.0], [6.0, 1.0], [5.0, 6.0], [9.0, 9.0], [9.0, 9.0], [9.0, 9.0]],
+                [
+                    [2.0, 4.0],
+                    [6.0, 1.0],
+                    [5.0, 6.0],
+                    [9.0, 9.0],
+                    [9.0, 9.0],
+                    [9.0, 9.0],
+                ],
                 jnp.float32,
             ),
             "valid": jnp.asarray([True, True, True, False, False, False]),
@@ -599,12 +594,8 @@ def test_default_strategy_hook_scatter_accumulates_padded_packed_statistics():
         state.grad_accum[...],
         jnp.asarray([8.0, 4.0 + math.sqrt(80.0), 0.0]),
     )
-    assert jnp.array_equal(
-        state.visible_count[...], jnp.asarray([1.0, 2.0, 0.0])
-    )
-    assert jnp.allclose(
-        state.max_radii[...], jnp.asarray([0.75, 0.75, 0.0])
-    )
+    assert jnp.array_equal(state.visible_count[...], jnp.asarray([1.0, 2.0, 0.0]))
+    assert jnp.allclose(state.max_radii[...], jnp.asarray([0.75, 0.75, 0.0]))
 
 
 def test_default_strategy_absgrad_hook_uses_explicit_dense_statistic():
@@ -719,9 +710,7 @@ def test_default_strategy_absgrad_hook_scatter_accumulates_packed_statistic():
         state.grad_accum[...],
         jnp.asarray([4.0 * jnp.sqrt(13.0), 4.0 * jnp.sqrt(2.0), 0.0]),
     )
-    assert jnp.array_equal(
-        state.visible_count[...], jnp.asarray([1.0, 1.0, 0.0])
-    )
+    assert jnp.array_equal(state.visible_count[...], jnp.asarray([1.0, 1.0, 0.0]))
 
 
 def test_mcmc_hook_injects_noise_only_into_active_slots():

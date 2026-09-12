@@ -5,7 +5,6 @@ import operator
 import jax
 import jax.numpy as jnp
 
-
 MAX_ALPHA = 0.999
 DEFAULT_ALPHA_THRESHOLD = 1.0 / 255.0
 DEFAULT_TRANSMITTANCE_THRESHOLD = 1.0e-4
@@ -95,16 +94,17 @@ def composite_sorted_tile(
     alive = pixel_valid
     done = (candidate_count == 0) | jnp.all(~pixel_valid)
     local_slots = jnp.arange(chunk_size, dtype=jnp.int32)
-    chunk_starts = jnp.arange(
-        (capacity + chunk_size - 1) // chunk_size, dtype=jnp.int32
-    ) * chunk_size
+    chunk_starts = (
+        jnp.arange((capacity + chunk_size - 1) // chunk_size, dtype=jnp.int32)
+        * chunk_size
+    )
     alpha_threshold = jnp.asarray(alpha_threshold, dtype=opacities.dtype)
     transmittance_threshold = jnp.asarray(
         transmittance_threshold, dtype=opacities.dtype
     )
 
     def scan_chunk(carry, chunk_start):
-        rendered, accumulated_alpha, transmittance, alive, done = carry
+        _, _, _, _, done = carry
         should_process = (~done) & (chunk_start < candidate_count)
 
         def process_chunk(state):
@@ -135,8 +135,7 @@ def composite_sorted_tile(
                 + selected_conics[:, None, 1] * delta_x * delta_y
             )
             alpha = jnp.minimum(
-                selected_opacities[:, None]
-                * jnp.exp(-jnp.maximum(sigma, 0.0)),
+                selected_opacities[:, None] * jnp.exp(-jnp.maximum(sigma, 0.0)),
                 MAX_ALPHA,
             )
             alpha_valid = (
@@ -158,23 +157,16 @@ def composite_sorted_tile(
                 transmittance[None, :] * exclusive_local_transmittance
             )
             next_transmittance = sample_transmittance * (1.0 - alpha)
-            accepted = alpha_valid & (
-                next_transmittance > transmittance_threshold
-            )
+            accepted = alpha_valid & (next_transmittance > transmittance_threshold)
             weights = jnp.where(accepted, alpha * sample_transmittance, 0.0)
-            rendered = rendered + jnp.einsum(
-                "kp,kd->pd", weights, selected_features
-            )
+            rendered = rendered + jnp.einsum("kp,kd->pd", weights, selected_features)
             accumulated_alpha = accumulated_alpha + jnp.sum(weights, axis=0)
             transmittance = transmittance * jnp.prod(
                 jnp.where(accepted, 1.0 - alpha, 1.0), axis=0
             )
             terminated = jnp.any(alpha_valid & ~accepted, axis=0)
             alive = alive & ~terminated
-            done = (
-                (chunk_start + chunk_size >= candidate_count)
-                | jnp.all(~alive)
-            )
+            done = (chunk_start + chunk_size >= candidate_count) | jnp.all(~alive)
             return rendered, accumulated_alpha, transmittance, alive, done
 
         carry = jax.lax.cond(

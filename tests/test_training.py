@@ -4,12 +4,12 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
-from flax import nnx
+import grain
 import jax
 import jax.numpy as jnp
-import grain
 import numpy as np
 import pytest
+from flax import nnx
 
 import jax_gs.config as config_module
 import jax_gs.training as training_module
@@ -24,14 +24,15 @@ from jax_gs.config import (
 from jax_gs.model import GaussianModel
 from jax_gs.optimizers import create_optimizer
 from jax_gs.strategy import (
-    build_densification_stats,
     DefaultStrategy,
     MCMCStrategy,
+    build_densification_stats,
 )
 from jax_gs.training import (
+    TrainingSafetyState,
     _check_evaluation_memory_budget,
-    _grow_training_state,
     _grain_iter_dataset,
+    _grow_training_state,
     _initial_storage_capacity,
     estimate_bucket_transition_memory_bytes,
     estimate_rasterization_memory_bytes,
@@ -39,10 +40,9 @@ from jax_gs.training import (
     make_distributed_train_step,
     make_render_step,
     make_train_step,
-    TrainingSafetyState,
 )
-from jax_gs.training.pose import CameraOptModule
 from jax_gs.training.appearance import AppearanceOptModule
+from jax_gs.training.pose import CameraOptModule
 
 
 def test_prewarm_train_step_lowers_compiles_and_reports(capsys):
@@ -139,9 +139,7 @@ def test_synthetic_train_step_updates_optimizer_and_metrics():
     safety_state = TrainingSafetyState()
     step = make_train_step(config)
     images = jnp.zeros((1, 32, 32, 3), jnp.float32)
-    intrinsics = jnp.array(
-        [[[30.0, 0, 16], [0, 30.0, 16], [0, 0, 1]]], jnp.float32
-    )
+    intrinsics = jnp.array([[[30.0, 0, 16], [0, 30.0, 16], [0, 0, 1]]], jnp.float32)
     viewmats = jnp.eye(4, dtype=jnp.float32)[None]
     metrics = step(
         model,
@@ -183,9 +181,7 @@ def test_synthetic_train_step_updates_optimizer_and_metrics():
 @pytest.mark.parametrize("absgrad", [False, True])
 def test_train_step_accumulates_screen_space_densification_stats(absgrad):
     points = np.array([[0, 0, 3], [0.2, 0, 3], [-0.2, 0.1, 3]], np.float32)
-    point_colors = np.array(
-        [[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8
-    )
+    point_colors = np.array([[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8)
     config = TrainConfig(
         model=ModelConfig(
             capacity=8,
@@ -259,9 +255,7 @@ def test_train_step_accumulates_screen_space_densification_stats(absgrad):
         return loss, info
 
     (_, info), screen_grad = jax.value_and_grad(
-        lambda current_probe: loss_with_probe(
-            parameters["means"], current_probe
-        ),
+        lambda current_probe: loss_with_probe(parameters["means"], current_probe),
         has_aux=True,
     )(probe)
     world_grad = jax.grad(
@@ -304,12 +298,8 @@ def test_train_step_accumulates_screen_space_densification_stats(absgrad):
         # reductions relative to the probe-only oracle above.
         atol=2.0e-6,
     )
-    np.testing.assert_array_equal(
-        strategy_state.visible_count[...], expected_count
-    )
-    np.testing.assert_allclose(
-        strategy_state.max_radii[...], expected_max_radii
-    )
+    np.testing.assert_array_equal(strategy_state.visible_count[...], expected_count)
+    np.testing.assert_allclose(strategy_state.max_radii[...], expected_max_radii)
 
 
 def _constant_training_rasterization(
@@ -331,25 +321,17 @@ def _constant_training_rasterization(
     screen_probe = kwargs["_means2d_offset"]
     screen_signal = 0.0 if screen_probe is None else jnp.sum(screen_probe)
     signal = 0.25 + jnp.sum(means) * 0.0 + screen_signal
-    renders = jnp.full(
-        (camera_count, height, width, 3), signal, dtype=means.dtype
-    )
-    alphas = jnp.ones(
-        (camera_count, height, width, 1), dtype=means.dtype
-    )
+    renders = jnp.full((camera_count, height, width, 3), signal, dtype=means.dtype)
+    alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
     info = {
         "radii": jnp.ones((camera_count, capacity, 2), means.dtype),
         "valid": jnp.ones((camera_count, capacity), jnp.bool_),
         "tile_overflow": jnp.zeros((camera_count, 1, 1), jnp.bool_),
-        "candidate_limit_exceeded": jnp.zeros(
-            (camera_count, 1, 1), jnp.bool_
-        ),
+        "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), jnp.bool_),
         "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
         "intersection_overflow": jnp.zeros((camera_count,), jnp.bool_),
         "intersection_count": jnp.ones((camera_count,), jnp.int32),
-        "intersection_required_count": jnp.ones(
-            (camera_count,), jnp.int32
-        ),
+        "intersection_required_count": jnp.ones((camera_count,), jnp.int32),
     }
     return renders, alphas, info
 
@@ -392,20 +374,14 @@ def _pose_sensitive_training_rasterization(*, overflow=False):
             signal[:, None, None, None],
             (camera_count, height, width, 3),
         )
-        alphas = jnp.ones(
-            (camera_count, height, width, 1), dtype=means.dtype
-        )
+        alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
         info = {
             "radii": jnp.ones((camera_count, capacity, 2), means.dtype),
             "valid": jnp.ones((camera_count, capacity), jnp.bool_),
             "tile_overflow": jnp.zeros((camera_count, 1, 1), jnp.bool_),
-            "candidate_limit_exceeded": jnp.zeros(
-                (camera_count, 1, 1), jnp.bool_
-            ),
+            "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), jnp.bool_),
             "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
-            "intersection_overflow": jnp.full(
-                (camera_count,), overflow, jnp.bool_
-            ),
+            "intersection_overflow": jnp.full((camera_count,), overflow, jnp.bool_),
             "intersection_count": jnp.ones((camera_count,), jnp.int32),
             "intersection_required_count": jnp.full(
                 (camera_count,), 2 if overflow else 1, jnp.int32
@@ -422,15 +398,11 @@ def _pose_training_fixture(*, overflow=False, pose_noise=0.0):
         pose_opt_lr=0.1,
         pose_opt_reg=0.0,
         pose_noise=pose_noise,
-        model=ModelConfig(
-            capacity=2, bucket_min_capacity=2, sh_degree=0
-        ),
+        model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0),
         optimizer=OptimizerConfig(max_steps=4),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
         data=DataConfig(root="unused", patch_size=4, batch_size=1),
-        rasterizer=RasterizationConfig(
-            backend="jax", max_intersections=8
-        ),
+        rasterizer=RasterizationConfig(backend="jax", max_intersections=8),
         ssim_lambda=0.0,
         steps=4,
         eval_every=0,
@@ -442,14 +414,10 @@ def _pose_training_fixture(*, overflow=False, pose_noise=0.0):
         config.model,
     )
     optimizer = create_optimizer(model, config.optimizer)
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
     pose_adjust = CameraOptModule(3, rngs=nnx.Rngs(7))
     pose_adjust.zero_init()
-    pose_optimizer = training_module._create_pose_optimizer(
-        pose_adjust, config
-    )
+    pose_optimizer = training_module._create_pose_optimizer(pose_adjust, config)
     renderer = _pose_sensitive_training_rasterization(overflow=overflow)
     return (
         config,
@@ -507,9 +475,7 @@ def test_pose_optimizer_matches_upstream_lr_schedule_and_coupled_decay():
     pose_adjust = CameraOptModule(1, rngs=nnx.Rngs(3))
     pose_adjust.embeds.embedding[...] = 1.0
     optimizer = training_module._create_pose_optimizer(pose_adjust, config)
-    zero_grads = jax.tree.map(
-        jnp.zeros_like, nnx.state(pose_adjust, nnx.Param)
-    )
+    zero_grads = jax.tree.map(jnp.zeros_like, nnx.state(pose_adjust, nnx.Param))
 
     np.testing.assert_allclose(
         training_module._pose_learning_rate(config, jnp.asarray(0)),
@@ -539,19 +505,19 @@ def test_pose_train_step_updates_only_selected_embedding(monkeypatch):
     ) = _pose_training_fixture()
     monkeypatch.setattr(training_module, "rasterization", renderer)
     step = make_train_step(config)
-    inputs = dict(
-        images=jnp.zeros((1, 4, 4, 3), jnp.float32),
-        intrinsics=jnp.asarray(
+    inputs = {
+        "images": jnp.zeros((1, 4, 4, 3), jnp.float32),
+        "intrinsics": jnp.asarray(
             [[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]]
         ),
-        viewmats=jnp.eye(4, dtype=jnp.float32)[None],
-        key=jax.random.key(0),
-        sh_degree=jnp.asarray(0),
-        pose_adjust=pose_adjust,
-        pose_optimizer=pose_optimizer,
-        camtoworlds=jnp.eye(4, dtype=jnp.float32)[None],
-        image_ids=jnp.asarray([2], dtype=jnp.int32),
-    )
+        "viewmats": jnp.eye(4, dtype=jnp.float32)[None],
+        "key": jax.random.key(0),
+        "sh_degree": jnp.asarray(0),
+        "pose_adjust": pose_adjust,
+        "pose_optimizer": pose_optimizer,
+        "camtoworlds": jnp.eye(4, dtype=jnp.float32)[None],
+        "image_ids": jnp.asarray([2], dtype=jnp.int32),
+    }
 
     first = step(
         model,
@@ -593,9 +559,7 @@ def test_pose_train_step_overflow_atomically_skips_pose_update(monkeypatch):
         strategy_state,
         TrainingSafetyState(),
         jnp.zeros((1, 4, 4, 3), jnp.float32),
-        jnp.asarray(
-            [[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),
@@ -609,9 +573,7 @@ def test_pose_train_step_overflow_atomically_skips_pose_update(monkeypatch):
     assert int(pose_optimizer.step[...]) == 0
     after = _snapshot_array_state(pose_adjust, pose_optimizer)
     for before_node, after_node in zip(before, after, strict=True):
-        for before_leaf, after_leaf in zip(
-            before_node, after_node, strict=True
-        ):
+        for before_leaf, after_leaf in zip(before_node, after_node, strict=True):
             np.testing.assert_array_equal(after_leaf, before_leaf)
 
 
@@ -639,9 +601,7 @@ def test_pose_train_step_jit_applies_fixed_noise_without_updating_it(
         strategy_state,
         TrainingSafetyState(),
         jnp.zeros((1, 4, 4, 3), jnp.float32),
-        jnp.asarray(
-            [[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),
@@ -656,12 +616,8 @@ def test_pose_train_step_jit_applies_fixed_noise_without_updating_it(
     assert int(pose_optimizer.step[...]) == 1
     assert bool(jnp.any(pose_adjust.embeds.embedding[1] != 0.0))
     perturb_after = _snapshot_array_state(pose_perturb)
-    for before_node, after_node in zip(
-        perturb_before, perturb_after, strict=True
-    ):
-        for before_leaf, after_leaf in zip(
-            before_node, after_node, strict=True
-        ):
+    for before_node, after_node in zip(perturb_before, perturb_after, strict=True):
+        for before_leaf, after_leaf in zip(before_node, after_node, strict=True):
             np.testing.assert_array_equal(after_leaf, before_leaf)
 
 
@@ -709,14 +665,10 @@ def test_real_rasterizers_produce_finite_nonzero_pose_gradients(
         config.model,
     )
     optimizer = create_optimizer(model, config.optimizer)
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
     pose_adjust = CameraOptModule(1, rngs=nnx.Rngs(0))
     pose_adjust.zero_init()
-    pose_optimizer = training_module._create_pose_optimizer(
-        pose_adjust, config
-    )
+    pose_optimizer = training_module._create_pose_optimizer(pose_adjust, config)
 
     metrics = make_train_step(config)(
         model,
@@ -724,9 +676,7 @@ def test_real_rasterizers_produce_finite_nonzero_pose_gradients(
         strategy_state,
         TrainingSafetyState(),
         jnp.zeros((1, 16, 16, 3), jnp.float32),
-        jnp.asarray(
-            [[[20.0, 0.0, 8.0], [0.0, 20.0, 8.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[20.0, 0.0, 8.0], [0.0, 20.0, 8.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),
@@ -840,20 +790,12 @@ def _selective_training_rasterization(
             screen_probe = kwargs.get("_means2d_offset")
             if screen_probe is None:
                 screen_probe = kwargs.get("_gradient_2dgs_offset")
-        screen_signal = (
-            0.0 if screen_probe is None else 1.0e-3 * jnp.sum(screen_probe)
-        )
+        screen_signal = 0.0 if screen_probe is None else 1.0e-3 * jnp.sum(screen_probe)
         signal = (
-            jnp.asarray(0.25, means.dtype)
-            + 1.0e-3 * jnp.sum(means)
-            + screen_signal
+            jnp.asarray(0.25, means.dtype) + 1.0e-3 * jnp.sum(means) + screen_signal
         )
-        renders = jnp.broadcast_to(
-            signal, (camera_count, height, width, 3)
-        )
-        alphas = jnp.ones(
-            (camera_count, height, width, 1), dtype=means.dtype
-        )
+        renders = jnp.broadcast_to(signal, (camera_count, height, width, 3))
+        alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
         if expected_packed:
             projection_capacity = camera_count * capacity
             prefix = jnp.arange(projection_capacity) < camera_count
@@ -869,18 +811,18 @@ def _selective_training_rasterization(
                 0.0,
             )
             valid = prefix
-            projection_valid_count = jnp.asarray(
-                camera_count, dtype=jnp.int32
-            )
+            projection_valid_count = jnp.asarray(camera_count, dtype=jnp.int32)
         else:
             camera_ids = None
             gaussian_ids = None
-            radii = jnp.zeros(
-                (camera_count, capacity, 2), dtype=means.dtype
-            ).at[:, 0].set(1.0)
-            valid = jnp.zeros(
-                (camera_count, capacity), dtype=jnp.bool_
-            ).at[:, 0].set(True)
+            radii = (
+                jnp.zeros((camera_count, capacity, 2), dtype=means.dtype)
+                .at[:, 0]
+                .set(1.0)
+            )
+            valid = (
+                jnp.zeros((camera_count, capacity), dtype=jnp.bool_).at[:, 0].set(True)
+            )
             projection_valid_count = None
         info = {
             "camera_ids": camera_ids,
@@ -888,9 +830,7 @@ def _selective_training_rasterization(
             "radii": radii,
             "valid": valid,
             "projection_valid_count": projection_valid_count,
-            "tile_overflow": jnp.zeros(
-                (camera_count, 1, 1), dtype=jnp.bool_
-            ),
+            "tile_overflow": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
             "candidate_limit_exceeded": jnp.zeros(
                 (camera_count, 1, 1), dtype=jnp.bool_
             ),
@@ -898,9 +838,7 @@ def _selective_training_rasterization(
             "intersection_overflow": jnp.full(
                 (camera_count,), overflow, dtype=jnp.bool_
             ),
-            "intersection_count": jnp.ones(
-                (camera_count,), dtype=jnp.int32
-            ),
+            "intersection_count": jnp.ones((camera_count,), dtype=jnp.int32),
             "intersection_required_count": jnp.full(
                 (camera_count,), 2 if overflow else 1, dtype=jnp.int32
             ),
@@ -961,12 +899,8 @@ def _mcmc_ut_training_rasterization(*, with_ut: bool, with_eval3d: bool):
         camera_count = viewmats.shape[0]
         capacity = means.shape[0]
         signal = jnp.asarray(0.25, means.dtype) + 0.0 * jnp.sum(means)
-        renders = jnp.broadcast_to(
-            signal, (camera_count, height, width, 3)
-        )
-        alphas = jnp.ones(
-            (camera_count, height, width, 1), dtype=means.dtype
-        )
+        renders = jnp.broadcast_to(signal, (camera_count, height, width, 3))
+        alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
         active = kwargs["active_mask"]
         radii = jnp.broadcast_to(
             active[None, :, None], (camera_count, capacity, 2)
@@ -975,22 +909,14 @@ def _mcmc_ut_training_rasterization(*, with_ut: bool, with_eval3d: bool):
         info = {
             "radii": radii,
             "valid": valid,
-            "tile_overflow": jnp.zeros(
-                (camera_count, 1, 1), dtype=jnp.bool_
-            ),
+            "tile_overflow": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
             "candidate_limit_exceeded": jnp.zeros(
                 (camera_count, 1, 1), dtype=jnp.bool_
             ),
             "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
-            "intersection_overflow": jnp.zeros(
-                (camera_count,), dtype=jnp.bool_
-            ),
-            "intersection_count": jnp.ones(
-                (camera_count,), dtype=jnp.int32
-            ),
-            "intersection_required_count": jnp.ones(
-                (camera_count,), dtype=jnp.int32
-            ),
+            "intersection_overflow": jnp.zeros((camera_count,), dtype=jnp.bool_),
+            "intersection_count": jnp.ones((camera_count,), dtype=jnp.int32),
+            "intersection_required_count": jnp.ones((camera_count,), dtype=jnp.int32),
         }
         return renders, alphas, info
 
@@ -1018,9 +944,7 @@ def test_full_image_train_step_uses_rectangular_renderer_and_stats(monkeypatch):
         return build_stats(screen_grad, radii, valid, active, width, height)
 
     monkeypatch.setattr(training_module, "rasterization", rectangular_renderer)
-    monkeypatch.setattr(
-        training_module, "build_densification_stats", rectangular_stats
-    )
+    monkeypatch.setattr(training_module, "build_densification_stats", rectangular_stats)
     config = TrainConfig(
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0),
         optimizer=OptimizerConfig(max_steps=2),
@@ -1037,9 +961,7 @@ def test_full_image_train_step_uses_rectangular_renderer_and_stats(monkeypatch):
         config.model,
     )
     optimizer = create_optimizer(model, config.optimizer)
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
 
     make_train_step(config)(
         model,
@@ -1099,9 +1021,7 @@ def test_training_optimizer_routes_selective_factories(
     model = GaussianModel.empty(config.model)
 
     assert (
-        training_module._create_training_optimizer(
-            model, config, scene_scale=2.5
-        )
+        training_module._create_training_optimizer(model, config, scene_scale=2.5)
         == expected
     )
     assert calls == [
@@ -1129,9 +1049,7 @@ def test_training_scene_scale_matches_normalized_camera_extent_margin():
         training_module._training_scene_scale(scene, transform), 1.1
     )
     np.testing.assert_allclose(
-        training_module._training_scene_scale(
-            scene, transform, global_scale=2.5
-        ),
+        training_module._training_scene_scale(scene, transform, global_scale=2.5),
         2.75,
     )
 
@@ -1160,9 +1078,7 @@ def test_packed_training_metadata_deduplicates_ids_and_ignores_padding():
     info = {
         "camera_ids": jnp.asarray([0, 1, 1, -1, 0], jnp.int32),
         "gaussian_ids": jnp.asarray([2, 2, 1, -1, 0], jnp.int32),
-        "radii": jnp.asarray(
-            [[1, 1], [2, 2], [3, 3], [99, 99], [88, 88]], jnp.float32
-        ),
+        "radii": jnp.asarray([[1, 1], [2, 2], [3, 3], [99, 99], [88, 88]], jnp.float32),
         "valid": jnp.asarray([True, True, True, True, True]),
         "projection_valid_count": jnp.asarray(3, jnp.int32),
     }
@@ -1227,9 +1143,7 @@ def test_selective_train_step_updates_only_visible_rows(
         config.model,
     )
     optimizer = training_module._create_training_optimizer(model, config)
-    seed_grads = jax.tree.map(
-        jnp.ones_like, nnx.state(model, nnx.Param)
-    )
+    seed_grads = jax.tree.map(jnp.ones_like, nnx.state(model, nnx.Param))
     optimizer.update(
         model,
         seed_grads,
@@ -1239,14 +1153,10 @@ def test_selective_train_step_updates_only_visible_rows(
     model.quats[1] = jnp.asarray([3.0, 4.0, 0.0, 0.0])
     parameter_before = tuple(
         np.asarray(leaf).copy()
-        for leaf in jax.tree.leaves(
-            nnx.as_pure(nnx.state(model, nnx.Param))
-        )
+        for leaf in jax.tree.leaves(nnx.as_pure(nnx.state(model, nnx.Param)))
     )
     optimizer_before = _snapshot_array_state(optimizer)[0]
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
 
     metrics = make_train_step(config)(
         model,
@@ -1268,9 +1178,7 @@ def test_selective_train_step_updates_only_visible_rows(
 
     parameter_after = tuple(
         np.asarray(leaf).copy()
-        for leaf in jax.tree.leaves(
-            nnx.as_pure(nnx.state(model, nnx.Param))
-        )
+        for leaf in jax.tree.leaves(nnx.as_pure(nnx.state(model, nnx.Param)))
     )
     for before, after in zip(parameter_before, parameter_after, strict=True):
         np.testing.assert_array_equal(after[1:], before[1:])
@@ -1281,9 +1189,7 @@ def test_selective_train_step_updates_only_visible_rows(
     np.testing.assert_allclose(
         np.linalg.norm(np.asarray(model.quats[0])), 1.0, rtol=1.0e-6
     )
-    np.testing.assert_array_equal(
-        np.asarray(model.quats[1]), [3.0, 4.0, 0.0, 0.0]
-    )
+    np.testing.assert_array_equal(np.asarray(model.quats[1]), [3.0, 4.0, 0.0, 0.0])
     assert int(optimizer.step[...]) == 2
     assert int(metrics["visible_count"]) == 1
     np.testing.assert_array_equal(
@@ -1318,9 +1224,7 @@ def test_sparse_train_step_overflow_does_not_advance_optimizer(monkeypatch):
         config.model,
     )
     optimizer = training_module._create_training_optimizer(model, config)
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
     before = _snapshot_array_state(model, optimizer, strategy_state)
 
     metrics = make_train_step(config)(
@@ -1329,9 +1233,7 @@ def test_sparse_train_step_overflow_does_not_advance_optimizer(monkeypatch):
         strategy_state,
         TrainingSafetyState(),
         jnp.zeros((1, 8, 8, 3), jnp.float32),
-        jnp.asarray(
-            [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),
@@ -1341,9 +1243,7 @@ def test_sparse_train_step_overflow_does_not_advance_optimizer(monkeypatch):
     assert int(optimizer.step[...]) == 0
     after = _snapshot_array_state(model, optimizer, strategy_state)
     for before_node, after_node in zip(before, after, strict=True):
-        for before_leaf, after_leaf in zip(
-            before_node, after_node, strict=True
-        ):
+        for before_leaf, after_leaf in zip(before_node, after_node, strict=True):
             np.testing.assert_array_equal(after_leaf, before_leaf)
 
 
@@ -1380,9 +1280,7 @@ def test_default_stats_stop_at_refine_stop(monkeypatch):
         state,
         safety,
         jnp.zeros((1, 8, 8, 3), jnp.float32),
-        jnp.asarray(
-            [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
     )
 
@@ -1454,9 +1352,7 @@ def test_mcmc_train_step_never_builds_screen_stats(monkeypatch):
         state,
         TrainingSafetyState(),
         jnp.zeros((1, 8, 8, 3), jnp.float32),
-        jnp.asarray(
-            [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),
@@ -1506,9 +1402,7 @@ def test_mcmc_capacity_preflight_skips_the_whole_training_step(monkeypatch):
     )
     model = GaussianModel.empty(config.model)
     model.active_mask[:] = True
-    model.means[...] = jnp.arange(capacity * 3, dtype=jnp.float32).reshape(
-        capacity, 3
-    )
+    model.means[...] = jnp.arange(capacity * 3, dtype=jnp.float32).reshape(capacity, 3)
     model.log_scales[...] = jnp.log(0.1)
     model.opacity_logits[...] = jnp.log(4.0)
     model.opacity_logits[0] = -20.0
@@ -1533,9 +1427,7 @@ def test_mcmc_capacity_preflight_skips_the_whole_training_step(monkeypatch):
         state,
         TrainingSafetyState(),
         jnp.zeros((1, 8, 8, 3), jnp.float32),
-        jnp.asarray(
-            [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),
@@ -1552,9 +1444,7 @@ def test_mcmc_capacity_preflight_skips_the_whole_training_step(monkeypatch):
         (model_before, model_after),
         (optimizer_before, optimizer_after),
     ):
-        for before_leaf, after_leaf in zip(
-            before_node, after_node, strict=True
-        ):
+        for before_leaf, after_leaf in zip(before_node, after_node, strict=True):
             np.testing.assert_array_equal(after_leaf, before_leaf)
     for before, after in zip(
         stats_before,
@@ -1637,9 +1527,7 @@ def test_mcmc_ut_training_skips_screen_densification_stats(
         state,
         TrainingSafetyState(),
         jnp.zeros((1, 8, 8, 3), jnp.float32),
-        jnp.asarray(
-            [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         jax.random.key(0),
         jnp.asarray(0),
@@ -1659,9 +1547,7 @@ def test_mcmc_ut_training_skips_screen_densification_stats(
 
 
 @pytest.mark.parametrize("refine_every", [1, 2], ids=["scheduled", "noise-only"])
-def test_mcmc_commit_matches_public_post_backward(
-    monkeypatch, refine_every
-):
+def test_mcmc_commit_matches_public_post_backward(monkeypatch, refine_every):
     monkeypatch.setattr(
         training_module, "rasterization", _constant_training_rasterization
     )
@@ -1703,14 +1589,14 @@ def test_mcmc_commit_matches_public_post_backward(
             np.asarray([[128, 128, 128], [64, 64, 64]], np.uint8),
             config.model,
         )
-        model.opacity_logits[...] = model.opacity_logits[...].at[:2].set(
-            jnp.asarray([-8.0, 0.0], jnp.float32)
+        model.opacity_logits[...] = (
+            model.opacity_logits[...].at[:2].set(jnp.asarray([-8.0, 0.0], jnp.float32))
         )
         optimizer = create_optimizer(model, optimizer_config)
         strategy = MCMCStrategy(strategy_config)
         return model, optimizer, strategy, strategy.initialize_state(model.capacity)
 
-    model, optimizer, strategy, state = create_state()
+    model, optimizer, _strategy, state = create_state()
     reference_model, reference_optimizer, reference_strategy, reference_state = (
         create_state()
     )
@@ -1722,18 +1608,14 @@ def test_mcmc_commit_matches_public_post_backward(
         state,
         TrainingSafetyState(),
         jnp.zeros((1, 8, 8, 3), jnp.float32),
-        jnp.asarray(
-            [[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]
-        ),
+        jnp.asarray([[[10.0, 0.0, 4.0], [0.0, 10.0, 4.0], [0.0, 0.0, 1.0]]]),
         jnp.eye(4, dtype=jnp.float32)[None],
         step_key,
         jnp.asarray(0),
         strategy_key,
     )
 
-    zero_grads = jax.tree.map(
-        jnp.zeros_like, nnx.state(reference_model, nnx.Param)
-    )
+    zero_grads = jax.tree.map(jnp.zeros_like, nnx.state(reference_model, nnx.Param))
     reference_optimizer.update(reference_model, zero_grads)
     reference_model.normalize_quaternions()
     post_update_step = int(reference_optimizer.step[...])
@@ -1756,9 +1638,7 @@ def test_mcmc_commit_matches_public_post_backward(
         reference_model, reference_optimizer, reference_state
     )
     for actual_node, expected_node in zip(actual, expected, strict=True):
-        for actual_leaf, expected_leaf in zip(
-            actual_node, expected_node, strict=True
-        ):
+        for actual_leaf, expected_leaf in zip(actual_node, expected_node, strict=True):
             np.testing.assert_allclose(actual_leaf, expected_leaf, rtol=1e-6)
     if refine_every == 1:
         assert float(model.opacity_logits[...][0]) != -8.0
@@ -1766,17 +1646,13 @@ def test_mcmc_commit_matches_public_post_backward(
         assert float(model.opacity_logits[...][0]) == -8.0
 
 
-@pytest.mark.parametrize(
-    "packed_sparse", [False, True], ids=["dense", "packed-sparse"]
-)
+@pytest.mark.parametrize("packed_sparse", [False, True], ids=["dense", "packed-sparse"])
 def test_2dgs_train_step_updates_optimizer_and_real_screen_stats(packed_sparse):
     points = np.array(
         [[0.0, 0.0, 3.0], [0.15, 0.0, 2.8], [-0.15, 0.1, 3.2]],
         np.float32,
     )
-    colors = np.array(
-        [[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8
-    )
+    colors = np.array([[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8)
     config = TrainConfig(
         model_type="2dgs",
         packed=packed_sparse,
@@ -1911,9 +1787,7 @@ def test_2dgs_render_step_uses_the_2d_rasterizer_contract():
     )
     model = GaussianModel.from_point_cloud(points, colors, config.model)
 
-    image, alpha, tile_overflow, intersection_overflow = make_render_step(
-        config, 8, 8
-    )(
+    image, alpha, tile_overflow, intersection_overflow = make_render_step(config, 8, 8)(
         model,
         jnp.eye(4, dtype=jnp.float32),
         jnp.array([[20.0, 0.0, 4.0], [0.0, 20.0, 4.0], [0.0, 0.0, 1.0]]),
@@ -1950,12 +1824,8 @@ def test_appearance_render_step_uses_zero_embedding_and_direct_rgb(monkeypatch):
         ).reshape(viewmats.shape[0], height, width, 3)
         alpha = jnp.ones((viewmats.shape[0], height, width, 1))
         info = {
-            "tile_overflow": jnp.zeros(
-                (viewmats.shape[0], 1, 1), dtype=jnp.bool_
-            ),
-            "intersection_overflow": jnp.zeros(
-                (viewmats.shape[0],), dtype=jnp.bool_
-            ),
+            "tile_overflow": jnp.zeros((viewmats.shape[0], 1, 1), dtype=jnp.bool_),
+            "intersection_overflow": jnp.zeros((viewmats.shape[0],), dtype=jnp.bool_),
         }
         return rgb, alpha, info
 
@@ -1965,9 +1835,7 @@ def test_appearance_render_step_uses_zero_embedding_and_direct_rgb(monkeypatch):
         app_embed_dim=1,
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0),
     )
-    model = GaussianModel.empty(
-        config.model, appearance_feature_dim=32
-    )
+    model = GaussianModel.empty(config.model, appearance_feature_dim=32)
     model.active_mask[0] = True
     model.colors[0] = jnp.asarray([0.2, -0.3, 0.4])
     appearance = AppearanceOptModule(
@@ -2007,9 +1875,7 @@ def test_appearance_render_step_uses_zero_embedding_and_direct_rgb(monkeypatch):
             lambda: TrainConfig(model_type="2dgs", camera_model="ortho"),
             id="camera-model",
         ),
-        pytest.param(
-            lambda: TrainConfig(model_type="2dgs", with_ut=True), id="ut"
-        ),
+        pytest.param(lambda: TrainConfig(model_type="2dgs", with_ut=True), id="ut"),
         pytest.param(
             lambda: TrainConfig(model_type="2dgs", with_eval3d=True),
             id="eval3d",
@@ -2048,9 +1914,7 @@ def test_default_train_step_still_rejects_eval3d_screen_statistics():
 def test_train_step_accepts_the_cutile_compositor():
     assert callable(
         make_train_step(
-            TrainConfig(
-                rasterizer=RasterizationConfig(compositor_backend="cuda_tile")
-            )
+            TrainConfig(rasterizer=RasterizationConfig(compositor_backend="cuda_tile"))
         )
     )
 
@@ -2059,9 +1923,7 @@ def test_train_step_accepts_the_cutile_accutile_topology():
     assert callable(
         make_train_step(
             TrainConfig(
-                rasterizer=RasterizationConfig(
-                    intersection_backend="cuda_tile"
-                )
+                rasterizer=RasterizationConfig(intersection_backend="cuda_tile")
             )
         )
     )
@@ -2103,9 +1965,7 @@ def test_train_step_rejects_unsupported_cutile_modes(config, message):
 def test_distributed_train_step_rejects_the_cutile_compositor():
     with pytest.raises(NotImplementedError, match="distributed"):
         make_distributed_train_step(
-            TrainConfig(
-                rasterizer=RasterizationConfig(compositor_backend="cuda_tile")
-            ),
+            TrainConfig(rasterizer=RasterizationConfig(compositor_backend="cuda_tile")),
             world_size=2,
         )
 
@@ -2114,9 +1974,7 @@ def test_distributed_train_step_rejects_cutile_topology():
     with pytest.raises(NotImplementedError, match="distributed"):
         make_distributed_train_step(
             TrainConfig(
-                rasterizer=RasterizationConfig(
-                    intersection_backend="cuda_tile"
-                )
+                rasterizer=RasterizationConfig(intersection_backend="cuda_tile")
             ),
             world_size=2,
         )
@@ -2129,17 +1987,13 @@ def test_distributed_train_step_rejects_cutile_topology():
         pytest.param("2dgs", True, id="2dgs-packed"),
     ],
 )
-def test_train_step_routes_absgrad_probe_to_renderer(
-    monkeypatch, model_type, packed
-):
+def test_train_step_routes_absgrad_probe_to_renderer(monkeypatch, model_type, packed):
     renderer_factory = (
         _selective_training_rasterization_2dgs
         if model_type == "2dgs"
         else _selective_training_rasterization
     )
-    renderer_name = (
-        "rasterization_2dgs" if model_type == "2dgs" else "rasterization"
-    )
+    renderer_name = "rasterization_2dgs" if model_type == "2dgs" else "rasterization"
     monkeypatch.setattr(
         training_module,
         renderer_name,
@@ -2171,9 +2025,7 @@ def test_train_step_routes_absgrad_probe_to_renderer(
         config.model,
     )
     optimizer = training_module._create_training_optimizer(model, config)
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
 
     metrics = make_train_step(config)(
         model,
@@ -2209,9 +2061,7 @@ def test_train_step_routes_absgrad_probe_to_renderer(
 def test_intersection_overflow_skips_all_training_state_updates(
     model_type, strategy_kind
 ):
-    points = np.array(
-        [[0, 0, 3], [0.01, 0, 3], [-0.01, 0, 3]], np.float32
-    )
+    points = np.array([[0, 0, 3], [0.01, 0, 3], [-0.01, 0, 3]], np.float32)
     config = TrainConfig(
         model_type=model_type,
         model=ModelConfig(
@@ -2231,9 +2081,7 @@ def test_intersection_overflow_skips_all_training_state_updates(
             noise_opacity_k=10.0,
             max_new_per_refine=4,
         ),
-        data=DataConfig(
-            root="unused", patch_size=8, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=8, batch_size=1, num_workers=1),
         rasterizer=RasterizationConfig(
             backend="intersections",
             tile_size=8,
@@ -2307,9 +2155,7 @@ def test_intersection_overflow_skips_all_training_state_updates(
     assert int(metrics["max_overflow_tiles"]) == 0
     assert bool(metrics["intersection_overflow_seen"])
     assert int(optimizer.step[...]) == 0
-    after_sticky = tuple(
-        snapshot(node) for node in (model, optimizer, strategy_state)
-    )
+    after_sticky = tuple(snapshot(node) for node in (model, optimizer, strategy_state))
     for before_node, after_node in zip(before, after_sticky, strict=True):
         for before_leaf, after_leaf in zip(before_node, after_node, strict=True):
             np.testing.assert_array_equal(after_leaf, before_leaf)
@@ -2322,9 +2168,7 @@ def test_memory_estimates_follow_physical_bucket_not_logical_maximum():
         data=DataConfig(root="unused", patch_size=64),
     )
     initial = estimate_training_memory_bytes(config)
-    assert initial == estimate_training_memory_bytes(
-        config, physical_capacity=16
-    )
+    assert initial == estimate_training_memory_bytes(config, physical_capacity=16)
     maximum = estimate_training_memory_bytes(config, physical_capacity=100)
     assert maximum > initial
     assert estimate_bucket_transition_memory_bytes(config, 16, 32) >= (
@@ -2362,20 +2206,20 @@ def test_memory_estimate_accounts_for_dense_projection_camera_batch():
 
 def test_cutile_train_step_matches_jax():
     devices = jax.devices()
-    if not devices or devices[0].platform != "gpu" or "cuda" not in str(
-        devices[0]
-    ).lower():
+    if (
+        not devices
+        or devices[0].platform != "gpu"
+        or "cuda" not in str(devices[0]).lower()
+    ):
         pytest.skip("cuTile training requires an NVIDIA CUDA GPU")
     points = np.asarray(
         [[0.0, 0.0, 3.0], [0.2, 0.0, 3.0], [-0.2, 0.1, 3.0]],
         np.float32,
     )
-    colors = np.asarray(
-        [[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8
+    colors = np.asarray([[255, 32, 32], [32, 255, 32], [32, 32, 255]], np.uint8)
+    images = jnp.linspace(0.0, 1.0, 16 * 16 * 3, dtype=jnp.float32).reshape(
+        1, 16, 16, 3
     )
-    images = jnp.linspace(
-        0.0, 1.0, 16 * 16 * 3, dtype=jnp.float32
-    ).reshape(1, 16, 16, 3)
     intrinsics = jnp.asarray(
         [[[10.0, 0.0, 8.0], [0.0, 10.0, 8.0], [0.0, 0.0, 1.0]]],
         jnp.float32,
@@ -2392,9 +2236,7 @@ def test_cutile_train_step_matches_jax():
                 initial_scale=0.2,
             ),
             optimizer=OptimizerConfig(max_steps=2),
-            strategy=StrategyConfig(
-                refine_start=100, max_new_per_refine=1
-            ),
+            strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
             data=DataConfig(root="unused", patch_size=16, batch_size=1),
             rasterizer=RasterizationConfig(
                 backend="intersections",
@@ -2439,15 +2281,9 @@ def test_cutile_train_step_matches_jax():
     np.testing.assert_allclose(
         actual_metrics["loss"], expected_metrics["loss"], rtol=2e-5, atol=2e-6
     )
-    for actual_node, expected_node in zip(
-        actual_state, expected_state, strict=True
-    ):
-        for actual_leaf, expected_leaf in zip(
-            actual_node, expected_node, strict=True
-        ):
-            np.testing.assert_allclose(
-                actual_leaf, expected_leaf, rtol=5e-4, atol=2e-5
-            )
+    for actual_node, expected_node in zip(actual_state, expected_state, strict=True):
+        for actual_leaf, expected_leaf in zip(actual_node, expected_node, strict=True):
+            np.testing.assert_allclose(actual_leaf, expected_leaf, rtol=5e-4, atol=2e-5)
 
 
 def test_cutile_memory_estimate_uses_direct_gaussian_gradients():
@@ -2465,25 +2301,17 @@ def test_cutile_memory_estimate_uses_direct_gaussian_gradients():
         rasterizer=replace(config.rasterizer, max_intersections=128),
     )
 
-    assert estimate_training_memory_bytes(
-        larger
-    ) - estimate_training_memory_bytes(config) == (128 - 64) * 96
+    assert (
+        estimate_training_memory_bytes(larger) - estimate_training_memory_bytes(config)
+        == (128 - 64) * 96
+    )
 
 
 def test_cutile_raster_memory_estimate_includes_endpoint_residuals():
-    config = RasterizationConfig(
-        compositor_backend="cuda_tile", max_intersections=1024
-    )
-    estimated = estimate_rasterization_memory_bytes(
-        32, 16, 16, config, channels=3
-    )
+    config = RasterizationConfig(compositor_backend="cuda_tile", max_intersections=1024)
+    estimated = estimate_rasterization_memory_bytes(32, 16, 16, config, channels=3)
     assert estimated == (
-        32 * 64
-        + 16 * 16 * 6 * 4
-        + 1
-        + 1024 * 96
-        + 16 * 16 * 4 * 4 * 3
-        + 256 * 2**20
+        32 * 64 + 16 * 16 * 6 * 4 + 1 + 1024 * 96 + 16 * 16 * 4 * 4 * 3 + 256 * 2**20
     )
 
 
@@ -2493,9 +2321,7 @@ def test_memory_estimate_accounts_for_distributed_appearance_mlp_workspace():
     appearance = TrainConfig(
         app_opt=True,
         app_embed_dim=5,
-        model=ModelConfig(
-            capacity=32, bucket_min_capacity=8, sh_degree=2
-        ),
+        model=ModelConfig(capacity=32, bucket_min_capacity=8, sh_degree=2),
         data=DataConfig(root="unused", patch_size=16, batch_size=3),
     )
     sh = replace(appearance, app_opt=False)
@@ -2513,9 +2339,7 @@ def test_memory_estimate_accounts_for_distributed_appearance_mlp_workspace():
 
     basis_count = (appearance.model.sh_degree + 1) ** 2
     mlp_input_width = appearance.app_embed_dim + 32 + basis_count
-    floats_per_camera_gaussian = (
-        3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
-    )
+    floats_per_camera_gaussian = 3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
     expected_workspace = (
         render_capacity
         * appearance.data.batch_size
@@ -2526,10 +2350,7 @@ def test_memory_estimate_accounts_for_distributed_appearance_mlp_workspace():
     appearance_color_floats = 32 + 3
     sh_color_floats = basis_count * 3
     expected_model_delta = (
-        physical_capacity
-        * (appearance_color_floats - sh_color_floats)
-        * 4
-        * 6
+        physical_capacity * (appearance_color_floats - sh_color_floats) * 4 * 6
     )
 
     assert appearance_estimate - sh_estimate == (
@@ -2565,15 +2386,11 @@ def test_evaluation_memory_estimate_accounts_for_appearance_mlp(monkeypatch):
     appearance = TrainConfig(
         app_opt=True,
         app_embed_dim=5,
-        model=ModelConfig(
-            capacity=32, bucket_min_capacity=8, sh_degree=2
-        ),
+        model=ModelConfig(capacity=32, bucket_min_capacity=8, sh_degree=2),
         data=DataConfig(root="unused", patch_size=16),
     )
     sh = replace(appearance, app_opt=False)
-    monkeypatch.setattr(
-        training_module, "_device_memory_usage", lambda: (0, 0)
-    )
+    monkeypatch.setattr(training_module, "_device_memory_usage", lambda: (0, 0))
 
     appearance_estimate = _check_evaluation_memory_budget(
         appearance,
@@ -2590,9 +2407,7 @@ def test_evaluation_memory_estimate_accounts_for_appearance_mlp(monkeypatch):
 
     basis_count = (appearance.model.sh_degree + 1) ** 2
     mlp_input_width = appearance.app_embed_dim + 32 + basis_count
-    floats_per_gaussian = (
-        3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
-    )
+    floats_per_gaussian = 3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
     assert appearance_estimate - sh_estimate == (
         physical_capacity * floats_per_gaussian * 4
     )
@@ -2608,15 +2423,9 @@ def test_full_image_memory_estimate_requires_and_uses_rectangular_dimensions():
     with pytest.raises(ValueError, match="image_height and image_width"):
         estimate_training_memory_bytes(config)
 
-    wide = estimate_training_memory_bytes(
-        config, image_height=17, image_width=33
-    )
-    tall = estimate_training_memory_bytes(
-        config, image_height=33, image_width=17
-    )
-    square = estimate_training_memory_bytes(
-        config, image_height=33, image_width=33
-    )
+    wide = estimate_training_memory_bytes(config, image_height=17, image_width=33)
+    tall = estimate_training_memory_bytes(config, image_height=33, image_width=17)
+    square = estimate_training_memory_bytes(config, image_height=33, image_width=33)
 
     assert wide == tall
     assert wide < square
@@ -2632,12 +2441,15 @@ def test_full_image_intersection_limit_uses_rectangular_tile_grid():
     with pytest.raises(ValueError, match="image_height and image_width"):
         training_module._training_intersection_limit(config, 10)
 
-    assert training_module._training_intersection_limit(
-        config,
-        10,
-        image_height=17,
-        image_width=33,
-    ) == 10 * 2 * 3
+    assert (
+        training_module._training_intersection_limit(
+            config,
+            10,
+            image_height=17,
+            image_width=33,
+        )
+        == 10 * 2 * 3
+    )
 
 
 def test_scene_full_image_size_uses_training_metadata_and_rejects_mixed_sizes():
@@ -2691,9 +2503,7 @@ def test_training_memory_preflight_checks_every_selected_device(monkeypatch):
         limit = estimate * (2 if device is devices[0] else 1)
         return 0, limit
 
-    monkeypatch.setattr(
-        training_module, "_device_memory_usage", fake_memory_usage
-    )
+    monkeypatch.setattr(training_module, "_device_memory_usage", fake_memory_usage)
 
     with pytest.raises(MemoryError, match="selected device"):
         training_module._check_memory_budget(
@@ -2744,16 +2554,12 @@ def test_growth_preflight_fails_before_allocating_new_state(monkeypatch):
     optimizer = create_optimizer(model, config.optimizer)
     strategy_state = DefaultStrategy(config.strategy).initialize_state(4)
 
-    monkeypatch.setattr(
-        training_module, "_device_memory_usage", lambda: (0, 1024)
-    )
+    monkeypatch.setattr(training_module, "_device_memory_usage", lambda: (0, 1024))
 
     def unexpected_resize(*args, **kwargs):
         raise AssertionError("resize must not run after a failed preflight")
 
-    monkeypatch.setattr(
-        training_module, "resize_training_state", unexpected_resize
-    )
+    monkeypatch.setattr(training_module, "resize_training_state", unexpected_resize)
     with pytest.raises(MemoryError, match="stopped before allocation"):
         _grow_training_state(
             config,
@@ -2803,9 +2609,7 @@ def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
             prune_scale3d=100.0,
             prune_scale2d=100.0,
         ),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
         rasterizer=RasterizationConfig(
             backend="reference",
             tile_size=4,
@@ -2826,21 +2630,15 @@ def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
         train_step_configs.append(runtime_config)
         return original_make_train_step(runtime_config)
 
-    monkeypatch.setattr(
-        training_module, "load_colmap_scene", lambda *_a, **_k: scene
-    )
+    monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
     monkeypatch.setattr(
         training_module, "create_grain_dataset", lambda *_a, **_k: [batch]
     )
     monkeypatch.setattr(
         training_module, "rasterization", _constant_training_rasterization
     )
-    monkeypatch.setattr(
-        training_module, "make_train_step", tracked_make_train_step
-    )
-    monkeypatch.setattr(
-        training_module, "_check_memory_budget", lambda *_a, **_k: 0
-    )
+    monkeypatch.setattr(training_module, "make_train_step", tracked_make_train_step)
+    monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
     monkeypatch.setattr(
         training_module,
         "_check_bucket_transition_memory_budget",
@@ -2854,10 +2652,7 @@ def test_train_compacts_a_low_occupancy_bucket(monkeypatch, tmp_path):
     assert result.model.capacity == 4
     assert int(result.model.active_count) == 0
     assert np.isfinite(result.metrics["loss"])
-    assert (
-        training_module.load_checkpoint_storage_capacity(result.checkpoint)
-        == 4
-    )
+    assert training_module.load_checkpoint_storage_capacity(result.checkpoint) == 4
 
 
 def test_refine_can_grow_then_compact_a_bucket():
@@ -2909,9 +2704,7 @@ def test_refine_can_grow_then_compact_a_bucket():
 
 def test_train_rejects_multi_process_before_writing(monkeypatch, tmp_path):
     output_dir = tmp_path / "output"
-    config = TrainConfig(
-        data=DataConfig(root="unused"), output_dir=str(output_dir)
-    )
+    config = TrainConfig(data=DataConfig(root="unused"), output_dir=str(output_dir))
     monkeypatch.setattr(training_module.jax, "process_count", lambda: 2)
 
     with pytest.raises(NotImplementedError, match="single-process"):
@@ -2924,9 +2717,7 @@ def test_distributed_train_rejects_unsupported_topology_before_writing(
     monkeypatch, tmp_path
 ):
     output_dir = tmp_path / "output"
-    config = TrainConfig(
-        data=DataConfig(root="unused"), output_dir=str(output_dir)
-    )
+    config = TrainConfig(data=DataConfig(root="unused"), output_dir=str(output_dir))
     monkeypatch.setattr(training_module.jax, "process_count", lambda: 2)
 
     with pytest.raises(NotImplementedError, match="one JAX process"):
@@ -2947,9 +2738,7 @@ def test_distributed_train_rejects_unsupported_topology_before_writing(
 
 
 def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
-    camtoworlds = np.broadcast_to(
-        np.eye(4, dtype=np.float32), (3, 4, 4)
-    ).copy()
+    camtoworlds = np.broadcast_to(np.eye(4, dtype=np.float32), (3, 4, 4)).copy()
     camtoworlds[:, :3, 3] = np.asarray(
         [[-2.0, 1.0, 0.0], [0.0, 1.0, 1.0], [3.0, 1.0, 0.0]],
         np.float32,
@@ -2975,9 +2764,7 @@ def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
     config = TrainConfig(
         model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
         steps=3,
         checkpoint_every=2,
         eval_every=0,
@@ -2991,13 +2778,9 @@ def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
             nonlocal calls
             calls += 1
             if calls == 1:
-                model.active_mask[...] = jnp.array(
-                    [True, False, False, False]
-                )
+                model.active_mask[...] = jnp.array([True, False, False, False])
             elif calls == 3:
-                model.active_mask[...] = jnp.array(
-                    [False, True, False, False]
-                )
+                model.active_mask[...] = jnp.array([False, True, False, False])
             return {
                 "loss": jnp.asarray(0.0),
                 "l1": jnp.asarray(0.0),
@@ -3032,9 +2815,7 @@ def test_train_saves_compacted_latest_step(monkeypatch, tmp_path):
         expected_scale = training_module._training_scene_scale(
             scene, expected_transform
         )
-        np.testing.assert_allclose(
-            kwargs["scene_transform"], expected_transform.matrix
-        )
+        np.testing.assert_allclose(kwargs["scene_transform"], expected_transform.matrix)
         np.testing.assert_allclose(kwargs["scene_scale"], expected_scale)
         return directory / f"step_{step:08d}"
 
@@ -3071,9 +2852,7 @@ def test_train_wires_dataset_index_pose_state_and_checkpoint_manifest(
             assert split == "train"
             return np.asarray([0, 1], dtype=np.int64)
 
-    scene_camtoworlds = np.repeat(
-        np.eye(4, dtype=np.float32)[None], 2, axis=0
-    )
+    scene_camtoworlds = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
     scene_camtoworlds[:, 0, 3] = np.asarray([2.0, 4.0])
     scene = PoseScene(
         points=np.asarray([[0.0, 0.0, 3.0]], np.float32),
@@ -3098,9 +2877,7 @@ def test_train_wires_dataset_index_pose_state_and_checkpoint_manifest(
         pose_opt=True,
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
         steps=1,
         checkpoint_every=0,
         eval_every=0,
@@ -3155,9 +2932,7 @@ def test_train_wires_dataset_index_pose_state_and_checkpoint_manifest(
     np.testing.assert_array_equal(dispatched["image_ids"], [1])
     expected_camtoworld = np.eye(4, dtype=np.float32)[None]
     expected_camtoworld[0, 0, 3] = 4.0
-    np.testing.assert_allclose(
-        dispatched["camtoworlds"], expected_camtoworld
-    )
+    np.testing.assert_allclose(dispatched["camtoworlds"], expected_camtoworld)
     assert dispatched["pose_adjust"] is result.pose_adjust
     assert dispatched["pose_optimizer"] is not None
     assert dispatched["pose_perturb"] is None
@@ -3201,9 +2976,7 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
     )
     batch = {
         "image": np.zeros((1, 4, 4, 3), np.float32),
-        "K": np.asarray(
-            [[[10.0, 0.0, 2.0], [0.0, 10.0, 2.0], [0.0, 0.0, 1.0]]]
-        ),
+        "K": np.asarray([[[10.0, 0.0, 2.0], [0.0, 10.0, 2.0], [0.0, 0.0, 1.0]]]),
         "w2c": np.eye(4, dtype=np.float32)[None],
         "dataset_index": np.asarray([1], np.int32),
     }
@@ -3213,9 +2986,7 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
         app_embed_dim=4,
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=1),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
         steps=1,
         checkpoint_every=0,
         eval_every=0,
@@ -3321,9 +3092,7 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
             "batch_size",
         ),
         (
-            TrainConfig(
-                strategy=StrategyConfig(target_primitives=250_000)
-            ),
+            TrainConfig(strategy=StrategyConfig(target_primitives=250_000)),
             TrainConfig(),
             "target_primitives",
         ),
@@ -3342,14 +3111,10 @@ def test_train_wires_appearance_state_dataset_index_and_checkpoint_manifest(
 def test_camera_module_resume_rejects_structural_config_changes(
     monkeypatch, saved, current, match
 ):
-    monkeypatch.setattr(
-        training_module, "load_checkpoint_config", lambda _path: saved
-    )
+    monkeypatch.setattr(training_module, "load_checkpoint_config", lambda _path: saved)
 
     with pytest.raises(ValueError, match=match):
-        training_module._validate_camera_module_resume_config(
-            current, "checkpoint"
-        )
+        training_module._validate_camera_module_resume_config(current, "checkpoint")
 
 
 @pytest.mark.parametrize("async_checkpoint", [False, True])
@@ -3361,9 +3126,7 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
             assert split == "train"
             return np.asarray([0, 1], dtype=np.int64)
 
-    scene_camtoworlds = np.repeat(
-        np.eye(4, dtype=np.float32)[None], 2, axis=0
-    )
+    scene_camtoworlds = np.repeat(np.eye(4, dtype=np.float32)[None], 2, axis=0)
     scene_camtoworlds[:, 0, 3] = np.asarray([-1.0, 1.0])
     scene = PoseScene(
         points=np.asarray([[0.0, 0.0, 3.0]], np.float32),
@@ -3390,12 +3153,8 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0),
         optimizer=OptimizerConfig(max_steps=2),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
-        rasterizer=RasterizationConfig(
-            backend="jax", max_intersections=8
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
+        rasterizer=RasterizationConfig(backend="jax", max_intersections=8),
         ssim_lambda=0.0,
         steps=2,
         checkpoint_every=1,
@@ -3407,9 +3166,7 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
     pose_optimizers = []
     appearance_optimizers = []
     real_create_pose_optimizer = training_module._create_pose_optimizer
-    real_create_appearance_optimizer = (
-        training_module.create_appearance_optimizer
-    )
+    real_create_appearance_optimizer = training_module.create_appearance_optimizer
     real_save = training_module._save_compacted_training_checkpoint
     real_restore = training_module.restore_checkpoint
 
@@ -3504,9 +3261,7 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
         uninterrupted.appearance,
         appearance_optimizers[0],
     )
-    resume_checkpoint = (
-        tmp_path / "continuous" / "checkpoints" / "step_00000001"
-    )
+    resume_checkpoint = tmp_path / "continuous" / "checkpoints" / "step_00000001"
     resumed = training_module.train(
         replace(config, output_dir=str(tmp_path / "resumed")),
         resume_from=resume_checkpoint,
@@ -3526,9 +3281,7 @@ def test_pose_and_appearance_host_orbax_resume_match_uninterrupted_next_step(
     for saved_node, restored_node in zip(
         snapshots["saved"], snapshots["restored"], strict=True
     ):
-        for saved_leaf, restored_leaf in zip(
-            saved_node, restored_node, strict=True
-        ):
+        for saved_leaf, restored_leaf in zip(saved_node, restored_node, strict=True):
             np.testing.assert_array_equal(restored_leaf, saved_leaf)
     for uninterrupted_node, resumed_node in zip(
         uninterrupted_final, resumed_final, strict=True
@@ -3570,14 +3323,10 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
     saved_scene_metadata = []
 
     def fake_make_train_step(_config):
-        def fake_train_step(
-            model, _optimizer, _strategy, safety_state, images, *_args
-        ):
+        def fake_train_step(model, _optimizer, _strategy, safety_state, images, *_args):
             dispatched["image"] = np.asarray(images).copy()
             dispatched["viewmats"] = np.asarray(_args[1]).copy()
-            dispatched["key"] = np.asarray(
-                jax.random.key_data(_args[2])
-            ).copy()
+            dispatched["key"] = np.asarray(jax.random.key_data(_args[2])).copy()
             return {
                 "loss": jnp.asarray(0.0),
                 "l1": jnp.asarray(0.0),
@@ -3600,9 +3349,7 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
         return fake_train_step
 
     monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
-    monkeypatch.setattr(
-        training_module, "load_checkpoint_config", lambda _path: config
-    )
+    monkeypatch.setattr(training_module, "load_checkpoint_config", lambda _path: config)
     monkeypatch.setattr(
         training_module, "load_checkpoint_storage_capacity", lambda _path: 2
     )
@@ -3655,9 +3402,7 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
     )
     expected_viewmats = expected_transform.world_to_camera(batches[2]["w2c"])
     np.testing.assert_allclose(dispatched["viewmats"], expected_viewmats)
-    np.testing.assert_array_equal(
-        saved_scene_metadata[0][0], expected_transform.matrix
-    )
+    np.testing.assert_array_equal(saved_scene_metadata[0][0], expected_transform.matrix)
     expected_scale = (
         3.25
         if has_scene_metadata
@@ -3673,16 +3418,12 @@ def test_resume_fast_forwards_batches_and_derives_keys_from_absolute_step(
     assert yielded["count"] == 3
 
     yielded["count"] = 0
-    monkeypatch.setattr(
-        training_module, "restore_checkpoint", lambda *_a, **_k: 3
-    )
+    monkeypatch.setattr(training_module, "restore_checkpoint", lambda *_a, **_k: 3)
     training_module.train(config, resume_from=tmp_path / "checkpoint")
     assert yielded["count"] == 0
 
 
-def test_train_checks_sticky_overflow_before_final_checkpoint(
-    monkeypatch, tmp_path
-):
+def test_train_checks_sticky_overflow_before_final_checkpoint(monkeypatch, tmp_path):
     scene = SimpleNamespace(
         points=np.array([[0.0, 0.0, 3.0]], np.float32),
         points_rgb=np.array([[128, 128, 128]], np.uint8),
@@ -3697,9 +3438,7 @@ def test_train_checks_sticky_overflow_before_final_checkpoint(
         normalize_world_space=False,
         model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
         steps=3,
         checkpoint_every=3,
         eval_every=0,
@@ -3709,9 +3448,7 @@ def test_train_checks_sticky_overflow_before_final_checkpoint(
     save_calls = 0
 
     def fake_make_train_step(_config):
-        def fake_train_step(
-            model, _optimizer, _strategy_state, safety_state, *_args
-        ):
+        def fake_train_step(model, _optimizer, _strategy_state, safety_state, *_args):
             nonlocal calls
             calls += 1
             if calls == 2:
@@ -3783,9 +3520,7 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
         pose_opt=True,
         model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
         strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
         rasterizer=RasterizationConfig(max_intersections=2_048),
         steps=4,
         checkpoint_every=0,
@@ -3811,18 +3546,14 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
             model, _optimizer, _strategy_state, safety_state, *_args, **kwargs
         ):
             key_data = np.asarray(jax.random.key_data(_args[-3])).copy()
-            strategy_key_data = np.asarray(
-                jax.random.key_data(_args[-1])
-            ).copy()
+            strategy_key_data = np.asarray(jax.random.key_data(_args[-1])).copy()
             keys_by_capacity[capacity].append(key_data)
             strategy_keys_by_capacity[capacity].append(strategy_key_data)
             image_ids_by_capacity[capacity].append(
                 np.asarray(kwargs["image_ids"]).copy()
             )
             low_capacity_call = len(keys_by_capacity[512])
-            sticky_before = bool(
-                safety_state.intersection_overflow_seen[...]
-            )
+            sticky_before = bool(safety_state.intersection_overflow_seen[...])
             overflow = capacity == 512 and low_capacity_call == 3
             if not sticky_before and not overflow:
                 accepted_keys.append((key_data, strategy_key_data))
@@ -3849,9 +3580,7 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
                     safety_state.intersection_overflow_seen[...]
                 ),
                 "intersection_count": jnp.asarray(1),
-                "intersection_required_count": jnp.asarray(
-                    700 if overflow else 1
-                ),
+                "intersection_required_count": jnp.asarray(700 if overflow else 1),
             }
 
         return fake_train_step
@@ -3864,18 +3593,14 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
     monkeypatch.setattr(
         training_module,
         "_prewarm_train_step",
-        lambda _step, *_args, reason, **_kwargs: prewarm_reasons.append(
-            reason
-        ),
+        lambda _step, *_args, reason, **_kwargs: prewarm_reasons.append(reason),
     )
     monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
 
     def fake_save(directory, *_args, step, intersection_capacity, **kwargs):
         saved_intersection_capacities.append(intersection_capacity)
         saved_pose_steps.append(int(kwargs["pose_optimizer"].step[...]))
-        saved_appearance_steps.append(
-            int(kwargs["appearance_optimizer"].step[...])
-        )
+        saved_appearance_steps.append(int(kwargs["appearance_optimizer"].step[...]))
         assert kwargs["pose_image_names"] == ("only.png",)
         assert kwargs["appearance_image_names"] == ("only.png",)
         return directory / f"step_{step:08d}"
@@ -3895,12 +3620,8 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
     ]
     assert len(keys_by_capacity[512]) == 4
     assert len(keys_by_capacity[1_024]) == 2
-    np.testing.assert_array_equal(
-        keys_by_capacity[1_024][0], keys_by_capacity[512][2]
-    )
-    np.testing.assert_array_equal(
-        keys_by_capacity[1_024][1], keys_by_capacity[512][3]
-    )
+    np.testing.assert_array_equal(keys_by_capacity[1_024][0], keys_by_capacity[512][2])
+    np.testing.assert_array_equal(keys_by_capacity[1_024][1], keys_by_capacity[512][3])
     np.testing.assert_array_equal(
         strategy_keys_by_capacity[1_024][0],
         strategy_keys_by_capacity[512][2],
@@ -3925,19 +3646,13 @@ def test_train_grows_intersection_bucket_and_replays_uncommitted_suffix(
         ),
         strict=True,
     ):
-        for accepted_key, dispatched_key in zip(
-            accepted, dispatched, strict=True
-        ):
+        for accepted_key, dispatched_key in zip(accepted, dispatched, strict=True):
             np.testing.assert_array_equal(accepted_key, dispatched_key)
     assert saved_intersection_capacities == [1_024]
     assert saved_pose_steps == [4]
     assert saved_appearance_steps == [4]
-    np.testing.assert_array_equal(
-        result.pose_adjust.embeds.embedding[0, 0], 4.0
-    )
-    np.testing.assert_array_equal(
-        result.appearance.color_head[-1].bias[0], 4.0
-    )
+    np.testing.assert_array_equal(result.pose_adjust.embeds.embedding[0, 0], 4.0)
+    np.testing.assert_array_equal(result.appearance.color_head[-1].bias[0], 4.0)
     assert result.final_step == 4
 
 
@@ -3974,9 +3689,7 @@ def test_scheduled_mcmc_grows_before_forward_and_skips_host_refine(
             max_new_per_refine=1,
             noise_lr=0.0,
         ),
-        data=DataConfig(
-            root="unused", patch_size=4, batch_size=1, num_workers=1
-        ),
+        data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
         rasterizer=RasterizationConfig(max_intersections=2_048),
         steps=1,
         checkpoint_every=0,
@@ -4057,9 +3770,7 @@ def test_scheduled_mcmc_grows_before_forward_and_skips_host_refine(
     assert result.model.capacity == 40
 
 
-def test_train_resume_reuses_checkpoint_intersection_high_water(
-    monkeypatch, tmp_path
-):
+def test_train_resume_reuses_checkpoint_intersection_high_water(monkeypatch, tmp_path):
     scene = SimpleNamespace(
         camtoworlds=np.eye(4, dtype=np.float32)[None],
     )
@@ -4076,9 +3787,7 @@ def test_train_resume_reuses_checkpoint_intersection_high_water(
     saved_values = []
 
     monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
-    monkeypatch.setattr(
-        training_module, "load_checkpoint_config", lambda _path: config
-    )
+    monkeypatch.setattr(training_module, "load_checkpoint_config", lambda _path: config)
     monkeypatch.setattr(
         training_module, "load_checkpoint_storage_capacity", lambda _path: 4
     )
@@ -4094,9 +3803,7 @@ def test_train_resume_reuses_checkpoint_intersection_high_water(
     monkeypatch.setattr(
         training_module, "load_checkpoint_active_prefix", lambda _path: True
     )
-    monkeypatch.setattr(
-        training_module, "create_grain_dataset", lambda *_a, **_k: []
-    )
+    monkeypatch.setattr(training_module, "create_grain_dataset", lambda *_a, **_k: [])
     monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
 
     def fake_make_train_step(runtime_config):
@@ -4148,15 +3855,11 @@ def test_train_rejects_checkpoint_newer_than_target(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(training_module, "load_colmap_scene", lambda *_a, **_k: scene)
-    monkeypatch.setattr(
-        training_module, "load_checkpoint_config", lambda _path: config
-    )
+    monkeypatch.setattr(training_module, "load_checkpoint_config", lambda _path: config)
     monkeypatch.setattr(
         training_module, "load_checkpoint_storage_capacity", lambda _path: 4
     )
-    monkeypatch.setattr(
-        training_module, "restore_checkpoint", lambda *_a, **_k: 3
-    )
+    monkeypatch.setattr(training_module, "restore_checkpoint", lambda *_a, **_k: 3)
     monkeypatch.setattr(training_module, "_check_memory_budget", lambda *_a, **_k: 0)
 
     def unexpected_dataset(*_args, **_kwargs):
@@ -4401,12 +4104,12 @@ def test_train_grows_an_outgrown_candidate_bound_instead_of_failing(
     monkeypatch.setattr(
         training_module,
         "_prewarm_train_step",
-        lambda _step, *_args, reason, **_kwargs: prewarm_reasons.append(
-            reason
-        ),
+        lambda _step, *_args, reason, **_kwargs: prewarm_reasons.append(reason),
     )
     _patch_bound_growth_trainer(
-        monkeypatch, scene, batch,
+        monkeypatch,
+        scene,
+        batch,
         _bound_growth_factory(bounds, 900, replays=replays),
     )
 
@@ -4419,9 +4122,7 @@ def test_train_grows_an_outgrown_candidate_bound_instead_of_failing(
     assert prewarm_reasons == ["initial", "candidate_bound_growth"]
 
 
-def test_train_still_refuses_an_overflow_no_larger_bound_can_fix(
-    monkeypatch, tmp_path
-):
+def test_train_still_refuses_an_overflow_no_larger_bound_can_fix(monkeypatch, tmp_path):
     # A tile claiming fewer candidates than the bound already covers cannot be
     # rescued by growing it: the input is malformed, and rendering it would
     # truncate gradients silently. That case has to stay fatal.
@@ -4435,8 +4136,11 @@ def test_train_still_refuses_an_overflow_no_larger_bound_can_fix(
         def step(model, optimizer, strategy_state, safety, *args):
             metrics = inner(model, optimizer, strategy_state, safety, *args)
             safety.max_overflow_tiles[...] = 3
-            return {**metrics, "overflow_tiles": jnp.asarray(3),
-                    "max_overflow_tiles": safety.max_overflow_tiles[...]}
+            return {
+                **metrics,
+                "overflow_tiles": jnp.asarray(3),
+                "max_overflow_tiles": safety.max_overflow_tiles[...],
+            }
 
         return step
 
@@ -4472,7 +4176,10 @@ def test_train_evaluation_retries_before_saving_image(monkeypatch, tmp_path):
 
     scene, batch = _bound_growth_scene_and_batch()
     _patch_bound_growth_trainer(
-        monkeypatch, scene, batch, _bound_growth_factory([], 1),
+        monkeypatch,
+        scene,
+        batch,
+        _bound_growth_factory([], 1),
     )
     config = replace(
         _bound_growth_config(tmp_path, 512, steps=1),
@@ -4489,8 +4196,10 @@ def test_train_evaluation_retries_before_saving_image(monkeypatch, tmp_path):
         return lambda *args, **kwargs: (
             jnp.full((height, width, 3), float(capacity >= 3)),
             jnp.ones((height, width, 1)),
-            jnp.asarray([False]), jnp.asarray(capacity < 3),
-            jnp.asarray(3), jnp.asarray(1),
+            jnp.asarray([False]),
+            jnp.asarray(capacity < 3),
+            jnp.asarray(3),
+            jnp.asarray(1),
         )
 
     monkeypatch.setattr(loop, "make_render_step", factory)
@@ -4501,9 +4210,12 @@ def test_train_evaluation_retries_before_saving_image(monkeypatch, tmp_path):
     np.testing.assert_array_equal(saved[0], np.ones((4, 4, 3)))
 
 
-def test_async_checkpoint_captures_state_before_queued_worker_runs(monkeypatch, tmp_path):
+def test_async_checkpoint_captures_state_before_queued_worker_runs(
+    monkeypatch, tmp_path
+):
     import concurrent.futures
     import threading
+
     import jax_gs.training._loop as loop
     from jax_gs.cli import _load_training_objects
 
@@ -4534,12 +4246,14 @@ def test_async_checkpoint_captures_state_before_queued_worker_runs(monkeypatch, 
 
     _patch_bound_growth_trainer(monkeypatch, scene, batch, factory)
     monkeypatch.setattr(
-        loop, "concurrent",
+        loop,
+        "concurrent",
         SimpleNamespace(futures=SimpleNamespace(ThreadPoolExecutor=delayed_executor)),
     )
     config = replace(
         _bound_growth_config(tmp_path, 512, steps=2),
-        async_checkpoint=True, checkpoint_every=1,
+        async_checkpoint=True,
+        checkpoint_every=1,
     )
     try:
         result = training_module.train(config)
@@ -4554,7 +4268,9 @@ def test_async_checkpoint_captures_state_before_queued_worker_runs(monkeypatch, 
 
 
 @pytest.mark.parametrize("steps", [2, 10, 11])
-def test_training_returns_final_step_metrics_between_log_steps(monkeypatch, tmp_path, steps):
+def test_training_returns_final_step_metrics_between_log_steps(
+    monkeypatch, tmp_path, steps
+):
     scene, batch = _bound_growth_scene_and_batch()
     base_factory = _bound_growth_factory([], 1)
     executed = 0

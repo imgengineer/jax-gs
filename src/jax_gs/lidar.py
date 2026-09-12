@@ -8,16 +8,15 @@ that otherwise subtle compatibility boundary explicit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
 import hashlib
 import math
 import operator
+from dataclasses import dataclass, field
+from enum import Enum
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 
 ANGLE_TO_PIXEL_SCALING_FACTOR = 1024.0
 
@@ -164,9 +163,7 @@ class RowOffsetStructuredSpinningLidarModelParameters(
     ) -> None:
         rows = _float32_vector(row_elevations_rad, "row_elevations_rad")
         columns = _float32_vector(column_azimuths_rad, "column_azimuths_rad")
-        offsets = _float32_vector(
-            row_azimuth_offsets_rad, "row_azimuth_offsets_rad"
-        )
+        offsets = _float32_vector(row_azimuth_offsets_rad, "row_azimuth_offsets_rad")
         if offsets.shape != rows.shape:
             raise ValueError("row_azimuth_offsets_rad must match the row table")
         if not isinstance(spinning_direction, SpinningDirection):
@@ -213,9 +210,7 @@ class RowOffsetStructuredSpinningLidarModelParameters(
         else:
             column_relative = np.mod(columns - columns[0], 2.0 * math.pi)
         if not np.all(np.diff(column_relative) > 0.0):
-            raise ValueError(
-                "column azimuths must be sorted in the spinning direction"
-            )
+            raise ValueError("column azimuths must be sorted in the spinning direction")
         if np.any(np.abs(columns - columns[0]) >= 2.0 * math.pi):
             raise ValueError("column azimuths must not wrap around the first column")
 
@@ -227,9 +222,7 @@ class RowOffsetStructuredSpinningLidarModelParameters(
             direction=SpinningDirection.CLOCKWISE,
         )
 
-    def _compute_fov_horiz_rad(
-        self, spinning_direction: SpinningDirection
-    ) -> FOV:
+    def _compute_fov_horiz_rad(self, spinning_direction: SpinningDirection) -> FOV:
         columns = np.asarray(self.column_azimuths_rad)
         offsets = np.asarray(self.row_azimuth_offsets_rad)
         extremes = columns[[0, -1]][None, :] + offsets[:, None]
@@ -306,9 +299,7 @@ class RowOffsetStructuredSpinningLidarModelParameters(
             self.column_azimuths_rad[azimuth_index]
             + self.row_azimuth_offsets_rad[elevation_index]
         )
-        elevation = normalize_elevation(
-            self.row_elevations_rad[elevation_index]
-        )
+        elevation = normalize_elevation(self.row_elevations_rad[elevation_index])
         return jnp.stack((azimuth, elevation), axis=-1)
 
     def tree_flatten(self):
@@ -374,9 +365,7 @@ class LidarTiling:
         if self.n_bins_azimuth < 1 or self.n_bins_elevation < 1:
             raise ValueError("LiDAR tile counts must be positive")
         self.cdf_elevation = jnp.asarray(self.cdf_elevation, dtype=jnp.int32)
-        self.cdf_dense_ray_mask = jnp.asarray(
-            self.cdf_dense_ray_mask, dtype=jnp.int32
-        )
+        self.cdf_dense_ray_mask = jnp.asarray(self.cdf_dense_ray_mask, dtype=jnp.int32)
         self.tiles_pack_info = jnp.asarray(self.tiles_pack_info, dtype=jnp.int32)
         self.tiles_to_elements_map = jnp.asarray(
             self.tiles_to_elements_map, dtype=jnp.int32
@@ -392,7 +381,10 @@ class LidarTiling:
         tile_count = self.n_bins_azimuth * self.n_bins_elevation
         if self.tiles_pack_info.shape != (tile_count, 2):
             raise ValueError("tiles_pack_info must have shape [tile_count, 2]")
-        if self.tiles_to_elements_map.ndim != 2 or self.tiles_to_elements_map.shape[1] != 2:
+        if (
+            self.tiles_to_elements_map.ndim != 2
+            or self.tiles_to_elements_map.shape[1] != 2
+        ):
             raise ValueError("tiles_to_elements_map must have shape [N, 2]")
         self._max_elements_per_tile = int(
             np.max(np.asarray(self.tiles_pack_info[:, 1]), initial=0)
@@ -554,8 +546,7 @@ def valid_sensor_angles(
         relative_elevation
         <= (lidar.fov_vert_rad.span + 2.0 * lidar.fov_eps_rad) * scale
     ) & (
-        relative_azimuth
-        <= (lidar.fov_horiz_rad.span + 2.0 * lidar.fov_eps_rad) * scale
+        relative_azimuth <= (lidar.fov_horiz_rad.span + 2.0 * lidar.fov_eps_rad) * scale
     )
 
 
@@ -656,19 +647,21 @@ def angles_to_dense_ray_mask_cdf(
     relative = relative_sensor_angles(parameters, angles)
     normalized_azimuth = relative[..., 0] / parameters.fov_horiz_rad.span
     normalized_elevation = relative[..., 1] / parameters.fov_vert_rad.span
-    azimuth_indices = (
-        (normalized_azimuth * resolution_azimuth).astype(jnp.int32)
-        % resolution_azimuth
-    )
-    elevation_indices = (
-        (normalized_elevation * resolution_elevation).astype(jnp.int32)
-        % resolution_elevation
-    )
+    azimuth_indices = (normalized_azimuth * resolution_azimuth).astype(
+        jnp.int32
+    ) % resolution_azimuth
+    elevation_indices = (normalized_elevation * resolution_elevation).astype(
+        jnp.int32
+    ) % resolution_elevation
     flat_indices = azimuth_indices + elevation_indices * resolution_azimuth
-    mask = jnp.zeros(
-        (resolution_elevation * resolution_azimuth,), dtype=jnp.int32
-    ).at[flat_indices.reshape(-1)].set(1)
-    padded = jnp.pad(mask.reshape((resolution_elevation, resolution_azimuth)), ((1, 0), (1, 0)))
+    mask = (
+        jnp.zeros((resolution_elevation * resolution_azimuth,), dtype=jnp.int32)
+        .at[flat_indices.reshape(-1)]
+        .set(1)
+    )
+    padded = jnp.pad(
+        mask.reshape((resolution_elevation, resolution_azimuth)), ((1, 0), (1, 0))
+    )
     return jnp.cumsum(jnp.cumsum(padded, axis=0), axis=1, dtype=jnp.int32)
 
 
@@ -687,13 +680,11 @@ def angles_to_tile_indices(
     normalized_azimuth = (
         relative[..., 0] / parameters.fov_horiz_rad.span * n_bins_azimuth
     )
-    normalized_elevation = (
-        relative[..., 1] / parameters.fov_vert_rad.span * resolution
-    )
+    normalized_elevation = relative[..., 1] / parameters.fov_vert_rad.span * resolution
     azimuth_index = normalized_azimuth.astype(jnp.int32) % n_bins_azimuth
-    dense_elevation = jnp.clip(
-        normalized_elevation, 0, resolution - 1
-    ).astype(jnp.int32)
+    dense_elevation = jnp.clip(normalized_elevation, 0, resolution - 1).astype(
+        jnp.int32
+    )
     elevation_index = cdf[dense_elevation].astype(jnp.int32)
     return azimuth_index + elevation_index * n_bins_azimuth
 
@@ -706,9 +697,7 @@ def compute_tiles_to_elements_map(
     cdf_elevation,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     n_bins_azimuth = operator.index(n_bins_azimuth)
-    densification_factor_azimuth = operator.index(
-        densification_factor_azimuth
-    )
+    densification_factor_azimuth = operator.index(densification_factor_azimuth)
     cdf = jnp.asarray(cdf_elevation)
     n_bins_elevation = int(np.asarray(cdf[-1]))
     elements = parameters.create_elements()
@@ -746,9 +735,9 @@ def compute_histogram_equalization(
     resolution_elevation = operator.index(resolution_elevation)
     if min(n_bins_elevation, max_pts_per_tile, resolution_elevation) < 1:
         raise ValueError("histogram parameters must be positive")
-    angles = parameters.elements_to_sensor_angles(
-        parameters.create_elements()
-    ).reshape((parameters.n_rows, parameters.n_columns, 2))
+    angles = parameters.elements_to_sensor_angles(parameters.create_elements()).reshape(
+        (parameters.n_rows, parameters.n_columns, 2)
+    )
     relative = np.asarray(relative_sensor_angles(parameters, angles))
     azimuth = relative[..., 0]
     elevation = relative[..., 1]
@@ -759,9 +748,7 @@ def compute_histogram_equalization(
         (elevation >= elevation_range[0]) & (elevation <= elevation_range[1])
     ):
         raise ValueError("element elevations fall outside the computed FOV")
-    if not np.all(
-        (azimuth >= azimuth_range[0]) & (azimuth <= azimuth_range[1])
-    ):
+    if not np.all((azimuth >= azimuth_range[0]) & (azimuth <= azimuth_range[1])):
         raise ValueError("element azimuths fall outside the computed FOV")
 
     histogram, _ = np.histogram(
@@ -787,7 +774,7 @@ def compute_histogram_equalization(
     elevation_histogram, _ = np.histogram(elevation, bins=elevation_edges)
     n_bins_azimuth = max(
         1,
-        int(math.ceil(float(np.mean(elevation_histogram)) / max_pts_per_tile)),
+        math.ceil(float(np.mean(elevation_histogram)) / max_pts_per_tile),
     )
     while True:
         histogram_2d, _, _ = np.histogram2d(
@@ -837,9 +824,7 @@ class LegacyLidarModel:
     def __init__(
         self, params: RowOffsetStructuredSpinningLidarModelParametersExt
     ) -> None:
-        if not isinstance(
-            params, RowOffsetStructuredSpinningLidarModelParametersExt
-        ):
+        if not isinstance(params, RowOffsetStructuredSpinningLidarModelParametersExt):
             raise TypeError("legacy LiDAR model requires extended parameters")
         self.params = params
         self.width = params.n_columns
@@ -870,7 +855,10 @@ class LegacyLidarModel:
         angles = jnp.stack((azimuth, elevation), axis=-1)
         relative = self.relative_sensor_angles(angles)
         margin = jnp.asarray(
-            (margin_factor * self.fov_horiz_rad.span, margin_factor * self.fov_vert_rad.span),
+            (
+                margin_factor * self.fov_horiz_rad.span,
+                margin_factor * self.fov_vert_rad.span,
+            ),
             dtype=ray.dtype,
         )
         spans = jnp.asarray(

@@ -9,9 +9,10 @@ step without recompilation when the active set changes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import math
-from typing import Any, Iterator, Literal
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
+from typing import Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -31,9 +32,9 @@ from .rasterization import (
     _prepare_colors,
 )
 
-
 RenderMode2DGS = Literal["RGB", "D", "ED", "RGB+D", "RGB+ED"]
 DepthMode2DGS = Literal["expected", "median"]
+_DEFAULT_RASTERIZATION_CONFIG = RasterizationConfig()
 
 
 def _broadcast_ray_transforms(
@@ -238,15 +239,11 @@ def _pack_projection_2dgs(
         camera_ids=jnp.where(output_valid, camera_ids, -1).astype(jnp.int32),
         gaussian_ids=jnp.where(output_valid, gaussian_ids, -1).astype(jnp.int32),
         indptr=indptr,
-        radii=jnp.where(
-            output_valid[:, None], radii.reshape(capacity, 2)[selected], 0
-        ),
+        radii=jnp.where(output_valid[:, None], radii.reshape(capacity, 2)[selected], 0),
         means2d=jnp.where(
             output_valid[:, None], means2d.reshape(capacity, 2)[selected], 0.0
         ),
-        depths=jnp.where(
-            output_valid, depths.reshape(capacity)[selected], 0.0
-        ),
+        depths=jnp.where(output_valid, depths.reshape(capacity)[selected], 0.0),
         ray_transforms=jnp.where(
             output_valid[:, None, None],
             ray_transforms.reshape(capacity, 3, 3)[selected],
@@ -280,25 +277,20 @@ def _pack_dense_metadata_2dgs(
         safe_camera_ids = projection.camera_ids
         safe_gaussian_ids = projection.gaussian_ids
     else:
-        safe_batch_ids = jnp.clip(
-            projection.batch_ids, 0, batch_count - 1
-        )
+        safe_batch_ids = jnp.clip(projection.batch_ids, 0, batch_count - 1)
         safe_camera_ids = jnp.clip(projection.camera_ids, 0, camera_count - 1)
-        safe_gaussian_ids = jnp.clip(
-            projection.gaussian_ids, 0, gaussian_count - 1
-        )
+        safe_gaussian_ids = jnp.clip(projection.gaussian_ids, 0, gaussian_count - 1)
         global_dense_slots = (
-            (safe_batch_ids * camera_count + safe_camera_ids) * gaussian_count
-            + safe_gaussian_ids
-        )
+            safe_batch_ids * camera_count + safe_camera_ids
+        ) * gaussian_count + safe_gaussian_ids
         scatter_destinations = jnp.where(
             output_valid, global_dense_slots, jnp.int32(capacity)
         )
-        dense_to_packed = jnp.full(
-            (capacity + 1,), -1, dtype=jnp.int32
-        ).at[scatter_destinations].set(
-            jnp.where(output_valid, packed_slots, -1)
-        )[:capacity]
+        dense_to_packed = (
+            jnp.full((capacity + 1,), -1, dtype=jnp.int32)
+            .at[scatter_destinations]
+            .set(jnp.where(output_valid, packed_slots, -1))[:capacity]
+        )
 
     def gather(values: jax.Array) -> jax.Array:
         trailing_shape = values.shape[len(batch_shape) + 2 :]
@@ -306,9 +298,7 @@ def _pack_dense_metadata_2dgs(
             return jnp.zeros((0,) + trailing_shape, dtype=values.dtype)
         flat_values = values.reshape((capacity,) + trailing_shape)
         gathered = flat_values[global_dense_slots]
-        mask = output_valid.reshape(
-            (capacity,) + (1,) * len(trailing_shape)
-        )
+        mask = output_valid.reshape((capacity,) + (1,) * len(trailing_shape))
         return jnp.where(mask, gathered, jnp.zeros_like(gathered))
 
     dense_flatten_ids = intersections["flatten_ids"].reshape(batch_count, -1)
@@ -317,20 +307,14 @@ def _pack_dense_metadata_2dgs(
     dense_isect_ids = intersections["isect_ids"].reshape(
         batch_count, per_batch_isect_capacity, 2
     )
-    reported_isect_counts = intersections["isect_valid_count"].reshape(
-        batch_count
-    )
-    isect_positions = jnp.arange(
-        per_batch_isect_capacity, dtype=jnp.int32
-    )
+    reported_isect_counts = intersections["isect_valid_count"].reshape(batch_count)
+    isect_positions = jnp.arange(per_batch_isect_capacity, dtype=jnp.int32)
     dense_isect_valid = (
         (isect_positions[None, :] < reported_isect_counts[:, None])
         & (dense_flatten_ids >= 0)
         & (dense_isect_ids[..., 0] != -1)
     )
-    per_batch_isect_counts = jnp.sum(
-        dense_isect_valid, axis=1, dtype=jnp.int32
-    )
+    per_batch_isect_counts = jnp.sum(dense_isect_valid, axis=1, dtype=jnp.int32)
     isect_valid_count = jnp.sum(per_batch_isect_counts, dtype=jnp.int32)
     selected_isects = jnp.nonzero(
         dense_isect_valid.reshape(-1),
@@ -338,8 +322,7 @@ def _pack_dense_metadata_2dgs(
         fill_value=0,
     )[0]
     output_isect_valid = (
-        jnp.arange(global_isect_capacity, dtype=jnp.int32)
-        < isect_valid_count
+        jnp.arange(global_isect_capacity, dtype=jnp.int32) < isect_valid_count
     )
     source_batch_ids = jnp.repeat(
         jnp.arange(batch_count, dtype=jnp.int32),
@@ -355,13 +338,10 @@ def _pack_dense_metadata_2dgs(
             camera_count * gaussian_count - 1,
         )
     selected_global_dense_ids = (
-        source_batch_ids * camera_count * gaussian_count
-        + safe_local_dense_ids
+        source_batch_ids * camera_count * gaussian_count + safe_local_dense_ids
     )
     if capacity == 0:
-        packed_flatten_ids = jnp.full(
-            (global_isect_capacity,), -1, dtype=jnp.int32
-        )
+        packed_flatten_ids = jnp.full((global_isect_capacity,), -1, dtype=jnp.int32)
     else:
         mapped_ids = dense_to_packed[selected_global_dense_ids]
         packed_flatten_ids = jnp.where(
@@ -371,12 +351,8 @@ def _pack_dense_metadata_2dgs(
     selected_isect_ids = dense_isect_ids.reshape(-1, 2)[selected_isects]
     tile_height, tile_width = intersections["isect_offsets"].shape[-2:]
     tile_bits = _bits_for_count(tile_width * tile_height)
-    high_words = jax.lax.bitcast_convert_type(
-        selected_isect_ids[:, 0], jnp.uint32
-    )
-    tile_ids = (
-        high_words & jnp.uint32((1 << tile_bits) - 1)
-    ).astype(jnp.int32)
+    high_words = jax.lax.bitcast_convert_type(selected_isect_ids[:, 0], jnp.uint32)
+    tile_ids = (high_words & jnp.uint32((1 << tile_bits) - 1)).astype(jnp.int32)
     local_camera_ids = (
         jnp.zeros_like(safe_local_dense_ids)
         if gaussian_count == 0
@@ -400,9 +376,12 @@ def _pack_dense_metadata_2dgs(
             jnp.cumsum(per_batch_isect_counts[:-1], dtype=jnp.int32),
         )
     )
-    global_isect_offsets = intersections["isect_offsets"].reshape(
-        batch_count, camera_count, tile_height, tile_width
-    ) + isect_bases[:, None, None, None]
+    global_isect_offsets = (
+        intersections["isect_offsets"].reshape(
+            batch_count, camera_count, tile_height, tile_width
+        )
+        + isect_bases[:, None, None, None]
+    )
     global_isect_offsets = global_isect_offsets.reshape(
         batch_shape + (camera_count, tile_height, tile_width)
     )
@@ -457,8 +436,7 @@ def fully_fused_projection_2dgs(
     *,
     active_mask: jax.Array | None = None,
 ) -> (
-    tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]
-    | PaddedProjection2DGS
+    tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array] | PaddedProjection2DGS
 ):
     """Project fixed-capacity 2D Gaussian surfels into one or more cameras.
 
@@ -531,9 +509,7 @@ def fully_fused_projection_2dgs(
     camera_from_surfel = jnp.concatenate(
         (tangent_frame_camera[..., :, :2], means_camera[..., :, None]), axis=-1
     )
-    ray_transforms = jnp.einsum(
-        "...cij,...cnjk->...cnik", Ks, camera_from_surfel
-    )
+    ray_transforms = jnp.einsum("...cij,...cnjk->...cnik", Ks, camera_from_surfel)
 
     row_u = ray_transforms[..., 0, :]
     row_v = ray_transforms[..., 1, :]
@@ -560,9 +536,7 @@ def fully_fused_projection_2dgs(
     depths = means_camera[..., 2]
 
     valid = conditioned & (depths > near_plane) & (depths < far_plane)
-    valid = valid & (
-        (radius[..., 0] > radius_clip) | (radius[..., 1] > radius_clip)
-    )
+    valid = valid & ((radius[..., 0] > radius_clip) | (radius[..., 1] > radius_clip))
     valid = valid & (
         (means2d[..., 0] + radius[..., 0] > 0.0)
         & (means2d[..., 0] - radius[..., 0] < width)
@@ -584,9 +558,7 @@ def fully_fused_projection_2dgs(
 
     radii = jnp.where(valid[..., None], radius, 0.0).astype(jnp.int32)
     if packed:
-        return _pack_projection_2dgs(
-            radii, means2d, depths, ray_transforms, normals
-        )
+        return _pack_projection_2dgs(radii, means2d, depths, ray_transforms, normals)
     return radii, means2d, depths, ray_transforms, normals
 
 
@@ -637,9 +609,7 @@ def _render_camera_tiles_2dgs(
     local_y = local_y.reshape(-1)
     pixel_count = tile_size * tile_size
     intersections = precomputed_intersections
-    built_intersections = (
-        intersections is None and config.backend != "reference"
-    )
+    built_intersections = intersections is None and config.backend != "reference"
     intersection_capacity = (
         0 if intersections is None else intersections.gaussian_ids.shape[0]
     )
@@ -684,9 +654,7 @@ def _render_camera_tiles_2dgs(
             )
             candidate_count = jnp.count_nonzero(overlaps)
             scores = jnp.where(overlaps, -depths, -jnp.inf)
-            selected_scores, selected_ids = jax.lax.top_k(
-                scores, candidate_capacity
-            )
+            selected_scores, selected_ids = jax.lax.top_k(scores, candidate_capacity)
             selected_valid = jnp.isfinite(selected_scores)
         else:
             start = intersection_offsets[tile_id]
@@ -708,9 +676,7 @@ def _render_camera_tiles_2dgs(
             )
             selected_ids = jnp.clip(selected_ids, 0, means2d.shape[0] - 1)
         selected_valid = (
-            selected_valid
-            & valid[selected_ids]
-            & (opacities[selected_ids] > 0.0)
+            selected_valid & valid[selected_ids] & (opacities[selected_ids] > 0.0)
         )
 
         selected_means = means2d[selected_ids]
@@ -725,12 +691,10 @@ def _render_camera_tiles_2dgs(
 
         pixel_template = jnp.stack((pixel_x, pixel_y), axis=-1)
         if densify_absgrad_probe is None:
-            transforms_per_pixel = (
-                _broadcast_ray_transforms_with_densify_probe(
-                    selected_transforms,
-                    densify_probe[selected_ids],
-                    pixel_template,
-                )
+            transforms_per_pixel = _broadcast_ray_transforms_with_densify_probe(
+                selected_transforms,
+                densify_probe[selected_ids],
+                pixel_template,
             )
         else:
             transforms_per_pixel = (
@@ -802,9 +766,7 @@ def _render_camera_tiles_2dgs(
         )
         expected_depth = jnp.where(accumulated_alpha > 0.0, expected_depth, 0.0)
 
-        candidate_indices = jnp.arange(candidate_capacity, dtype=jnp.int32)[
-            :, None
-        ]
+        candidate_indices = jnp.arange(candidate_capacity, dtype=jnp.int32)[:, None]
         median_eligible = (weights > 0.0) & (transmittance > 0.5)
         median_index = jnp.max(
             jnp.where(median_eligible, candidate_indices, -1), axis=0
@@ -832,8 +794,7 @@ def _render_camera_tiles_2dgs(
         distortion = 2.0 * jnp.sum(
             weights
             * (
-                selected_depths[:, None] * previous_visibility
-                - previous_weighted_depth
+                selected_depths[:, None] * previous_visibility - previous_weighted_depth
             ),
             axis=0,
         )
@@ -865,9 +826,7 @@ def _render_camera_tiles_2dgs(
 
         rendered = jnp.where(pixel_valid[:, None], rendered, 0.0)
         accumulated_alpha = jnp.where(pixel_valid, accumulated_alpha, 0.0)
-        rendered_normals = jnp.where(
-            pixel_valid[:, None], rendered_normals, 0.0
-        )
+        rendered_normals = jnp.where(pixel_valid[:, None], rendered_normals, 0.0)
         distortion = jnp.where(pixel_valid, distortion, 0.0)
         median_depth = jnp.where(pixel_valid, median_depth, 0.0)
         expected_depth = jnp.where(pixel_valid, expected_depth, 0.0)
@@ -910,9 +869,7 @@ def _render_camera_tiles_2dgs(
     def untile(values: jax.Array) -> jax.Array:
         channels = values.shape[-1]
         return (
-            values.reshape(
-                tile_height, tile_width, tile_size, tile_size, channels
-            )
+            values.reshape(tile_height, tile_width, tile_size, tile_size, channels)
             .transpose(0, 2, 1, 3, 4)
             .reshape(tile_height * tile_size, tile_width * tile_size, channels)
         )[:height, :width]
@@ -1042,7 +999,7 @@ def rasterization_2dgs(
     active_mask: jax.Array | None = None,
     max_gaussians_per_tile: int | None = None,
     tile_batch_size: int | None = None,
-    config: RasterizationConfig = RasterizationConfig(),
+    config: RasterizationConfig = _DEFAULT_RASTERIZATION_CONFIG,
     _gradient_2dgs_offset: jax.Array | None = None,
     _gradient_2dgs_absgrad_probe: jax.Array | None = None,
 ) -> tuple[
@@ -1067,17 +1024,13 @@ def rasterization_2dgs(
     """
 
     if config.compositor_backend == "cuda_tile":
-        raise NotImplementedError(
-            "the cuTile compositor currently supports 3DGS only"
-        )
+        raise NotImplementedError("the cuTile compositor currently supports 3DGS only")
     if config.intersection_backend == "cuda_tile":
         raise NotImplementedError(
             "the cuTile intersection backend currently supports 3DGS AccuTile only"
         )
     if _gradient_2dgs_absgrad_probe is not None and not absgrad:
-        raise ValueError(
-            "_gradient_2dgs_absgrad_probe requires absgrad=True"
-        )
+        raise ValueError("_gradient_2dgs_absgrad_probe requires absgrad=True")
     if sparse_grad:
         if not packed:
             raise ValueError("sparse_grad=True requires packed=True")
@@ -1128,16 +1081,13 @@ def rasterization_2dgs(
             )
             if gradient_2dgs_offset.shape != expected_offset_shape:
                 raise ValueError(
-                    "_gradient_2dgs_offset must have shape "
-                    f"{expected_offset_shape}"
+                    f"_gradient_2dgs_offset must have shape {expected_offset_shape}"
                 )
             flat_gradient_2dgs_offset = flatten_batch(gradient_2dgs_offset)
         if _gradient_2dgs_absgrad_probe is None:
             flat_gradient_2dgs_absgrad_probe = None
         else:
-            gradient_2dgs_absgrad_probe = jnp.asarray(
-                _gradient_2dgs_absgrad_probe
-            )
+            gradient_2dgs_absgrad_probe = jnp.asarray(_gradient_2dgs_absgrad_probe)
             expected_probe_shape = batch_shape + (
                 camera_count,
                 gaussian_count,
@@ -1150,8 +1100,7 @@ def rasterization_2dgs(
                 )
             if gradient_2dgs_absgrad_probe.dtype != means.dtype:
                 raise ValueError(
-                    "_gradient_2dgs_absgrad_probe must have the same dtype "
-                    "as means"
+                    "_gradient_2dgs_absgrad_probe must have the same dtype as means"
                 )
             flat_gradient_2dgs_absgrad_probe = flatten_batch(
                 gradient_2dgs_absgrad_probe
@@ -1176,17 +1125,14 @@ def rasterization_2dgs(
         else:
             color_values = jnp.asarray(colors)
             color_tail = color_values.shape[len(batch_shape) :]
-            shared_per_gaussian = bool(
-                color_tail and color_tail[0] == gaussian_count
-            )
+            shared_per_gaussian = bool(color_tail and color_tail[0] == gaussian_count)
             per_camera = bool(
                 len(color_tail) >= 2
                 and color_tail[0] == camera_count
                 and color_tail[1] == gaussian_count
             )
-            if (
-                color_values.shape[: len(batch_shape)] != batch_shape
-                or not (shared_per_gaussian or per_camera)
+            if color_values.shape[: len(batch_shape)] != batch_shape or not (
+                shared_per_gaussian or per_camera
             ):
                 raise ValueError(
                     "colors must have shape [..., N, ...] or [..., C, N, ...]"
@@ -1214,9 +1160,7 @@ def rasterization_2dgs(
                     "backgrounds must have shape [D], [C, D], or [..., C, D]"
                 )
             if background_values.shape[len(batch_shape)] != camera_count:
-                raise ValueError(
-                    "backgrounds camera dimension does not match viewmats"
-                )
+                raise ValueError("backgrounds camera dimension does not match viewmats")
             flat_backgrounds = flatten_batch(background_values)
 
         def render_batch(index: jax.Array):
@@ -1300,12 +1244,8 @@ def rasterization_2dgs(
                 )
                 info["packed_requested"] = jnp.asarray(True)
                 info["packed_metadata_available"] = jnp.asarray(True)
-                info["n_batches"] = jnp.asarray(
-                    batch_count, dtype=jnp.int32
-                )
-                info["n_cameras"] = jnp.asarray(
-                    camera_count, dtype=jnp.int32
-                )
+                info["n_batches"] = jnp.asarray(batch_count, dtype=jnp.int32)
+                info["n_cameras"] = jnp.asarray(camera_count, dtype=jnp.int32)
                 for key in (
                     "width",
                     "height",
@@ -1315,9 +1255,7 @@ def rasterization_2dgs(
                 ):
                     info[key] = info[key].reshape(-1)[0]
             else:
-                info["packed_requested"] = jnp.ones(
-                    batch_shape, dtype=jnp.bool_
-                )
+                info["packed_requested"] = jnp.ones(batch_shape, dtype=jnp.bool_)
                 info["packed_metadata_available"] = jnp.zeros(
                     batch_shape, dtype=jnp.bool_
                 )
@@ -1329,7 +1267,6 @@ def rasterization_2dgs(
     sparse_grad_requested = jnp.asarray(sparse_grad)
     absgrad_requested = jnp.asarray(absgrad)
     absgrad_probe_enabled = _gradient_2dgs_absgrad_probe is not None
-    del packed, sparse_grad, absgrad
     if render_mode not in {"RGB", "D", "ED", "RGB+D", "RGB+ED"}:
         raise ValueError(f"unsupported render mode: {render_mode}")
     if depth_mode not in {"expected", "median"}:
@@ -1363,14 +1300,11 @@ def rasterization_2dgs(
     if viewmats.shape[0] != Ks.shape[0]:
         raise ValueError("viewmats and Ks must contain the same number of cameras")
     if _gradient_2dgs_offset is not None:
-        gradient_2dgs_offset = jnp.asarray(
-            _gradient_2dgs_offset, dtype=means.dtype
-        )
+        gradient_2dgs_offset = jnp.asarray(_gradient_2dgs_offset, dtype=means.dtype)
         expected_offset_shape = (viewmats.shape[0], gaussian_count, 2)
         if gradient_2dgs_offset.shape != expected_offset_shape:
             raise ValueError(
-                "_gradient_2dgs_offset must have shape "
-                f"{expected_offset_shape}"
+                f"_gradient_2dgs_offset must have shape {expected_offset_shape}"
             )
     else:
         gradient_2dgs_offset = jnp.zeros(
@@ -1378,17 +1312,12 @@ def rasterization_2dgs(
         )
     expected_probe_shape = (viewmats.shape[0], gaussian_count, 2)
     if _gradient_2dgs_absgrad_probe is None:
-        gradient_2dgs_absgrad_probe = jnp.zeros(
-            expected_probe_shape, dtype=means.dtype
-        )
+        gradient_2dgs_absgrad_probe = jnp.zeros(expected_probe_shape, dtype=means.dtype)
     else:
-        gradient_2dgs_absgrad_probe = jnp.asarray(
-            _gradient_2dgs_absgrad_probe
-        )
+        gradient_2dgs_absgrad_probe = jnp.asarray(_gradient_2dgs_absgrad_probe)
         if gradient_2dgs_absgrad_probe.shape != expected_probe_shape:
             raise ValueError(
-                "_gradient_2dgs_absgrad_probe must have shape "
-                f"{expected_probe_shape}"
+                f"_gradient_2dgs_absgrad_probe must have shape {expected_probe_shape}"
             )
         if gradient_2dgs_absgrad_probe.dtype != means.dtype:
             raise ValueError(
@@ -1564,25 +1493,25 @@ def rasterization_2dgs(
     surface_normals = _depth_to_surface_normals(surface_depth, viewmats, Ks)
     surface_normals = jnp.where(alphas > 0.0, surface_normals, 0.0)
 
-    min_tile_x = jnp.floor(
-        (means2d[..., 0] - radii[..., 0]) / config.tile_size
-    ).astype(jnp.int32)
-    min_tile_y = jnp.floor(
-        (means2d[..., 1] - radii[..., 1]) / config.tile_size
-    ).astype(jnp.int32)
-    max_tile_x = jnp.ceil(
-        (means2d[..., 0] + radii[..., 0]) / config.tile_size
-    ).astype(jnp.int32) - 1
-    max_tile_y = jnp.ceil(
-        (means2d[..., 1] + radii[..., 1]) / config.tile_size
-    ).astype(jnp.int32) - 1
+    min_tile_x = jnp.floor((means2d[..., 0] - radii[..., 0]) / config.tile_size).astype(
+        jnp.int32
+    )
+    min_tile_y = jnp.floor((means2d[..., 1] - radii[..., 1]) / config.tile_size).astype(
+        jnp.int32
+    )
+    max_tile_x = (
+        jnp.ceil((means2d[..., 0] + radii[..., 0]) / config.tile_size).astype(jnp.int32)
+        - 1
+    )
+    max_tile_y = (
+        jnp.ceil((means2d[..., 1] + radii[..., 1]) / config.tile_size).astype(jnp.int32)
+        - 1
+    )
     min_tile_x = jnp.clip(min_tile_x, 0, tile_width - 1)
     max_tile_x = jnp.clip(max_tile_x, 0, tile_width - 1)
     min_tile_y = jnp.clip(min_tile_y, 0, tile_height - 1)
     max_tile_y = jnp.clip(max_tile_y, 0, tile_height - 1)
-    tiles_per_gauss = (max_tile_x - min_tile_x + 1) * (
-        max_tile_y - min_tile_y + 1
-    )
+    tiles_per_gauss = (max_tile_x - min_tile_x + 1) * (max_tile_y - min_tile_y + 1)
     tiles_per_gauss = jnp.where(valid, tiles_per_gauss, 0)
 
     info: dict[str, Any] = {
@@ -1611,18 +1540,14 @@ def rasterization_2dgs(
         "tile_overflow": tile_info["tile_overflow"],
         "candidate_limit_exceeded": tile_info["candidate_limit_exceeded"],
         "intersection_count": tile_info["intersection_count"],
-        "intersection_required_count": tile_info[
-            "intersection_required_count"
-        ],
+        "intersection_required_count": tile_info["intersection_required_count"],
         "intersection_overflow": tile_info["intersection_overflow"],
         "intersection_capacity": tile_info["intersection_capacity"],
         "candidate_ids": tile_info["candidate_ids"],
         "candidate_valid": tile_info["candidate_valid"],
         "active_count": jnp.count_nonzero(active_mask_array),
         "packed_requested": jnp.asarray(packed_metadata_requested),
-        "packed_metadata_available": jnp.asarray(
-            packed_metadata_available
-        ),
+        "packed_metadata_available": jnp.asarray(packed_metadata_available),
         "sparse_grad_requested": sparse_grad_requested,
         "sparse_grad_is_dense": jnp.asarray(True),
         "absgrad_requested": absgrad_requested,
@@ -1726,9 +1651,7 @@ def rasterization_2dgs_inria_wrapper(
         viewmats_array = viewmats_array[None, ...]
     if Ks_array.ndim == 2:
         Ks_array = Ks_array[None, ...]
-    surface_normals = _depth_to_surface_normals(
-        blended_depth, viewmats_array, Ks_array
-    )
+    surface_normals = _depth_to_surface_normals(blended_depth, viewmats_array, Ks_array)
     surface_normals = surface_normals * jax.lax.stop_gradient(render_alphas)
 
     meta = dict(info)
@@ -1826,9 +1749,7 @@ def accumulate_2dgs(
         flat_opacities[safe_image, safe_gaussian] * jnp.exp(-sigma), 0.999
     )
     alpha = jnp.where(valid & jnp.isfinite(alpha), alpha, 0.0)
-    sorted_ray_ids = jnp.where(
-        valid, ray_ids, image_count * image_width * image_height
-    )
+    sorted_ray_ids = jnp.where(valid, ray_ids, image_count * image_width * image_height)
     segment_starts = jnp.concatenate(
         (
             jnp.ones((1,), dtype=jnp.bool_),
@@ -1851,14 +1772,16 @@ def accumulate_2dgs(
     transmittance = jnp.where(segment_starts, 1.0, previous)
     weights = jnp.where(valid, alpha * transmittance, 0.0)
     total_pixels = image_count * image_width * image_height
-    rendered = jnp.zeros((total_pixels, channels), colors.dtype).at[ray_ids].add(
-        weights[:, None] * flat_colors[safe_image, safe_gaussian]
+    rendered = (
+        jnp.zeros((total_pixels, channels), colors.dtype)
+        .at[ray_ids]
+        .add(weights[:, None] * flat_colors[safe_image, safe_gaussian])
     )
-    accumulated = jnp.zeros((total_pixels,), opacities.dtype).at[ray_ids].add(
-        weights
-    )
-    rendered_normals = jnp.zeros((total_pixels, 3), normals.dtype).at[ray_ids].add(
-        weights[:, None] * flat_normals[safe_image, safe_gaussian]
+    accumulated = jnp.zeros((total_pixels,), opacities.dtype).at[ray_ids].add(weights)
+    rendered_normals = (
+        jnp.zeros((total_pixels, 3), normals.dtype)
+        .at[ray_ids]
+        .add(weights[:, None] * flat_normals[safe_image, safe_gaussian])
     )
     return (
         rendered.reshape(image_shape + (image_height, image_width, channels)),
@@ -1925,9 +1848,7 @@ def rasterize_to_indices_in_range_2dgs(
     transmittances = jnp.asarray(transmittances, dtype=opacities.dtype)
     expected_transmittance_size = image_count * image_height * image_width
     if transmittances.size != expected_transmittance_size:
-        raise ValueError(
-            "transmittances must contain one value per image pixel"
-        )
+        raise ValueError("transmittances must contain one value per image pixel")
     flat_initial_transmittance = transmittances.reshape(-1)
     tile_height, tile_width = offsets.shape[-2:]
     tile_count = image_count * tile_height * tile_width
@@ -1966,19 +1887,11 @@ def rasterize_to_indices_in_range_2dgs(
     transforms = flat_transforms[image_id, gaussian_id]
     pixel_xf = pixel_x.astype(means2d.dtype) + 0.5
     pixel_yf = pixel_y.astype(means2d.dtype) + 0.5
-    h_u = (
-        pixel_xf[..., None] * transforms[:, None, 2, :]
-        - transforms[:, None, 0, :]
-    )
-    h_v = (
-        pixel_yf[..., None] * transforms[:, None, 2, :]
-        - transforms[:, None, 1, :]
-    )
+    h_u = pixel_xf[..., None] * transforms[:, None, 2, :] - transforms[:, None, 0, :]
+    h_v = pixel_yf[..., None] * transforms[:, None, 2, :] - transforms[:, None, 1, :]
     cross = jnp.cross(h_u, h_v, axis=-1)
     denominator = _safe_denominator(cross[..., 2])
-    sigma_3d = (cross[..., 0] / denominator) ** 2 + (
-        cross[..., 1] / denominator
-    ) ** 2
+    sigma_3d = (cross[..., 0] / denominator) ** 2 + (cross[..., 1] / denominator) ** 2
     dx = pixel_xf - selected_means[:, None, 0]
     dy = pixel_yf - selected_means[:, None, 1]
     sigma = 0.5 * jnp.minimum(sigma_3d, 2.0 * (dx * dx + dy * dy))
@@ -2027,12 +1940,8 @@ def rasterize_to_indices_in_range_2dgs(
     exclusive = jnp.concatenate((jnp.ones_like(inclusive[:1]), inclusive[:-1]))
     exclusive = jnp.where(segment_starts, 1.0, exclusive)
     current_transmittance = flat_initial_transmittance[sorted_rays] * exclusive
-    sorted_accepted = (
-        sorted_valid
-        & (
-            current_transmittance * (1.0 - sorted_alpha)
-            > 1.0e-4
-        )
+    sorted_accepted = sorted_valid & (
+        current_transmittance * (1.0 - sorted_alpha) > 1.0e-4
     )
     valid_pairs = jnp.zeros_like(sorted_accepted).at[pair_order].set(sorted_accepted)
     selected_pairs = jnp.nonzero(valid_pairs, size=max_intersections, fill_value=0)[0]
@@ -2143,18 +2052,12 @@ def rasterize_to_pixels_2dgs(
         transforms = ray_transforms.reshape(
             math.prod(image_shape), gaussian_count, 3, 3
         )
-        projected_means = means2d.reshape(
-            math.prod(image_shape), gaussian_count, 2
-        )
+        projected_means = means2d.reshape(math.prod(image_shape), gaussian_count, 2)
         color_values = colors.reshape(
             math.prod(image_shape), gaussian_count, colors.shape[-1]
         )
-        opacity_values = opacities.reshape(
-            math.prod(image_shape), gaussian_count
-        )
-        normal_values = normals.reshape(
-            math.prod(image_shape), gaussian_count, 3
-        )
+        opacity_values = opacities.reshape(math.prod(image_shape), gaussian_count)
+        normal_values = normals.reshape(math.prod(image_shape), gaussian_count, 3)
         densify_probes = densify_values.reshape(
             math.prod(image_shape), gaussian_count, 2
         )
@@ -2179,21 +2082,17 @@ def rasterize_to_pixels_2dgs(
     row_w = transforms[..., 2, :]
     signature = jnp.asarray((1.0, 1.0, -1.0), means2d.dtype)
     distance = jnp.sum(signature * row_w * row_w, axis=-1)
-    factors = signature / jnp.where(
-        jnp.abs(distance) > 1.0e-8, distance, 1.0
-    )[..., None]
+    factors = (
+        signature / jnp.where(jnp.abs(distance) > 1.0e-8, distance, 1.0)[..., None]
+    )
     extent_sq = jnp.stack(
         (
-            projected_means[..., 0] ** 2
-            - jnp.sum(factors * row_u * row_u, axis=-1),
-            projected_means[..., 1] ** 2
-            - jnp.sum(factors * row_v * row_v, axis=-1),
+            projected_means[..., 0] ** 2 - jnp.sum(factors * row_u * row_u, axis=-1),
+            projected_means[..., 1] ** 2 - jnp.sum(factors * row_v * row_v, axis=-1),
         ),
         axis=-1,
     )
-    radii = jnp.ceil(
-        3.33 * jnp.sqrt(jnp.maximum(extent_sq, 1.0e-4))
-    ).astype(jnp.int32)
+    radii = jnp.ceil(3.33 * jnp.sqrt(jnp.maximum(extent_sq, 1.0e-4))).astype(jnp.int32)
     depths = transforms[..., 2, 2]
     valid = (
         (jnp.abs(distance) > 1.0e-8)
@@ -2203,9 +2102,7 @@ def rasterize_to_pixels_2dgs(
         & jnp.all(jnp.isfinite(radii), axis=-1)
     )
     if backgrounds is None:
-        background_values = jnp.zeros(
-            (image_count, colors.shape[-1]), colors.dtype
-        )
+        background_values = jnp.zeros((image_count, colors.shape[-1]), colors.dtype)
     else:
         background_values = jnp.broadcast_to(
             jnp.asarray(backgrounds), image_shape + (colors.shape[-1],)
@@ -2218,17 +2115,13 @@ def rasterize_to_pixels_2dgs(
 
     def call_one(index):
         image_start = flat_offsets[index, 0]
-        next_image_start = flat_offsets[
-            jnp.minimum(index + 1, image_count - 1), 0
-        ]
+        next_image_start = flat_offsets[jnp.minimum(index + 1, image_count - 1), 0]
         image_end = jnp.where(
             index + 1 < image_count, next_image_start, supplied_valid_count
         )
         image_count_intersections = jnp.maximum(image_end - image_start, 0)
         source_positions = image_start + intersection_slots
-        safe_positions = jnp.clip(
-            source_positions, 0, supplied_ids.shape[0] - 1
-        )
+        safe_positions = jnp.clip(source_positions, 0, supplied_ids.shape[0] - 1)
         global_ids = supplied_ids[safe_positions]
         local_valid = (
             (intersection_slots < image_count_intersections)
@@ -2289,9 +2182,7 @@ def rasterize_to_pixels_2dgs(
             distloss=distloss,
             densify_probe=densify_for_image,
             densify_absgrad_probe=(
-                densify_absgrad_for_image
-                if densify_absgrad_probe_enabled
-                else None
+                densify_absgrad_for_image if densify_absgrad_probe_enabled else None
             ),
             precomputed_intersections=supplied_intersections,
         )

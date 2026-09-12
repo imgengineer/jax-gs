@@ -1,8 +1,8 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 from jax_gs.capacity import compact_training_state, resize_training_state
 from jax_gs.config import ModelConfig, OptimizerConfig
@@ -26,9 +26,7 @@ def _scene(capacity: int) -> GaussianScene:
         id="world",
         signal={
             "label": 10 * (jnp.arange(capacity, dtype=jnp.int32) + 1),
-            "vector": jnp.arange(capacity * 2, dtype=jnp.float32).reshape(
-                capacity, 2
-            ),
+            "vector": jnp.arange(capacity * 2, dtype=jnp.float32).reshape(capacity, 2),
         },
     )
     scene.component_names = [f"component_{slot}" for slot in range(capacity)]
@@ -122,9 +120,7 @@ def test_resize_training_state_pads_scene_rows_with_inactive_values():
 
 def test_compact_training_state_applies_the_model_stable_order_to_scene_sidecars():
     _, _, model, optimizer, state = _training_state(6)
-    model.active_mask[...] = jnp.asarray(
-        [False, True, False, True, True, False]
-    )
+    model.active_mask[...] = jnp.asarray([False, True, False, True, True, False])
     scene = _scene(6)
     order = np.asarray([1, 3, 4, 0, 2, 5])
     components_before = np.asarray(scene.component_index).copy()

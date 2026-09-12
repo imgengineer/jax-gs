@@ -117,7 +117,11 @@ def test_bivariate_polynomial_orders_match_triangular_layout(order):
     index = 0
     for y_power in range(order + 1):
         for x_power in range(order - y_power + 1):
-            expected += np.asarray(coefficients[index]) * np.asarray(x) ** x_power * np.asarray(y) ** y_power
+            expected += (
+                np.asarray(coefficients[index])
+                * np.asarray(x) ** x_power
+                * np.asarray(y) ** y_power
+            )
             index += 1
     np.testing.assert_allclose(
         eval_bivariate_polynomial(x, y, coefficients), expected, atol=1.0e-6
@@ -391,9 +395,7 @@ def test_high_level_external_distortion_contract_leading_batch_and_gradients():
             Ks,
             8,
             8,
-            external_distortion_coeffs=(
-                jax_gs.BivariateWindshieldModelParameters()
-            ),
+            external_distortion_coeffs=(jax_gs.BivariateWindshieldModelParameters()),
             config=_config(),
         )
 

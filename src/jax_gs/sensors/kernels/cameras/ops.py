@@ -24,7 +24,6 @@ from .types import (
     ShutterType,
 )
 
-
 _NORMALIZE_NORM_SQUARED_FLOOR = 1.0e-20
 _DENOMINATOR_EPSILON = 1.0e-12
 _MIN_RADIAL_DISTORTION = 0.8
@@ -52,7 +51,9 @@ def _safe_nonzero(value: jax.Array, epsilon: float = _DENOMINATOR_EPSILON) -> ja
 
 def _normalize(vector: jax.Array) -> jax.Array:
     floor = jnp.asarray(_NORMALIZE_NORM_SQUARED_FLOOR, dtype=vector.dtype)
-    norm = jnp.sqrt(jnp.maximum(jnp.sum(vector * vector, axis=-1, keepdims=True), floor))
+    norm = jnp.sqrt(
+        jnp.maximum(jnp.sum(vector * vector, axis=-1, keepdims=True), floor)
+    )
     return vector / norm
 
 
@@ -114,8 +115,7 @@ def _apply_external_distortion(
             camera_rays, external_distortion, inverse=inverse
         )
     raise TypeError(
-        "Unsupported external distortion class: "
-        f"{type(external_distortion).__name__}"
+        f"Unsupported external distortion class: {type(external_distortion).__name__}"
     )
 
 
@@ -180,7 +180,9 @@ def _pinhole_project(
         jax.lax.rsqrt(jnp.maximum(radius_squared, jnp.finfo(dtype).tiny)),
         0.0,
     )
-    boundary_point = xy * (resolution_length * inverse_radius)[:, None] + principal_point
+    boundary_point = (
+        xy * (resolution_length * inverse_radius)[:, None] + principal_point
+    )
     radial_in_range = (radial >= _MIN_RADIAL_DISTORTION) & (
         radial <= _MAX_RADIAL_DISTORTION
     )
@@ -277,9 +279,7 @@ def _ftheta_project_unbounded(
                 projection.newton_iterations,
             )
         )
-        value = _poly_eval(
-            radius_star, backward_poly, projection.bw_poly_degree
-        )
+        value = _poly_eval(radius_star, backward_poly, projection.bw_poly_degree)
         derivative = _poly_derivative(
             radius_star, backward_poly, projection.bw_poly_degree
         )
@@ -363,9 +363,7 @@ def _ftheta_backproject(
         )
         theta = theta_star - (value - radius) / safe_derivative
 
-    safe_radius = jnp.maximum(
-        radius, jnp.asarray(projection.min_2d_norm, dtype=dtype)
-    )
+    safe_radius = jnp.maximum(radius, jnp.asarray(projection.min_2d_norm, dtype=dtype))
     xy = transformed * (jnp.sin(theta) / safe_radius)[:, None]
     raw_ray = jnp.concatenate((xy, jnp.cos(theta)[:, None]), axis=-1)
     ray = _normalize(raw_ray)
@@ -373,25 +371,20 @@ def _ftheta_backproject(
     return jnp.where(on_axis[:, None], optical_axis, ray)
 
 
-def _fisheye_forward_polynomial(
-    theta: jax.Array, coefficients: jax.Array
-) -> jax.Array:
+def _fisheye_forward_polynomial(theta: jax.Array, coefficients: jax.Array) -> jax.Array:
     theta_squared = theta * theta
     factor = 1.0 + theta_squared * (
         coefficients[0]
         + theta_squared
         * (
             coefficients[1]
-            + theta_squared
-            * (coefficients[2] + theta_squared * coefficients[3])
+            + theta_squared * (coefficients[2] + theta_squared * coefficients[3])
         )
     )
     return theta * factor
 
 
-def _fisheye_forward_derivative(
-    theta: jax.Array, coefficients: jax.Array
-) -> jax.Array:
+def _fisheye_forward_derivative(theta: jax.Array, coefficients: jax.Array) -> jax.Array:
     theta_squared = theta * theta
     return 1.0 + theta_squared * (
         3.0 * coefficients[0]
@@ -460,9 +453,7 @@ def _fisheye_backproject(
     normalized = (image_points - principal_point) / focal_length
     delta = jnp.linalg.norm(normalized, axis=-1)
     on_axis = delta <= projection.min_2d_norm
-    theta_star = jax.lax.stop_gradient(
-        _solve_fisheye_newton(delta, projection, dtype)
-    )
+    theta_star = jax.lax.stop_gradient(_solve_fisheye_newton(delta, projection, dtype))
     derivative = _fisheye_forward_derivative(theta_star, coefficients)
     good_derivative = jnp.abs(derivative) > _FISHEYE_IFT_DERIVATIVE_EPSILON
     # The forward returns Newton's final iterate exactly. This zero-valued
@@ -474,9 +465,7 @@ def _fisheye_backproject(
         0.0,
     )
     theta = theta_star + surrogate - jax.lax.stop_gradient(surrogate)
-    safe_delta = jnp.maximum(
-        delta, jnp.asarray(projection.min_2d_norm, dtype=dtype)
-    )
+    safe_delta = jnp.maximum(delta, jnp.asarray(projection.min_2d_norm, dtype=dtype))
     xy = normalized * (jnp.sin(theta) / safe_delta)[:, None]
     raw_ray = jnp.concatenate((xy, jnp.cos(theta)[:, None]), axis=-1)
     ray = _normalize(raw_ray)
@@ -514,7 +503,9 @@ def camera_rays_to_image_points(
 ) -> tuple[jax.Array, jax.Array]:
     """Project ``(N, 3)`` camera rays and return points plus validity flags."""
 
-    del allow_device_transfer  # JAX placement is explicit and has no implicit CUDA copy.
+    del (
+        allow_device_transfer
+    )  # JAX placement is explicit and has no implicit CUDA copy.
     _check_pair(projection, external_distortion)
     rays = _matrix_input(camera_rays, 3, "camera_rays")
     rays = _apply_external_distortion(rays, external_distortion, inverse=False)
@@ -546,7 +537,7 @@ def image_points_to_camera_rays(
     elif isinstance(projection, OpenCVFisheyeProjection):
         rays = _fisheye_backproject(points, projection)
     else:
-        raise AssertionError("unreachable projection dispatch")
+        raise AssertionError("unreachable projection dispatch")  # noqa: TRY004
     rays = _apply_external_distortion(rays, external_distortion, inverse=True)
     return _normalize(rays)
 
@@ -574,7 +565,9 @@ def generate_image_points(
         index = int(device.split(":", 1)[1]) if ":" in device else 0
         devices = jax.devices(backend)
         if index >= len(devices):
-            raise ValueError(f"device index {index} is unavailable for backend {backend}")
+            raise ValueError(
+                f"device index {index} is unavailable for backend {backend}"
+            )
         device = devices[index]
     return jax.device_put(points, device)
 
@@ -598,7 +591,9 @@ def _timestamps_from_relative_time(
     # retain upstream values in int32 mode; enabling x64 restores int64 range.
     timestamp_dtype = jnp.int64 if jax.config.x64_enabled else jnp.int32
     start = jnp.asarray(start_timestamp_us, dtype=relative_time.dtype)
-    duration = jnp.asarray(end_timestamp_us - start_timestamp_us, dtype=relative_time.dtype)
+    duration = jnp.asarray(
+        end_timestamp_us - start_timestamp_us, dtype=relative_time.dtype
+    )
     return (start + relative_time * duration).astype(timestamp_dtype)
 
 
@@ -618,9 +613,7 @@ def _world_to_camera_points(
 ) -> jax.Array:
     rotation_matrices = quat_to_rotmat(rotations)
     relative = world_points - translations
-    return jnp.einsum(
-        "nij,nj->ni", jnp.swapaxes(rotation_matrices, -1, -2), relative
-    )
+    return jnp.einsum("nij,nj->ni", jnp.swapaxes(rotation_matrices, -1, -2), relative)
 
 
 def _camera_to_world_directions(
@@ -764,9 +757,7 @@ def project_world_points_shutter_pose(
     )
 
     count = points.shape[0]
-    relative_time = jnp.full(
-        (count,), initial_relative_time, dtype=points.dtype
-    )
+    relative_time = jnp.full((count,), initial_relative_time, dtype=points.dtype)
     previous_image_points = jnp.zeros((count, 2), dtype=points.dtype)
     image_points = jnp.zeros((count, 2), dtype=points.dtype)
     valid_flags = jnp.zeros((count,), dtype=jnp.bool_)
@@ -804,14 +795,10 @@ def project_world_points_shutter_pose(
         next_relative_time = jax.lax.stop_gradient(
             relative_frame_times(candidate_points, resolution, shutter)
         )
-        pixel_error = jnp.linalg.norm(
-            candidate_points - previous_image_points, axis=-1
-        )
-        delta_converged = (iteration > 0) & (
-            pixel_error < stop_delta_mean_error_px
-        )
-        approximate_error = (
-            jnp.abs(next_relative_time - relative_time) * max(resolution)
+        pixel_error = jnp.linalg.norm(candidate_points - previous_image_points, axis=-1)
+        delta_converged = (iteration > 0) & (pixel_error < stop_delta_mean_error_px)
+        approximate_error = jnp.abs(next_relative_time - relative_time) * max(
+            resolution
         )
         mean_converged = approximate_error < stop_mean_error_px
         continue_iteration = (
@@ -824,9 +811,7 @@ def project_world_points_shutter_pose(
         previous_image_points = jnp.where(
             continue_iteration[:, None], candidate_points, previous_image_points
         )
-        relative_time = jnp.where(
-            continue_iteration, next_relative_time, relative_time
-        )
+        relative_time = jnp.where(continue_iteration, next_relative_time, relative_time)
         active = continue_iteration
 
     if isinstance(projection, FThetaProjection):
@@ -856,9 +841,7 @@ def image_points_to_world_rays_static_pose(
 
     del allow_device_transfer
     points = _matrix_input(image_points, 2, "image_points")
-    camera_rays = image_points_to_camera_rays(
-        points, projection, external_distortion
-    )
+    camera_rays = image_points_to_camera_rays(points, projection, external_distortion)
     count = points.shape[0]
     pose_t = jnp.broadcast_to(
         jnp.asarray(pose.translation, dtype=points.dtype), (count, 3)
@@ -909,9 +892,7 @@ def image_points_to_world_rays_shutter_pose(
     pose_t, pose_r = interpolate_dynamic_pose(
         start_t, start_r, end_t, end_r, relative_time
     )
-    camera_rays = image_points_to_camera_rays(
-        points, projection, external_distortion
-    )
+    camera_rays = image_points_to_camera_rays(points, projection, external_distortion)
     directions = _camera_to_world_directions(camera_rays, pose_r)
     world_rays = jnp.concatenate((pose_t, directions), axis=-1)
     timestamps = _timestamps_from_relative_time(relative_time, start, end)
@@ -954,7 +935,7 @@ def pixel_grid_to_world_rays_shutter_pose(
     )
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "camera_rays_to_image_points",
     "generate_image_points",
     "image_points_to_camera_rays",

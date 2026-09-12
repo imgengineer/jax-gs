@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from flax import nnx
 import jax
+from flax import nnx
 
 from .losses import (
     gaussian_density_reg,

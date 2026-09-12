@@ -2,11 +2,11 @@ import argparse
 from types import SimpleNamespace
 from typing import cast
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 import jax_gs.cli as cli_module
 from jax_gs.checkpoints import save_distributed_checkpoint
@@ -21,14 +21,10 @@ from jax_gs.training import TrainingSafetyState
 def _stack_graphs(*graphs):
     graphdef, first_state = nnx.split(graphs[0])
     states = [first_state, *(nnx.split(graph)[1] for graph in graphs[1:])]
-    return nnx.merge(
-        graphdef, jax.tree.map(lambda *values: jnp.stack(values), *states)
-    )
+    return nnx.merge(graphdef, jax.tree.map(lambda *values: jnp.stack(values), *states))
 
 
-def _write_distributed_cli_checkpoint(
-    tmp_path, config, *, include_scene: bool = True
-):
+def _write_distributed_cli_checkpoint(tmp_path, config, *, include_scene: bool = True):
     models = []
     optimizers = []
     strategies = []
@@ -42,23 +38,19 @@ def _write_distributed_cli_checkpoint(
         )
         model.active_mask[...] = jnp.asarray(masks[rank])
         model.means[...] = jnp.asarray(
-            [
-                [rank * 10.0 + slot, rank + slot, 3.0]
-                for slot in range(3)
-            ],
+            [[rank * 10.0 + slot, rank + slot, 3.0] for slot in range(3)],
             jnp.float32,
         )
         if config.app_opt:
-            model.features[...] = rank + jnp.arange(
-                3 * 32, dtype=jnp.float32
-            ).reshape(3, 32)
-            model.colors[...] = jnp.asarray(
-                [[-1.0, 0.0, 1.0], [0.25, -0.5, 0.75], [1.0, 0.5, -1.0]]
-            ) + rank
+            model.features[...] = rank + jnp.arange(3 * 32, dtype=jnp.float32).reshape(
+                3, 32
+            )
+            model.colors[...] = (
+                jnp.asarray([[-1.0, 0.0, 1.0], [0.25, -0.5, 0.75], [1.0, 0.5, -1.0]])
+                + rank
+            )
         else:
-            model.sh0[...] = rank + jnp.arange(
-                9, dtype=jnp.float32
-            ).reshape(3, 1, 3)
+            model.sh0[...] = rank + jnp.arange(9, dtype=jnp.float32).reshape(3, 1, 3)
             model.sh_rest[...] = rank + jnp.arange(
                 model.sh_rest[...].size, dtype=jnp.float32
             ).reshape(model.sh_rest[...].shape)
@@ -92,8 +84,7 @@ def _write_distributed_cli_checkpoint(
             for _ in range(2)
         ]
         appearance_optimizers = [
-            cli_module.create_appearance_optimizer(module, config)
-            for module in modules
+            cli_module.create_appearance_optimizer(module, config) for module in modules
         ]
         save_kwargs = {
             "appearance_module": _stack_graphs(*modules),
@@ -108,9 +99,7 @@ def _write_distributed_cli_checkpoint(
         _stack_graphs(*safety_states),
         step=0,
         config=config,
-        scene_transform=(
-            np.eye(4, dtype=np.float32) if include_scene else None
-        ),
+        scene_transform=(np.eye(4, dtype=np.float32) if include_scene else None),
         scene_scale=1.0 if include_scene else None,
         **save_kwargs,
     )
@@ -174,9 +163,7 @@ def test_train_cli_uses_native_defaults_when_supported(monkeypatch):
         return SimpleNamespace(checkpoint="unused")
 
     monkeypatch.setattr(cli_module, "train", fake_train)
-    monkeypatch.setattr(
-        cli_module, "_native_training_defaults_available", lambda: True
-    )
+    monkeypatch.setattr(cli_module, "_native_training_defaults_available", lambda: True)
 
     args = cli_module.build_parser().parse_args(["train"])
     args.func(args)
@@ -213,9 +200,7 @@ def test_train_cli_keeps_jax_defaults_when_native_mode_does_not_apply(
         return SimpleNamespace(checkpoint="unused")
 
     monkeypatch.setattr(cli_module, "train", fake_train)
-    monkeypatch.setattr(
-        cli_module, "_native_training_defaults_available", lambda: True
-    )
+    monkeypatch.setattr(cli_module, "_native_training_defaults_available", lambda: True)
     monkeypatch.setattr(
         cli_module,
         "load_checkpoint_config",
@@ -518,9 +503,7 @@ def test_checkpoint_loader_reconstructs_appearance_graph_and_manifest(
 
     monkeypatch.setattr(cli_module, "restore_checkpoint", fake_restore)
 
-    loaded_config, model, appearance, step = cli_module._load_training_objects(
-        tmp_path
-    )
+    loaded_config, model, appearance, step = cli_module._load_training_objects(tmp_path)
 
     assert loaded_config is config
     assert model.has_appearance
@@ -542,9 +525,7 @@ def test_checkpoint_loader_materializes_distributed_inference_model(
         app_embed_dim=4,
         model=ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=2),
     )
-    inference_config = ModelConfig(
-        capacity=4, bucket_min_capacity=4, sh_degree=2
-    )
+    inference_config = ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=2)
     inference_model = cli_module.GaussianModel.empty(
         inference_config, appearance_feature_dim=32
     )
@@ -562,9 +543,7 @@ def test_checkpoint_loader_materializes_distributed_inference_model(
         captured.update(kwargs)
         return inference_model, 9
 
-    monkeypatch.setattr(
-        cli_module, "load_distributed_inference_checkpoint", fake_load
-    )
+    monkeypatch.setattr(cli_module, "load_distributed_inference_checkpoint", fake_load)
     monkeypatch.setattr(
         cli_module,
         "load_checkpoint_storage_capacity",
@@ -576,9 +555,7 @@ def test_checkpoint_loader_materializes_distributed_inference_model(
         lambda *_a, **_k: pytest.fail("generic restore must not run"),
     )
 
-    loaded_config, model, appearance, step = cli_module._load_training_objects(
-        tmp_path
-    )
+    loaded_config, model, appearance, step = cli_module._load_training_objects(tmp_path)
 
     assert captured["config"] is config
     assert captured["appearance_module"] is appearance
@@ -596,9 +573,7 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0)
     )
     model = cli_module.GaussianModel.empty(config.model)
-    camtoworlds = np.broadcast_to(
-        np.eye(4, dtype=np.float32), (2, 4, 4)
-    ).copy()
+    camtoworlds = np.broadcast_to(np.eye(4, dtype=np.float32), (2, 4, 4)).copy()
     camtoworlds[:, 0, 3] = np.asarray([-2.0, 2.0])
     scene = SimpleNamespace(camtoworlds=camtoworlds)
     example = {
@@ -633,9 +608,7 @@ def test_render_cli_uses_checkpoint_or_legacy_scene_transform(
     )
 
     def fake_render_step(_config, _width, _height):
-        captured["compositor_backend"] = (
-            _config.rasterizer.compositor_backend
-        )
+        captured["compositor_backend"] = _config.rasterizer.compositor_backend
 
         def render(_model, viewmat, _K, _degree, **_kwargs):
             captured["viewmat"] = np.asarray(viewmat)
@@ -685,9 +658,7 @@ def test_render_cli_materializes_real_distributed_checkpoint(
     checkpoint, expected_means = _write_distributed_cli_checkpoint(
         tmp_path / ("render_appearance" if app_opt else "render_sh"), config
     )
-    camtoworlds = np.broadcast_to(
-        np.eye(4, dtype=np.float32), (2, 4, 4)
-    ).copy()
+    camtoworlds = np.broadcast_to(np.eye(4, dtype=np.float32), (2, 4, 4)).copy()
     scene = SimpleNamespace(camtoworlds=camtoworlds)
     example = {
         "image": np.zeros((2, 3, 3), dtype=np.float32),
@@ -734,24 +705,18 @@ def test_render_cli_materializes_real_distributed_checkpoint(
 
     assert captured["model"].capacity == 3
     assert captured["memory_capacity"] == 3
-    np.testing.assert_array_equal(
-        captured["model"].means[...], expected_means
-    )
+    np.testing.assert_array_equal(captured["model"].means[...], expected_means)
     assert (captured["appearance"] is not None) is app_opt
 
 
-def test_render_cli_rejects_distributed_checkpoint_without_scene(
-    monkeypatch, tmp_path
-):
+def test_render_cli_rejects_distributed_checkpoint_without_scene(monkeypatch, tmp_path):
     config = TrainConfig(
         model=ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=0)
     )
     checkpoint, _ = _write_distributed_cli_checkpoint(
         tmp_path / "missing_scene", config, include_scene=False
     )
-    scene = SimpleNamespace(
-        camtoworlds=np.eye(4, dtype=np.float32)[None, ...]
-    )
+    scene = SimpleNamespace(camtoworlds=np.eye(4, dtype=np.float32)[None, ...])
     example = {
         "image": np.zeros((2, 3, 3), dtype=np.float32),
         "K": np.eye(3, dtype=np.float32),
@@ -777,9 +742,7 @@ def test_cli_export_bakes_appearance_to_degree_zero_sh(monkeypatch, tmp_path):
         app_opt=True,
         model=ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0),
     )
-    model = cli_module.GaussianModel.empty(
-        config.model, appearance_feature_dim=32
-    )
+    model = cli_module.GaussianModel.empty(config.model, appearance_feature_dim=32)
     model.active_mask[0] = True
     model.colors[0] = jnp.asarray([0.2, -0.3, 0.4])
     appearance = cli_module.AppearanceOptModule(
@@ -812,9 +775,7 @@ def test_cli_export_bakes_appearance_to_degree_zero_sh(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("app_opt", [False, True])
-def test_cli_export_materializes_real_distributed_checkpoint(
-    tmp_path, app_opt: bool
-):
+def test_cli_export_materializes_real_distributed_checkpoint(tmp_path, app_opt: bool):
     config = TrainConfig(
         app_opt=app_opt,
         app_embed_dim=0,
@@ -869,9 +830,7 @@ def test_estimate_memory_cli_forwards_full_image_dimensions(monkeypatch):
         calls.append((physical_capacity, image_height, image_width))
         return 1
 
-    monkeypatch.setattr(
-        cli_module, "estimate_training_memory_bytes", fake_estimate
-    )
+    monkeypatch.setattr(cli_module, "estimate_training_memory_bytes", fake_estimate)
     args = cli_module.build_parser().parse_args(
         [
             "estimate-memory",

@@ -47,9 +47,7 @@ def compute_relocation(
     orders = jnp.arange(maximum_ratio, dtype=jnp.int32)
     signs = jnp.where(orders % 2 == 0, 1.0, -1.0).astype(opacities.dtype)
     powers = signs / jnp.sqrt((orders + 1).astype(opacities.dtype))
-    powers = powers[None, :] * jnp.power(
-        new_opacities[:, None], orders[None, :] + 1
-    )
+    powers = powers[None, :] * jnp.power(new_opacities[:, None], orders[None, :] + 1)
 
     def add_order(index: int, denominator: jax.Array) -> jax.Array:
         valid_terms = orders <= index

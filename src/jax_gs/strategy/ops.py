@@ -13,23 +13,20 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ..math import quat_scale_to_covar_preci, quat_to_rotmat
 from ..model import GaussianModel, inverse_sigmoid
 from ..optimizers import reset_optimizer_indices, reset_optimizer_slots
 from ..relocation import compute_relocation
 
-
 DEFAULT_MCMC_OPACITY_T = 0.005
 DEFAULT_MCMC_OPACITY_K = 100.0
 
 
-def _resolve_noise_scale(
-    noise_scale: float | None, scaler: float | None
-) -> float:
+def _resolve_noise_scale(noise_scale: float | None, scaler: float | None) -> float:
     if noise_scale is None:
         if scaler is None:
             raise TypeError("noise_scale must be provided")
@@ -56,13 +53,13 @@ def _multinomial_sample(
     n = int(n)
     if n < 0:
         raise ValueError("n must be non-negative")
-    finite_weights = jnp.where(
-        jnp.isfinite(weights) & (weights > 0.0), weights, 0.0
-    )
+    finite_weights = jnp.where(jnp.isfinite(weights) & (weights > 0.0), weights, 0.0)
     if n > 0 and float(jax.device_get(jnp.sum(finite_weights))) <= 0.0:
         raise ValueError("weights must contain at least one positive value")
     if not replacement and n > int(jax.device_get(jnp.count_nonzero(finite_weights))):
-        raise ValueError("cannot sample more positive-weight entries without replacement")
+        raise ValueError(
+            "cannot sample more positive-weight entries without replacement"
+        )
     if key is None:
         key = jax.random.key(0)
     probabilities = finite_weights / jnp.maximum(
@@ -124,9 +121,7 @@ def _check_topology_inputs(
         validate_capacity = getattr(scene, "validate_slot_capacity", None)
         apply_transaction = getattr(scene, "apply_slot_transaction", None)
         if not callable(validate_capacity) or not callable(apply_transaction):
-            raise TypeError(
-                "scene must implement the fixed-slot transaction interface"
-            )
+            raise TypeError("scene must implement the fixed-slot transaction interface")
         validate_capacity(params.capacity)
     mask = jnp.asarray(mask, dtype=jnp.bool_)
     if mask.shape != (params.capacity,):
@@ -161,11 +156,7 @@ def _copy_model_rows(
         "log_scales",
         "quats",
         "opacity_logits",
-    ) + (
-        ("features", "colors")
-        if model.has_appearance
-        else ("sh0", "sh_rest")
-    )
+    ) + (("features", "colors") if model.has_appearance else ("sh0", "sh_rest"))
     for name in names:
         variable = getattr(model, name)
         variable[...] = variable[...].at[targets].set(variable[...][sources])
@@ -183,9 +174,7 @@ def _zero_state_rows(state: Any, mask: jax.Array) -> None:
         variable = getattr(state, name)
         variable[...] = jnp.where(mask, 0.0, variable[...])
     if hasattr(state, "dynamic_mask"):
-        state.dynamic_mask[...] = jnp.where(
-            mask, False, state.dynamic_mask[...]
-        )
+        state.dynamic_mask[...] = jnp.where(mask, False, state.dynamic_mask[...])
 
 
 def _free_slots(model: GaussianModel, count: int) -> jax.Array:
@@ -220,9 +209,7 @@ def duplicate(
             jnp.ones(targets.shape, dtype=jnp.bool_),
             capacity=params.capacity,
         )
-    _commit_scene_slot_transaction(
-        scene, source_slots=sources, target_slots=targets
-    )
+    _commit_scene_slot_transaction(scene, source_slots=sources, target_slots=targets)
     return targets
 
 
@@ -250,43 +237,33 @@ def split(
     standard_noise = jax.random.normal(
         key, (2, sources.shape[0], 3), dtype=scales.dtype
     )
-    offsets = jnp.einsum(
-        "nij,nj,bnj->bni", rotations, scales, standard_noise
-    )
+    offsets = jnp.einsum("nij,nj,bnj->bni", rotations, scales, standard_noise)
     source_means = params.means[...][sources]
     source_log_scales = params.log_scales[...][sources]
     child_means = source_means[None, ...] + offsets
     child_log_scales = source_log_scales - jnp.log(1.6)
     child_opacities = params.opacity_logits[...][sources]
     if revised_opacity:
-        revised = 1.0 - jnp.sqrt(
-            1.0 - jax.nn.sigmoid(child_opacities)
-        )
+        revised = 1.0 - jnp.sqrt(1.0 - jax.nn.sigmoid(child_opacities))
         child_opacities = inverse_sigmoid(revised)
 
     _copy_model_rows(params, targets, sources)
     _copy_state_rows(state, targets, sources)
     params.means[...] = params.means[...].at[sources].set(child_means[0])
     params.means[...] = params.means[...].at[targets].set(child_means[1])
-    params.log_scales[...] = params.log_scales[...].at[sources].set(
-        child_log_scales
+    params.log_scales[...] = params.log_scales[...].at[sources].set(child_log_scales)
+    params.log_scales[...] = params.log_scales[...].at[targets].set(child_log_scales)
+    params.opacity_logits[...] = (
+        params.opacity_logits[...].at[sources].set(child_opacities)
     )
-    params.log_scales[...] = params.log_scales[...].at[targets].set(
-        child_log_scales
-    )
-    params.opacity_logits[...] = params.opacity_logits[...].at[sources].set(
-        child_opacities
-    )
-    params.opacity_logits[...] = params.opacity_logits[...].at[targets].set(
-        child_opacities
+    params.opacity_logits[...] = (
+        params.opacity_logits[...].at[targets].set(child_opacities)
     )
     params.active_mask[...] = params.active_mask[...].at[targets].set(True)
     changed = jnp.zeros((params.capacity,), dtype=jnp.bool_)
     changed = changed.at[sources].set(True).at[targets].set(True)
     reset_optimizer_slots(optimizers, changed)
-    _commit_scene_slot_transaction(
-        scene, source_slots=sources, target_slots=targets
-    )
+    _commit_scene_slot_transaction(scene, source_slots=sources, target_slots=targets)
     return targets
 
 
@@ -358,12 +335,10 @@ def relocate(
         binoms,
         min_opacity=min_opacity,
     )
-    params.opacity_logits[...] = params.opacity_logits[...].at[sampled].set(
-        inverse_sigmoid(new_opacity)
+    params.opacity_logits[...] = (
+        params.opacity_logits[...].at[sampled].set(inverse_sigmoid(new_opacity))
     )
-    params.log_scales[...] = params.log_scales[...].at[sampled].set(
-        jnp.log(new_scales)
-    )
+    params.log_scales[...] = params.log_scales[...].at[sampled].set(jnp.log(new_scales))
     _copy_model_rows(params, dead_indices, sampled)
     _copy_state_rows(state, dead_indices, sampled)
     changed = jnp.zeros((params.capacity,), dtype=jnp.bool_)
@@ -414,12 +389,10 @@ def sample_add(
         binoms,
         min_opacity=min_opacity,
     )
-    params.opacity_logits[...] = params.opacity_logits[...].at[sampled].set(
-        inverse_sigmoid(new_opacity)
+    params.opacity_logits[...] = (
+        params.opacity_logits[...].at[sampled].set(inverse_sigmoid(new_opacity))
     )
-    params.log_scales[...] = params.log_scales[...].at[sampled].set(
-        jnp.log(new_scales)
-    )
+    params.log_scales[...] = params.log_scales[...].at[sampled].set(jnp.log(new_scales))
     _copy_model_rows(params, targets, sampled)
     _copy_state_rows(state, targets, sampled)
     params.active_mask[...] = params.active_mask[...].at[targets].set(True)
@@ -427,9 +400,7 @@ def sample_add(
     changed = changed.at[sampled].set(True).at[targets].set(True)
     _zero_state_rows(state, changed)
     reset_optimizer_slots(optimizers, changed)
-    _commit_scene_slot_transaction(
-        scene, source_slots=sampled, target_slots=targets
-    )
+    _commit_scene_slot_transaction(scene, source_slots=sampled, target_slots=targets)
     return targets, sampled
 
 
@@ -458,8 +429,8 @@ def mcmc_position_perturbation(
     opacity = jax.nn.sigmoid(jnp.asarray(opacity_logits).reshape(-1))
     gate = jax.nn.sigmoid(-float(k) * (opacity - float(t)))
     noise = jax.random.normal(key, positions.shape, dtype=positions.dtype)
-    weighted_noise = noise * gate[:, None] * jnp.asarray(
-        noise_scale, dtype=positions.dtype
+    weighted_noise = (
+        noise * gate[:, None] * jnp.asarray(noise_scale, dtype=positions.dtype)
     )
     delta = jnp.einsum("nij,nj->ni", covariance, weighted_noise)
     if active_mask is not None:

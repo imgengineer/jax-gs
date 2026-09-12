@@ -12,7 +12,6 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-
 FloatArray = NDArray[np.floating]
 
 
@@ -21,9 +20,7 @@ def _as_similarity_matrix(matrix: FloatArray) -> np.ndarray:
 
     raw = np.asarray(matrix)
     if raw.shape != (4, 4):
-        raise ValueError(
-            f"scene transform must have shape (4, 4), got {raw.shape}"
-        )
+        raise ValueError(f"scene transform must have shape (4, 4), got {raw.shape}")
     if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(
         raw.dtype, np.complexfloating
     ):
@@ -44,15 +41,16 @@ def _as_similarity_matrix(matrix: FloatArray) -> np.ndarray:
     if scale == 0.0:
         raise ValueError("scene transform must be a nonzero similarity")
     rotation = linear / scale
-    if not np.allclose(
-        rotation @ rotation.T,
-        np.eye(3),
-        rtol=1.0e-6,
-        atol=1.0e-6,
-    ) or np.linalg.det(rotation) <= 0.0:
-        raise ValueError(
-            "scene transform must be an orientation-preserving similarity"
+    if (
+        not np.allclose(
+            rotation @ rotation.T,
+            np.eye(3),
+            rtol=1.0e-6,
+            atol=1.0e-6,
         )
+        or np.linalg.det(rotation) <= 0.0
+    ):
+        raise ValueError("scene transform must be an orientation-preserving similarity")
     return result
 
 
@@ -81,9 +79,7 @@ def similarity_from_cameras(
     if cosine > -1:
         align_rotation = np.eye(3) + skew + (skew @ skew) / (1 + cosine)
     else:
-        align_rotation = np.array(
-            [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
-        )
+        align_rotation = np.array([[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
     rotation = align_rotation @ rotation
     forwards = np.sum(rotation * np.array([0.0, 0.0, 1.0]), axis=-1)

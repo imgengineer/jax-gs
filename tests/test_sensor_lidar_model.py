@@ -1,10 +1,10 @@
 import math
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 from jax_gs.sensors import functional
 from jax_gs.sensors.kernels.common import DynamicPose, Pose
@@ -81,9 +81,7 @@ def test_lidar_model_requires_a_concrete_projection_and_is_not_callable():
 def test_model_angle_ray_elements_and_distance_adapters():
     model = _model()
     angles = jnp.array([[0.1, 0.5], [-0.1, -1.0]])
-    rays = model.sensor_angles_to_sensor_rays(
-        angles, return_valid_flag=True
-    )
+    rays = model.sensor_angles_to_sensor_rays(angles, return_valid_flag=True)
     recovered = model.sensor_rays_to_sensor_angles(
         rays.sensor_rays, return_valid_flag=True
     )
@@ -91,15 +89,11 @@ def test_model_angle_ray_elements_and_distance_adapters():
     np.testing.assert_array_equal(rays.valid_flag, [True, True])
     np.testing.assert_array_equal(recovered.valid_flag, [True, True])
 
-    zero = model.sensor_rays_to_sensor_angles(
-        jnp.zeros((1, 3)), normalized=False
-    )
+    zero = model.sensor_rays_to_sensor_angles(jnp.zeros((1, 3)), normalized=False)
     np.testing.assert_array_equal(zero.sensor_angles, [[0.0, 0.0]])
 
     elements = jnp.array([[0, 0], [2, 3]], dtype=jnp.int32)
-    element_angles = model.elements_to_sensor_angles(
-        elements, return_valid_flag=True
-    )
+    element_angles = model.elements_to_sensor_angles(elements, return_valid_flag=True)
     functional_angles = functional.elements_to_sensor_angles(
         elements, model.projection, return_valid_flag=True
     )
@@ -146,9 +140,7 @@ def test_model_fov_slack_and_relative_frame_times_follow_tables():
 def test_world_projection_filters_eager_and_matches_functional_metadata():
     model = _model()
     pose = _dynamic_pose()
-    points = jnp.array(
-        [[5.0, 0.0, 0.0], [4.0, 1.0, -0.1], [0.0, 0.0, 5.0]]
-    )
+    points = jnp.array([[5.0, 0.0, 0.0], [4.0, 1.0, -0.1], [0.0, 0.0, 5.0]])
     all_result = model.world_points_to_sensor_angles_shutter_pose(
         points,
         pose,
@@ -182,9 +174,7 @@ def test_world_projection_filters_eager_and_matches_functional_metadata():
     np.testing.assert_allclose(
         all_result.sensor_angles, functional_result.sensor_angles
     )
-    np.testing.assert_array_equal(
-        all_result.valid_flag, functional_result.valid_flag
-    )
+    np.testing.assert_array_equal(all_result.valid_flag, functional_result.valid_flag)
     valid_count = int(jnp.sum(all_result.valid_flag))
     assert filtered.sensor_angles.shape == (valid_count, 2)
     assert filtered.T_sensor_world.shape == (valid_count, 4, 4)
@@ -207,9 +197,7 @@ def test_fixed_shape_lidar_model_projection_is_nnx_jittable():
             return_all_projections=True,
         )
 
-    result = project(
-        model, jnp.array([[5.0, 0.0, 0.0], [0.0, 0.0, 5.0]])
-    )
+    result = project(model, jnp.array([[5.0, 0.0, 0.0], [0.0, 0.0, 5.0]]))
     assert result.sensor_angles.shape == (2, 2)
     np.testing.assert_array_equal(result.valid_flag, [True, False])
 
@@ -230,8 +218,7 @@ def test_model_world_ray_adapter_and_nnx_table_gradients():
     np.testing.assert_array_equal(result.timestamps_us, [0, 50, 100])
 
     gradients = nnx.grad(
-        lambda current: current.elements_to_sensor_angles(elements)
-        .sensor_angles.sum()
+        lambda current: current.elements_to_sensor_angles(elements).sensor_angles.sum()
     )(model)
     assert bool(jnp.all(jnp.isfinite(gradients._row_elevations_rad[...])))
     assert bool(jnp.all(jnp.isfinite(gradients._column_azimuths_rad[...])))
@@ -293,9 +280,7 @@ def test_sparse_lidar_frame_preserves_markers_and_optional_properties():
 def test_lidar_frame_rejects_invalid_observation_shapes_and_collisions():
     common = (_model(), _static_pose(), 0, 100)
     with pytest.raises(ValueError, match="intensity"):
-        LidarFrame(
-            "bad", *common, jnp.zeros((2, 3, 1)), jnp.zeros((2, 3, 2))
-        )
+        LidarFrame("bad", *common, jnp.zeros((2, 3, 1)), jnp.zeros((2, 3, 2)))
     with pytest.raises(ValueError, match="dense distance_m"):
         LidarFrame("bad", *common, jnp.zeros((2, 3)), jnp.zeros((2, 3)))
     with pytest.raises(ValueError, match="dense timestamp_us"):

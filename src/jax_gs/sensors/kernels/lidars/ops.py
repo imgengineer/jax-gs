@@ -18,7 +18,6 @@ from .types import (
     SpinningDirection,
 )
 
-
 _TWO_PI = 2.0 * math.pi
 _MAX_INVERSE_ITERATIONS = 32
 
@@ -32,9 +31,7 @@ def _matrix(value, columns: int, name: str) -> jax.Array:
 
 def _check_projection(projection: object) -> None:
     if not isinstance(projection, RowOffsetStructuredSpinningLidarProjection):
-        raise TypeError(
-            f"Unsupported LiDAR projection: {type(projection).__name__}"
-        )
+        raise TypeError(f"Unsupported LiDAR projection: {type(projection).__name__}")
 
 
 def _normalize_angle(angle: jax.Array) -> jax.Array:
@@ -133,24 +130,15 @@ def elements_to_sensor_angles(
     rows, columns = elements[:, 0], elements[:, 1]
     n_rows = projection.row_elevations_rad.shape[0]
     n_columns = projection.column_azimuths_rad.shape[0]
-    valid = (
-        (rows >= 0)
-        & (rows < n_rows)
-        & (columns >= 0)
-        & (columns < n_columns)
-    )
+    valid = (rows >= 0) & (rows < n_rows) & (columns >= 0) & (columns < n_columns)
     safe_rows = jnp.clip(rows, 0, n_rows - 1)
     safe_columns = jnp.clip(columns, 0, n_columns - 1)
     row_elevations = jnp.asarray(projection.row_elevations_rad, dtype=jnp.float32)
-    column_azimuths = jnp.asarray(
-        projection.column_azimuths_rad, dtype=jnp.float32
-    )
+    column_azimuths = jnp.asarray(projection.column_azimuths_rad, dtype=jnp.float32)
     elevation = row_elevations[safe_rows]
     azimuth = column_azimuths[safe_columns]
     if projection.has_row_offsets:
-        offsets = jnp.asarray(
-            projection.row_azimuth_offsets_rad, dtype=jnp.float32
-        )
+        offsets = jnp.asarray(projection.row_azimuth_offsets_rad, dtype=jnp.float32)
         azimuth = _normalize_angle(azimuth + offsets[safe_rows])
     angles = jnp.stack((elevation, azimuth), axis=-1)
     return jnp.where(valid[:, None], angles, 0.0), valid
@@ -195,13 +183,9 @@ def generate_spinning_lidar_rays(
     start_t, start_r, end_t, end_r = unpack_dynamic_pose_components(
         dynamic_pose, dtype=jnp.float32
     )
-    pose_t, pose_r = interpolate_dynamic_pose(
-        start_t, start_r, end_t, end_r, alpha
-    )
+    pose_t, pose_r = interpolate_dynamic_pose(start_t, start_r, end_t, end_r, alpha)
     sensor_rays = sensor_angles_to_sensor_rays(angles)
-    directions = jnp.einsum(
-        "nij,nj->ni", quat_to_rotmat(pose_r), sensor_rays
-    )
+    directions = jnp.einsum("nij,nj->ni", quat_to_rotmat(pose_r), sensor_rays)
     world_rays = jnp.concatenate((pose_t, directions), axis=-1)
     world_rays = jnp.where(valid[:, None], world_rays, 0.0)
     valid_pose_t = jnp.where(valid[:, None], pose_t, 0.0)
@@ -244,12 +228,8 @@ def _angles_in_fov(
     projection: RowOffsetStructuredSpinningLidarProjection,
 ) -> jax.Array:
     elevation, azimuth = sensor_angles[:, 0], sensor_angles[:, 1]
-    vertical = (
-        (elevation <= projection.fov_vert_start_rad)
-        & (
-            elevation
-            >= projection.fov_vert_start_rad - projection.fov_vert_span_rad
-        )
+    vertical = (elevation <= projection.fov_vert_start_rad) & (
+        elevation >= projection.fov_vert_start_rad - projection.fov_vert_span_rad
     )
     if projection.spinning_direction == SpinningDirection.COUNTERCLOCKWISE:
         relative_azimuth = azimuth - projection.fov_horiz_start_rad
@@ -333,9 +313,7 @@ def inverse_project_spinning_lidar(
         pose_t = jnp.where(active[:, None], candidate_t, pose_t)
         pose_r = jnp.where(active[:, None], candidate_r, pose_r)
         successful = active & candidate_valid
-        result_angles = jnp.where(
-            successful[:, None], candidate_angles, result_angles
-        )
+        result_angles = jnp.where(successful[:, None], candidate_angles, result_angles)
         result_valid = jnp.where(active, candidate_valid, result_valid)
 
         new_relative_time = jax.lax.stop_gradient(
@@ -351,9 +329,7 @@ def inverse_project_spinning_lidar(
         previous_time_difference = jnp.where(
             continuing, time_difference, previous_time_difference
         )
-        relative_time = jnp.where(
-            continuing, new_relative_time, relative_time
-        )
+        relative_time = jnp.where(continuing, new_relative_time, relative_time)
         active = continuing
 
     differentiable_angles = jnp.where(

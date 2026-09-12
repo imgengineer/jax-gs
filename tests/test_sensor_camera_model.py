@@ -1,8 +1,8 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 from jax_gs.sensors.functional.return_types import ImagePointsReturn
 from jax_gs.sensors.kernels.cameras import (
@@ -183,9 +183,7 @@ def test_fixed_shape_model_projection_is_nnx_jittable():
             return_all_projections=True,
         )
 
-    result = project(
-        model, jnp.array([[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]])
-    )
+    result = project(model, jnp.array([[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]))
     assert result.image_points.shape == (2, 2)
     np.testing.assert_array_equal(result.valid_flag, [True, False])
 

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from contextlib import ContextDecorator
 import threading
-from typing import Any, Callable, ContextManager, TypeVar
+from collections.abc import Callable
+from contextlib import AbstractContextManager, ContextDecorator
+from typing import Any, TypeVar
 
 import jax
-
 
 _F = TypeVar("_F", bound=Callable)
 _THREAD_STATE = threading.local()
@@ -27,7 +27,6 @@ class _Trace(ContextDecorator):
         annotation = _annotation(self._name, self._kwargs)
         self._active.append(annotation)
         annotation.__enter__()
-        return None
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         annotation = self._active.pop()
@@ -55,7 +54,7 @@ def trace_pop() -> None:
     stack.pop().__exit__(None, None, None)
 
 
-def trace_range(name: str, **kwargs: Any) -> ContextManager[None]:
+def trace_range(name: str, **kwargs: Any) -> AbstractContextManager[None]:
     return _Trace(name, **kwargs)
 
 

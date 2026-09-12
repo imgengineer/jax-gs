@@ -30,7 +30,7 @@ from .quaternion import (
     quat_to_matrix,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "frame_transform_poses_tquat",
     "se3_interpolate_tracks",
     "se3pose_compose",

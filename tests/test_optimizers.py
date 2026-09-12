@@ -1,8 +1,8 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 from jax_gs.config import ModelConfig, OptimizerConfig
 from jax_gs.model import GaussianModel
@@ -16,9 +16,7 @@ from jax_gs.optimizers import (
 from jax_gs.strategy import reset_opacities
 
 
-def _seed_adam_moments(
-    model: GaussianModel, optimizer: nnx.Optimizer
-) -> None:
+def _seed_adam_moments(model: GaussianModel, optimizer: nnx.Optimizer) -> None:
     parameters = nnx.state(model, nnx.Param)
 
     def make_gradient(value: jax.Array) -> jax.Array:
@@ -137,9 +135,7 @@ def test_gaussian_adam_uses_current_main_global_batch_scaling():
         max_steps=10,
         eps=1.0e-6,
     )
-    optimizer = create_optimizer(
-        model, config, batch_size=2, world_size=2
-    )
+    optimizer = create_optimizer(model, config, batch_size=2, world_size=2)
     before = [value.copy() for value in _array_leaves(_parameter_state(model))]
 
     optimizer.update(
@@ -166,9 +162,7 @@ def test_gaussian_adam_scales_betas_and_means_schedule_across_steps():
         max_steps=2,
         eps=1.0e-6,
     )
-    optimizer = create_optimizer(
-        model, config, batch_size=2, world_size=2
-    )
+    optimizer = create_optimizer(model, config, batch_size=2, world_size=2)
     parameters = nnx.state(model, nnx.Param)
 
     optimizer.update(model, jax.tree.map(jnp.ones_like, parameters))
@@ -182,19 +176,17 @@ def test_gaussian_adam_scales_betas_and_means_schedule_across_steps():
     scaled_eps = 0.5e-6
     first_moment = (1.0 - beta1) * 1.0
     first_variance = (1.0 - beta2) * 1.0
-    first_delta = 2.0e-2 * (
-        first_moment / (1.0 - beta1)
-    ) / (
-        np.sqrt(first_variance / (1.0 - beta2)) + scaled_eps
+    first_delta = (
+        2.0e-2
+        * (first_moment / (1.0 - beta1))
+        / (np.sqrt(first_variance / (1.0 - beta2)) + scaled_eps)
     )
     second_moment = beta1 * first_moment + (1.0 - beta1) * 3.0
-    second_variance = (
-        beta2 * first_variance + (1.0 - beta2) * 9.0
-    )
-    second_delta = 1.0e-2 * (
-        second_moment / (1.0 - beta1**2)
-    ) / (
-        np.sqrt(second_variance / (1.0 - beta2**2)) + scaled_eps
+    second_variance = beta2 * first_variance + (1.0 - beta2) * 9.0
+    second_delta = (
+        1.0e-2
+        * (second_moment / (1.0 - beta1**2))
+        / (np.sqrt(second_variance / (1.0 - beta2**2)) + scaled_eps)
     )
     np.testing.assert_allclose(
         model.means[...],
@@ -276,9 +268,7 @@ def test_row_selective_adam_matches_adam_on_visible_rows_and_freezes_others():
     selective_state_before = _snapshot(selective)
     visible_mask = jnp.asarray([True, False, True, False])
 
-    regular_updates = regular.update(
-        regular_model, _gradient_tree(regular_model)
-    )
+    regular_updates = regular.update(regular_model, _gradient_tree(regular_model))
     selective_updates = selective.update(
         selective_model,
         _gradient_tree(selective_model),
@@ -362,9 +352,7 @@ def test_row_selective_adam_preserves_hidden_history_while_count_advances():
     model = GaussianModel.empty(
         ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=1)
     )
-    optimizer = create_row_selective_optimizer(
-        model, OptimizerConfig(max_steps=10)
-    )
+    optimizer = create_row_selective_optimizer(model, OptimizerConfig(max_steps=10))
     optimizer.update(
         model,
         _gradient_tree(model),
@@ -435,9 +423,7 @@ def test_row_selective_adam_is_nnx_jittable():
     model = GaussianModel.empty(
         ModelConfig(capacity=3, bucket_min_capacity=3, sh_degree=0)
     )
-    optimizer = create_row_selective_optimizer(
-        model, OptimizerConfig(max_steps=10)
-    )
+    optimizer = create_row_selective_optimizer(model, OptimizerConfig(max_steps=10))
     means_before = np.asarray(model.means[...]).copy()
 
     @nnx.jit
@@ -482,10 +468,7 @@ def test_visible_adam_matches_upstream_uncorrected_first_step():
         -config.means_lr
         * (1.0 - 0.9)
         * means_gradient
-        / (
-            np.sqrt((1.0 - 0.999) * np.square(means_gradient))
-            + config.eps
-        )
+        / (np.sqrt((1.0 - 0.999) * np.square(means_gradient)) + config.eps)
     )
     np.testing.assert_allclose(
         np.asarray(model.means[visible_mask]),

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import math
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 
 def _linear(
@@ -65,8 +65,7 @@ class DeformNetwork(nnx.Module):
 
         layers = [_linear(feature_dim, hidden_dim, rngs=rngs)]
         layers.extend(
-            _linear(hidden_dim, hidden_dim, rngs=rngs)
-            for _ in range(num_layers - 1)
+            _linear(hidden_dim, hidden_dim, rngs=rngs) for _ in range(num_layers - 1)
         )
         self.trunk = nnx.List(layers)
         self.pos_head = _linear(hidden_dim, 3, rngs=rngs, zero_init=True)
@@ -101,12 +100,7 @@ class DeformNetwork(nnx.Module):
                 "DeformNetwork: plane_features last dim "
                 f"{plane_features.shape[-1]} != feature_dim {self.feature_dim}."
             )
-        if not (
-            means.dtype
-            == quats.dtype
-            == opacities.dtype
-            == plane_features.dtype
-        ):
+        if not (means.dtype == quats.dtype == opacities.dtype == plane_features.dtype):
             raise ValueError(
                 "DeformNetwork: dtype mismatch — "
                 f"means {means.dtype}, quats {quats.dtype}, "
@@ -136,8 +130,7 @@ class DeformationTable:
     ) -> None:
         if num_gaussians < 0:
             raise ValueError(
-                "DeformationTable: num_gaussians must be >= 0, "
-                f"got {num_gaussians}."
+                f"DeformationTable: num_gaussians must be >= 0, got {num_gaussians}."
             )
         mask = jnp.zeros((num_gaussians,), dtype=jnp.bool_)
         self.mask = jax.device_put(mask, device) if device is not None else mask
@@ -170,8 +163,7 @@ class DeformationTable:
 
         if factor < 1:
             raise ValueError(
-                "DeformationTable.split: factor must be >= 1, "
-                f"got {factor}."
+                f"DeformationTable.split: factor must be >= 1, got {factor}."
             )
         keep = jnp.ones(self.mask.shape, dtype=jnp.bool_)
         keep = keep.at[indices].set(False)

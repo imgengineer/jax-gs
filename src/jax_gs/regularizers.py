@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 import os
+from collections.abc import Iterable
 
 import jax
 import jax.numpy as jnp
-
 
 ENFORCE_CONTRACTS = (
     os.environ.get("GSPLAT_ENFORCE_CONTRACTS") == "1"
@@ -49,11 +48,7 @@ def compute_tv_loss_targeted(
 def dilate_mask(mask: jax.Array, kernel_size: int = 3) -> jax.Array:
     """Dilate a 2D, CHW, or NCHW mask with a square max-pool window."""
 
-    if (
-        not isinstance(kernel_size, int)
-        or kernel_size < 1
-        or kernel_size % 2 == 0
-    ):
+    if not isinstance(kernel_size, int) or kernel_size < 1 or kernel_size % 2 == 0:
         raise ValueError(
             "dilate_mask: kernel_size must be a positive odd integer, "
             f"got {kernel_size!r}."
@@ -94,8 +89,8 @@ def create_invisible_mask(masks: Iterable[jax.Array | str]) -> jax.Array:
     arrays = []
     for index, mask in enumerate(mask_values):
         if isinstance(mask, str):
-            from PIL import Image
             import numpy as np
+            from PIL import Image
 
             array = np.asarray(Image.open(mask), dtype=np.float32) / 255.0
             if array.ndim == 3:
@@ -119,4 +114,4 @@ def create_invisible_mask(masks: Iterable[jax.Array | str]) -> jax.Array:
     return jnp.clip(jnp.max(jnp.stack(arrays), axis=0), 0.0, 1.0)
 
 
-__all__ = ["compute_tv_loss_targeted", "dilate_mask", "create_invisible_mask"]
+__all__ = ["compute_tv_loss_targeted", "dilate_mask", "create_invisible_mask"]  # noqa: RUF022 - preserve the public compatibility order

@@ -1,4 +1,4 @@
-# ruff: noqa: E402, I001, F401
+# ruff: noqa: I001, F401
 
 """JAX/Flax NNX Gaussian splatting.
 
@@ -171,7 +171,7 @@ from .version import (
     __version__,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "DataConfig",
     "DefaultStrategy",
     "FusedGaussianLosses",

@@ -39,9 +39,7 @@ def _array_ending_in(value, size: int, name: str) -> jax.Array:
 def _viewmat_from_pose(pose: jax.Array) -> jax.Array:
     pose = _array_ending_in(pose, 7, "pose")
     rotation = quat_to_rotmat(pose[..., 3:])
-    viewmat = jnp.broadcast_to(
-        jnp.eye(4, dtype=pose.dtype), pose.shape[:-1] + (4, 4)
-    )
+    viewmat = jnp.broadcast_to(jnp.eye(4, dtype=pose.dtype), pose.shape[:-1] + (4, 4))
     viewmat = viewmat.at[..., :3, :3].set(rotation)
     return viewmat.at[..., :3, 3].set(pose[..., :3])
 
@@ -79,9 +77,7 @@ class RootCameraModel:
             else:
                 focal = self.ftheta_coeffs.angle_to_pixeldist_poly[1]
             return jnp.full_like(self.Ks[..., :2, 2], focal)
-        return jnp.stack(
-            (self.Ks[..., 0, 0], self.Ks[..., 1, 1]), axis=-1
-        )
+        return jnp.stack((self.Ks[..., 0, 0], self.Ks[..., 1, 1]), axis=-1)
 
     def camera_ray_to_image_point(
         self, camera_ray: jax.Array, margin_factor: float = 0.0
@@ -119,9 +115,9 @@ class RootCameraModel:
 
     def shutter_relative_frame_time(self, image_points: jax.Array) -> jax.Array:
         if self.lidar_coeffs is not None:
-            return LegacyLidarModel(
-                self.lidar_coeffs
-            ).shutter_relative_frame_time(image_points)
+            return LegacyLidarModel(self.lidar_coeffs).shutter_relative_frame_time(
+                image_points
+            )
         return shutter_relative_frame_time(
             image_points, self.width, self.height, self.rs_type
         )
@@ -235,9 +231,7 @@ def create_camera_model(
         focal = _array_ending_in(focal_lengths, 2, "focal_lengths")
         focal = jnp.broadcast_to(focal, batch_shape + (2,))
 
-    Ks = jnp.broadcast_to(
-        jnp.eye(3, dtype=principal.dtype), batch_shape + (3, 3)
-    )
+    Ks = jnp.broadcast_to(jnp.eye(3, dtype=principal.dtype), batch_shape + (3, 3))
     Ks = Ks.at[..., 0, 0].set(focal[..., 0])
     Ks = Ks.at[..., 1, 1].set(focal[..., 1])
     Ks = Ks.at[..., :2, 2].set(principal)

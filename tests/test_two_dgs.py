@@ -60,9 +60,7 @@ def test_2dgs_rejects_cutile_compositor():
             Ks,
             5,
             5,
-            config=RasterizationConfig(
-                compositor_backend="cuda_tile"
-            ),
+            config=RasterizationConfig(compositor_backend="cuda_tile"),
         )
 
 
@@ -100,9 +98,7 @@ def test_fully_fused_projection_2dgs_matches_face_on_geometry():
 def test_leading_batch_dims_match_individual_2dgs_calls_and_are_jittable():
     means, quats, scales, opacities, colors = _single_surfel()
     viewmats, Ks = _camera(width=8, height=8)
-    batched_means = jnp.stack((means, means.at[0, 0].set(0.1))).reshape(
-        1, 2, 1, 3
-    )
+    batched_means = jnp.stack((means, means.at[0, 0].set(0.1))).reshape(1, 2, 1, 3)
     batched_quats = jnp.broadcast_to(quats, (1, 2) + quats.shape)
     batched_scales = jnp.broadcast_to(scales, (1, 2) + scales.shape)
     batched_opacities = jnp.broadcast_to(opacities, (1, 2) + opacities.shape)
@@ -155,14 +151,10 @@ def test_leading_batch_dims_match_individual_2dgs_calls_and_are_jittable():
     assert outputs[-1]["valid"].shape == (1, 2, 1, 1)
     assert outputs[-1]["active_count"].shape == (1, 2)
     for output_index in range(6):
-        expected_value = jnp.stack(
-            [value[output_index] for value in expected]
-        )
+        expected_value = jnp.stack([value[output_index] for value in expected])
         assert jnp.allclose(outputs[output_index][0], expected_value)
 
-    gradient = jax.jit(jax.grad(lambda value: render(value)[0].sum()))(
-        batched_means
-    )
+    gradient = jax.jit(jax.grad(lambda value: render(value)[0].sum()))(batched_means)
     assert gradient.shape == batched_means.shape
     assert jnp.all(jnp.isfinite(gradient))
 
@@ -199,9 +191,7 @@ def test_screen_gradient_probe_zero_offset_is_identity_and_has_gradient():
 
     base_outputs = render(means)
     zero_outputs = render(means, zero_offset)
-    for zero_image, base_image in zip(
-        zero_outputs[:6], base_outputs[:6], strict=True
-    ):
+    for zero_image, base_image in zip(zero_outputs[:6], base_outputs[:6], strict=True):
         np.testing.assert_array_equal(zero_image, base_image)
 
     base_info = base_outputs[-1]
@@ -240,9 +230,7 @@ def test_screen_gradient_probe_zero_offset_is_identity_and_has_gradient():
         return outputs[0][0, 4, 4, 0]
 
     model_gradient = jax.grad(pixel_loss, argnums=(0, 1, 2, 3, 4))
-    base_gradients = model_gradient(
-        means, quats, scales, opacities, colors, None
-    )
+    base_gradients = model_gradient(means, quats, scales, opacities, colors, None)
     zero_gradients = model_gradient(
         means, quats, scales, opacities, colors, zero_offset
     )
@@ -252,9 +240,7 @@ def test_screen_gradient_probe_zero_offset_is_identity_and_has_gradient():
         np.testing.assert_array_equal(zero_gradient, base_gradient)
 
     offset_gradient = jax.grad(
-        lambda offset: pixel_loss(
-            means, quats, scales, opacities, colors, offset
-        )
+        lambda offset: pixel_loss(means, quats, scales, opacities, colors, offset)
     )(zero_offset)
     assert bool(jnp.all(jnp.isfinite(offset_gradient)))
     assert bool(jnp.any(offset_gradient != 0.0))
@@ -284,17 +270,11 @@ def test_screen_gradient_probe_leading_batch_slices_offsets():
     batched_means = jnp.broadcast_to(means, (batch_size,) + means.shape)
     batched_quats = jnp.broadcast_to(quats, (batch_size,) + quats.shape)
     batched_scales = jnp.broadcast_to(scales, (batch_size,) + scales.shape)
-    batched_opacities = jnp.broadcast_to(
-        opacities, (batch_size,) + opacities.shape
-    )
+    batched_opacities = jnp.broadcast_to(opacities, (batch_size,) + opacities.shape)
     batched_colors = jnp.broadcast_to(colors, (batch_size,) + colors.shape)
-    batched_viewmats = jnp.broadcast_to(
-        viewmats, (batch_size,) + viewmats.shape
-    )
+    batched_viewmats = jnp.broadcast_to(viewmats, (batch_size,) + viewmats.shape)
     batched_Ks = jnp.broadcast_to(Ks, (batch_size,) + Ks.shape)
-    offsets = jnp.asarray(
-        [[[[0.1, 0.0]]], [[[-0.05, 0.025]]]], dtype=jnp.float32
-    )
+    offsets = jnp.asarray([[[[0.1, 0.0]]], [[[-0.05, 0.025]]]], dtype=jnp.float32)
     config = RasterizationConfig(
         backend="intersections",
         tile_size=4,
@@ -334,9 +314,7 @@ def test_screen_gradient_probe_leading_batch_slices_offsets():
     ]
 
     for output_index in range(6):
-        expected = jnp.stack(
-            [output[output_index] for output in separate_outputs]
-        )
+        expected = jnp.stack([output[output_index] for output in separate_outputs])
         np.testing.assert_allclose(
             batched_outputs[output_index], expected, rtol=1.0e-6, atol=1.0e-7
         )
@@ -382,7 +360,8 @@ def test_2dgs_absgrad_probe_sums_before_symmetric_pixel_cancellation(backend):
     packed_results = []
 
     for packed in (False, True):
-        def render(current_means, offset, probe):
+
+        def render(current_means, offset, probe, packed=packed):
             return rasterization_2dgs(
                 current_means,
                 quats,
@@ -397,11 +376,7 @@ def test_2dgs_absgrad_probe_sums_before_symmetric_pixel_cancellation(backend):
                 absgrad=True,
                 config=config,
                 _gradient_2dgs_offset=offset,
-                **(
-                    {}
-                    if probe is None
-                    else {"_gradient_2dgs_absgrad_probe": probe}
-                ),
+                **({} if probe is None else {"_gradient_2dgs_absgrad_probe": probe}),
             )
 
         def objective(current_means, offset, probe):
@@ -410,16 +385,12 @@ def test_2dgs_absgrad_probe_sums_before_symmetric_pixel_cancellation(backend):
 
         baseline = jax.jit(
             jax.value_and_grad(
-                lambda current_means, offset: objective(
-                    current_means, offset, None
-                ),
+                lambda current_means, offset: objective(current_means, offset, None),
                 argnums=(0, 1),
                 has_aux=True,
             )
         )
-        probed = jax.jit(
-            jax.value_and_grad(objective, argnums=(0, 1, 2), has_aux=True)
-        )
+        probed = jax.jit(jax.value_and_grad(objective, argnums=(0, 1, 2), has_aux=True))
         (baseline_value, baseline_images), baseline_gradients = baseline(
             means, zero_offset
         )
@@ -473,18 +444,12 @@ def test_2dgs_absgrad_probe_leading_batch_slices_and_jits():
     batched_means = jnp.broadcast_to(means, (batch_size,) + means.shape)
     batched_quats = jnp.broadcast_to(quats, (batch_size,) + quats.shape)
     batched_scales = jnp.broadcast_to(scales, (batch_size,) + scales.shape)
-    batched_opacities = jnp.broadcast_to(
-        opacities, (batch_size,) + opacities.shape
-    )
+    batched_opacities = jnp.broadcast_to(opacities, (batch_size,) + opacities.shape)
     batched_colors = jnp.broadcast_to(colors, (batch_size,) + colors.shape)
-    batched_viewmats = jnp.broadcast_to(
-        viewmats, (batch_size,) + viewmats.shape
-    )
+    batched_viewmats = jnp.broadcast_to(viewmats, (batch_size,) + viewmats.shape)
     batched_Ks = jnp.broadcast_to(Ks, (batch_size,) + Ks.shape)
     zero_probes = jnp.zeros((batch_size, 1, 1, 2), dtype=jnp.float32)
-    batch_weights = jnp.asarray([1.0, 2.0], dtype=jnp.float32).reshape(
-        2, 1, 1, 1, 1
-    )
+    batch_weights = jnp.asarray([1.0, 2.0], dtype=jnp.float32).reshape(2, 1, 1, 1, 1)
     config = RasterizationConfig(
         backend="intersections",
         intersection_backend="jax",
@@ -513,9 +478,9 @@ def test_2dgs_absgrad_probe_leading_batch_slices_and_jits():
         )[0]
         return jnp.sum(rendered * batch_weights)
 
-    batched_gradients = jax.jit(
-        jax.grad(batched_loss, argnums=(0, 1))
-    )(batched_means, zero_probes)
+    batched_gradients = jax.jit(jax.grad(batched_loss, argnums=(0, 1)))(
+        batched_means, zero_probes
+    )
 
     def single_loss(current_means, probe, weight):
         rendered = rasterization_2dgs(
@@ -535,9 +500,7 @@ def test_2dgs_absgrad_probe_leading_batch_slices_and_jits():
         )[0]
         return weight * jnp.sum(rendered)
 
-    single_gradients = jax.jit(
-        jax.grad(single_loss, argnums=(0, 1))
-    )
+    single_gradients = jax.jit(jax.grad(single_loss, argnums=(0, 1)))
     expected = [
         single_gradients(means, zero_probes[index], index + 1.0)
         for index in range(batch_size)
@@ -566,9 +529,7 @@ def test_2dgs_absgrad_probe_requires_absgrad():
             Ks,
             2,
             1,
-            _gradient_2dgs_absgrad_probe=jnp.zeros(
-                (1, 1, 2), dtype=jnp.float32
-            ),
+            _gradient_2dgs_absgrad_probe=jnp.zeros((1, 1, 2), dtype=jnp.float32),
         )
 
 
@@ -578,9 +539,7 @@ def test_per_camera_sh_coefficients_match_separate_2dgs_calls():
     viewmats = jnp.concatenate((viewmats, viewmats), axis=0)
     viewmats = viewmats.at[1, 0, 3].set(0.05)
     Ks = jnp.concatenate((Ks, Ks), axis=0)
-    sh = jnp.asarray(
-        [[[[0.1, 0.1, 0.1]]], [[[0.3, 0.2, 0.1]]]], jnp.float32
-    )
+    sh = jnp.asarray([[[[0.1, 0.1, 0.1]]], [[[0.3, 0.2, 0.1]]]], jnp.float32)
     config = RasterizationConfig(
         backend="intersections",
         tile_size=4,
@@ -620,9 +579,7 @@ def test_per_camera_sh_coefficients_match_separate_2dgs_calls():
     ]
 
     for output_index in range(6):
-        expected = jnp.concatenate(
-            [value[output_index] for value in separate], axis=0
-        )
+        expected = jnp.concatenate([value[output_index] for value in separate], axis=0)
         assert jnp.allclose(outputs[output_index], expected)
 
 
@@ -680,9 +637,7 @@ def test_tile_chunks_composite_all_candidates_without_overflow():
     quats = jnp.asarray([[1.0, 0.0, 0.0, 0.0]] * 2, dtype=jnp.float32)
     scales = jnp.asarray([[0.25, 0.25, 0.01]] * 2, dtype=jnp.float32)
     opacities = jnp.asarray([0.6, 0.6], dtype=jnp.float32)
-    colors = jnp.asarray(
-        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=jnp.float32
-    )
+    colors = jnp.asarray([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=jnp.float32)
     viewmats, Ks = _camera(width=8, height=8)
     Ks = Ks.at[:, 0, 2].set(4.5).at[:, 1, 2].set(4.5)
 
@@ -716,9 +671,7 @@ def test_tile_chunks_composite_all_candidates_without_overflow():
         np.testing.assert_allclose(
             np.asarray(actual), np.asarray(expected), rtol=2e-5, atol=2e-6
         )
-    np.testing.assert_array_equal(
-        np.asarray(chunked[-1]["candidate_counts"]), [[[2]]]
-    )
+    np.testing.assert_array_equal(np.asarray(chunked[-1]["candidate_counts"]), [[[2]]])
     assert not bool(jnp.any(chunked[-1]["tile_overflow"]))
     assert bool(jnp.all(chunked[-1]["candidate_limit_exceeded"]))
 
@@ -812,9 +765,7 @@ def test_active_mask_is_jittable_and_candidate_limit_is_diagnostic():
             config=full_config,
         )[0].sum()
 
-    _, directional_derivative = jax.jvp(
-        render_sum, (means,), (jnp.ones_like(means),)
-    )
+    _, directional_derivative = jax.jvp(render_sum, (means,), (jnp.ones_like(means),))
     assert bool(jnp.isfinite(directional_derivative))
 
 
@@ -859,19 +810,13 @@ def test_intersection_backend_matches_reference_2dgs():
 
 
 def test_dense_metadata_reuses_rendered_2dgs_tile_intersections(monkeypatch):
-    means = jnp.asarray(
-        [[-0.1, 0.0, 2.0], [0.15, 0.05, 3.0]], dtype=jnp.float32
-    )
+    means = jnp.asarray([[-0.1, 0.0, 2.0], [0.15, 0.05, 3.0]], dtype=jnp.float32)
     quats = jnp.asarray([[1.0, 0.0, 0.0, 0.0]] * 2, dtype=jnp.float32)
     scales = jnp.asarray([[0.2, 0.2, 0.01]] * 2, dtype=jnp.float32)
     opacities = jnp.asarray([0.7, 0.5], dtype=jnp.float32)
-    colors = jnp.asarray(
-        [[1.0, 0.2, 0.0], [0.0, 0.3, 1.0]], dtype=jnp.float32
-    )
+    colors = jnp.asarray([[1.0, 0.2, 0.0], [0.0, 0.3, 1.0]], dtype=jnp.float32)
     viewmats, Ks = _camera(width=8, height=8)
-    viewmats = jnp.concatenate(
-        (viewmats, viewmats.at[0, 0, 3].set(0.1)), axis=0
-    )
+    viewmats = jnp.concatenate((viewmats, viewmats.at[0, 0, 3].set(0.1)), axis=0)
     Ks = jnp.broadcast_to(Ks, (2, 3, 3))
     config = RasterizationConfig(
         backend="intersections",
@@ -893,9 +838,7 @@ def test_dense_metadata_reuses_rendered_2dgs_tile_intersections(monkeypatch):
             raise AssertionError("dense metadata must not rebuild intersections")
         return original_intersect_tiles(*args, **kwargs)
 
-    monkeypatch.setattr(
-        two_dgs_module, "intersect_tiles", count_intersection_builds
-    )
+    monkeypatch.setattr(two_dgs_module, "intersect_tiles", count_intersection_builds)
     outputs = rasterization_2dgs(
         means,
         quats,
@@ -928,12 +871,8 @@ def test_dense_metadata_reuses_rendered_2dgs_tile_intersections(monkeypatch):
     expected_tiles_per_gauss = np.zeros((2, 2), dtype=np.int32)
     count_base = 0
     candidate_counts = np.asarray(info["candidate_counts"]).reshape(2, tile_count)
-    candidate_ids = np.asarray(info["candidate_ids"]).reshape(
-        2, tile_count, 2
-    )
-    candidate_valid = np.asarray(info["candidate_valid"]).reshape(
-        2, tile_count, 2
-    )
+    candidate_ids = np.asarray(info["candidate_ids"]).reshape(2, tile_count, 2)
+    candidate_valid = np.asarray(info["candidate_valid"]).reshape(2, tile_count, 2)
     projected_depths = np.asarray(info["depths"], dtype=np.float32)
 
     for camera_id in range(2):
@@ -969,9 +908,7 @@ def test_dense_metadata_reuses_rendered_2dgs_tile_intersections(monkeypatch):
         np.asarray(expected_flatten_ids, dtype=np.int32),
     )
     np.testing.assert_array_equal(np.asarray(info["isect_ids"])[valid_count:], -1)
-    np.testing.assert_array_equal(
-        np.asarray(info["flatten_ids"])[valid_count:], -1
-    )
+    np.testing.assert_array_equal(np.asarray(info["flatten_ids"])[valid_count:], -1)
     np.testing.assert_array_equal(
         np.asarray(info["isect_offsets"]), np.asarray(expected_offsets)
     )
@@ -998,9 +935,7 @@ def test_packed_2dgs_metadata_is_a_stable_prefix_and_preserves_rendering():
     )
     active_mask = jnp.asarray([True, True, False])
     viewmats, Ks = _camera(width=8, height=8)
-    viewmats = jnp.concatenate(
-        (viewmats, viewmats.at[0, 0, 3].set(0.1)), axis=0
-    )
+    viewmats = jnp.concatenate((viewmats, viewmats.at[0, 0, 3].set(0.1)), axis=0)
     Ks = jnp.broadcast_to(Ks, (2, 3, 3))
     config = RasterizationConfig(
         backend="intersections",
@@ -1050,9 +985,7 @@ def test_packed_2dgs_metadata_is_a_stable_prefix_and_preserves_rendering():
     assert int(packed_info["projection_valid_count"]) == valid_count
     assert int(packed_info["projection_capacity"]) == capacity
     assert bool(packed_info["packed_metadata_available"])
-    np.testing.assert_array_equal(
-        np.asarray(packed_info["batch_ids"][:valid_count]), 0
-    )
+    np.testing.assert_array_equal(np.asarray(packed_info["batch_ids"][:valid_count]), 0)
     np.testing.assert_array_equal(
         np.asarray(packed_info["camera_ids"][:valid_count]),
         selected // gaussian_count,
@@ -1064,9 +997,7 @@ def test_packed_2dgs_metadata_is_a_stable_prefix_and_preserves_rendering():
     for key in ("batch_ids", "camera_ids", "gaussian_ids"):
         assert packed_info[key].shape == (capacity,)
         assert packed_info[key].dtype == jnp.int32
-        np.testing.assert_array_equal(
-            np.asarray(packed_info[key][valid_count:]), -1
-        )
+        np.testing.assert_array_equal(np.asarray(packed_info[key][valid_count:]), -1)
 
     projection_fields = {
         "radii": (capacity, 2),
@@ -1080,15 +1011,11 @@ def test_packed_2dgs_metadata_is_a_stable_prefix_and_preserves_rendering():
     }
     for key, shape in projection_fields.items():
         assert packed_info[key].shape == shape
-        dense_values = np.asarray(dense_info[key]).reshape(
-            (capacity,) + shape[1:]
-        )
+        dense_values = np.asarray(dense_info[key]).reshape((capacity,) + shape[1:])
         np.testing.assert_array_equal(
             np.asarray(packed_info[key][:valid_count]), dense_values[selected]
         )
-        np.testing.assert_array_equal(
-            np.asarray(packed_info[key][valid_count:]), 0
-        )
+        np.testing.assert_array_equal(np.asarray(packed_info[key][valid_count:]), 0)
 
     intersection_count = int(dense_info["isect_valid_count"])
     dense_to_packed = np.full((capacity,), -1, dtype=np.int32)
@@ -1133,16 +1060,16 @@ def test_packed_2dgs_leading_batch_is_one_global_stable_prefix():
         ],
         dtype=jnp.float32,
     )
-    quats = jnp.zeros(
-        (batch_count, gaussian_count, 4), dtype=jnp.float32
-    ).at[..., 0].set(1.0)
+    quats = (
+        jnp.zeros((batch_count, gaussian_count, 4), dtype=jnp.float32)
+        .at[..., 0]
+        .set(1.0)
+    )
     scales = jnp.broadcast_to(
         jnp.asarray([0.2, 0.2, 0.01], dtype=jnp.float32),
         (batch_count, gaussian_count, 3),
     )
-    opacities = jnp.asarray(
-        [[0.7, 0.5, 0.9], [0.6, 0.8, 0.55]], dtype=jnp.float32
-    )
+    opacities = jnp.asarray([[0.7, 0.5, 0.9], [0.6, 0.8, 0.55]], dtype=jnp.float32)
     colors = jnp.asarray(
         [
             [[1.0, 0.2, 0.0], [0.0, 0.3, 1.0], [0.5, 0.5, 0.5]],
@@ -1152,9 +1079,7 @@ def test_packed_2dgs_leading_batch_is_one_global_stable_prefix():
     )
     second_camera = jnp.eye(4, dtype=jnp.float32).at[0, 3].set(0.1)
     cameras = jnp.stack((jnp.eye(4, dtype=jnp.float32), second_camera))
-    viewmats = jnp.broadcast_to(
-        cameras, (batch_count, camera_count, 4, 4)
-    )
+    viewmats = jnp.broadcast_to(cameras, (batch_count, camera_count, 4, 4))
     K = jnp.asarray(
         [[8.0, 0.0, 4.0], [0.0, 8.0, 4.0], [0.0, 0.0, 1.0]],
         dtype=jnp.float32,
@@ -1241,14 +1166,10 @@ def test_packed_2dgs_leading_batch_is_one_global_stable_prefix():
     expected_indptr = np.concatenate(
         (
             np.zeros((1,), dtype=np.int32),
-            np.cumsum(
-                dense_valid.sum(axis=-1).reshape(-1), dtype=np.int32
-            ),
+            np.cumsum(dense_valid.sum(axis=-1).reshape(-1), dtype=np.int32),
         )
     )
-    np.testing.assert_array_equal(
-        np.asarray(packed_info["indptr"]), expected_indptr
-    )
+    np.testing.assert_array_equal(np.asarray(packed_info["indptr"]), expected_indptr)
 
     projection_shapes = {
         "radii": (capacity, 2),
@@ -1262,9 +1183,7 @@ def test_packed_2dgs_leading_batch_is_one_global_stable_prefix():
     }
     for key, shape in projection_shapes.items():
         packed_values = np.asarray(packed_info[key])
-        dense_values = np.asarray(dense_info[key]).reshape(
-            (capacity,) + shape[1:]
-        )
+        dense_values = np.asarray(dense_info[key]).reshape((capacity,) + shape[1:])
         assert packed_values.shape == shape
         np.testing.assert_array_equal(
             packed_values[:valid_count], dense_values[selected]
@@ -1273,9 +1192,9 @@ def test_packed_2dgs_leading_batch_is_one_global_stable_prefix():
 
     per_batch_isect_capacity = dense_info["flatten_ids"].shape[-1]
     global_isect_capacity = batch_count * per_batch_isect_capacity
-    dense_isect_counts = np.asarray(
-        dense_info["isect_valid_count"]
-    ).reshape(batch_count)
+    dense_isect_counts = np.asarray(dense_info["isect_valid_count"]).reshape(
+        batch_count
+    )
     dense_flatten_ids = np.asarray(dense_info["flatten_ids"]).reshape(
         batch_count, per_batch_isect_capacity
     )
@@ -1306,9 +1225,7 @@ def test_packed_2dgs_leading_batch_is_one_global_stable_prefix():
             global_image_ids.astype(np.uint32) << np.uint32(tile_bits)
         ) | tile_ids
         expected_isect_ids.extend(
-            np.stack(
-                (global_high_words.view(np.int32), local_words[:, 1]), axis=-1
-            )
+            np.stack((global_high_words.view(np.int32), local_words[:, 1]), axis=-1)
         )
 
     global_isect_count = len(expected_flatten_ids)

@@ -44,8 +44,20 @@ def _scene():
     )
     colors = jnp.asarray(
         [
-            [[1.0, 0.1, 0.2], [0.2, 0.9, 0.1], [0.1, 0.2, 1.0], [0.8, 0.7, 0.1], [0.4, 0.2, 0.7]],
-            [[0.2, 0.8, 0.9], [0.9, 0.3, 0.1], [0.2, 0.4, 0.8], [0.7, 0.2, 0.6], [0.3, 0.9, 0.4]],
+            [
+                [1.0, 0.1, 0.2],
+                [0.2, 0.9, 0.1],
+                [0.1, 0.2, 1.0],
+                [0.8, 0.7, 0.1],
+                [0.4, 0.2, 0.7],
+            ],
+            [
+                [0.2, 0.8, 0.9],
+                [0.9, 0.3, 0.1],
+                [0.2, 0.4, 0.8],
+                [0.7, 0.2, 0.6],
+                [0.3, 0.9, 0.4],
+            ],
         ],
         jnp.float32,
     )
@@ -248,12 +260,8 @@ def test_sparse_pixels_match_dense_gather_and_jit(packed):
     dense_colors, dense_alphas = _dense_render(
         scene, backgrounds=backgrounds, packed=packed
     )
-    expected_colors = dense_colors[
-        image_ids, pixels[:, 0], pixels[:, 1]
-    ]
-    expected_alphas = dense_alphas[
-        image_ids, pixels[:, 0], pixels[:, 1]
-    ]
+    expected_colors = dense_colors[image_ids, pixels[:, 0], pixels[:, 1]]
+    expected_alphas = dense_alphas[image_ids, pixels[:, 0], pixels[:, 1]]
 
     np.testing.assert_allclose(sparse_colors, expected_colors, rtol=2e-6, atol=2e-6)
     np.testing.assert_allclose(sparse_alphas, expected_alphas, rtol=2e-6, atol=2e-6)
@@ -349,9 +357,7 @@ def test_sparse_pixels_gradients_match_dense_gather():
             valid_count=sparse_intersections.valid_count,
             return_info=True,
         )
-        return jnp.sum(rendered * color_cotangent) + jnp.sum(
-            alpha * alpha_cotangent
-        )
+        return jnp.sum(rendered * color_cotangent) + jnp.sum(alpha * alpha_cotangent)
 
     def dense_loss(m, c, rgb, opacity, background):
         rendered, alpha, _ = rasterize_to_pixels(
@@ -375,12 +381,12 @@ def test_sparse_pixels_gradients_match_dense_gather():
             gathered_alphas * alpha_cotangent
         )
 
-    sparse_grad = jax.jit(
-        jax.grad(sparse_loss, argnums=(0, 1, 2, 3, 4))
-    )(means2d, conics, colors, opacities, backgrounds)
-    dense_grad = jax.jit(
-        jax.grad(dense_loss, argnums=(0, 1, 2, 3, 4))
-    )(means2d, conics, colors, opacities, backgrounds)
+    sparse_grad = jax.jit(jax.grad(sparse_loss, argnums=(0, 1, 2, 3, 4)))(
+        means2d, conics, colors, opacities, backgrounds
+    )
+    dense_grad = jax.jit(jax.grad(dense_loss, argnums=(0, 1, 2, 3, 4)))(
+        means2d, conics, colors, opacities, backgrounds
+    )
     for actual, expected in zip(sparse_grad, dense_grad, strict=True):
         np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
 
@@ -436,9 +442,7 @@ def test_sparse_pixels_absgrad_probe_matches_per_pixel_vjps(packed):
     pixels = pixels[:3]
     image_ids = image_ids[:3]
     means2d, conics, colors, opacities, _radii, _depths = scene
-    layout, intersections = _sparse_layout(
-        scene, pixels, image_ids, packed=packed
-    )
+    layout, intersections = _sparse_layout(scene, pixels, image_ids, packed=packed)
     if packed:
         means2d = means2d.reshape(-1, 2)
         conics = conics.reshape(-1, 3)
@@ -477,39 +481,30 @@ def test_sparse_pixels_absgrad_probe_matches_per_pixel_vjps(packed):
 
     def joint_loss(m, probe):
         rendered, alpha = render(m, absgrad=True, probe=probe)
-        return jnp.sum(rendered * color_cotangent) + jnp.sum(
-            alpha * alpha_cotangent
-        )
+        return jnp.sum(rendered * color_cotangent) + jnp.sum(alpha * alpha_cotangent)
 
     zero_probe = jnp.zeros_like(means2d)
-    signed_gradient, absolute_gradient = jax.jit(
-        jax.grad(joint_loss, argnums=(0, 1))
-    )(means2d, zero_probe)
+    signed_gradient, absolute_gradient = jax.jit(jax.grad(joint_loss, argnums=(0, 1)))(
+        means2d, zero_probe
+    )
 
     def ordinary_loss(m):
         rendered, alpha = render(m)
-        return jnp.sum(rendered * color_cotangent) + jnp.sum(
-            alpha * alpha_cotangent
-        )
+        return jnp.sum(rendered * color_cotangent) + jnp.sum(alpha * alpha_cotangent)
 
     expected_signed = jax.grad(ordinary_loss)(means2d)
     expected_absolute = jnp.zeros_like(means2d)
     for pixel_index in range(pixels.shape[0]):
-        def pixel_loss(m):
+
+        def pixel_loss(m, pixel_index=pixel_index):
             rendered, alpha = render(m)
             return jnp.sum(
                 rendered[pixel_index] * color_cotangent[pixel_index]
-            ) + jnp.sum(
-                alpha[pixel_index] * alpha_cotangent[pixel_index]
-            )
+            ) + jnp.sum(alpha[pixel_index] * alpha_cotangent[pixel_index])
 
-        expected_absolute = expected_absolute + jnp.abs(
-            jax.grad(pixel_loss)(means2d)
-        )
+        expected_absolute = expected_absolute + jnp.abs(jax.grad(pixel_loss)(means2d))
 
-    np.testing.assert_allclose(
-        signed_gradient, expected_signed, rtol=2e-5, atol=2e-5
-    )
+    np.testing.assert_allclose(signed_gradient, expected_signed, rtol=2e-5, atol=2e-5)
     np.testing.assert_allclose(
         absolute_gradient, expected_absolute, rtol=2e-5, atol=2e-5
     )
@@ -584,9 +579,7 @@ def test_sparse_backward_does_not_store_every_pixel():
     args = scene[:4]
     forward = jax.jit(render).lower(*args).compile()
     backward = (
-        jax.jit(jax.value_and_grad(loss, argnums=(0, 1, 2, 3)))
-        .lower(*args)
-        .compile()
+        jax.jit(jax.value_and_grad(loss, argnums=(0, 1, 2, 3))).lower(*args).compile()
     )
     try:
         forward_temp = forward.memory_analysis().temp_size_in_bytes

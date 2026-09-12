@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import math
 import operator
+from collections.abc import Sequence
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from .config import ModelConfig, OptimizerConfig
 from .model import GaussianModel
@@ -54,17 +54,13 @@ def _distributed_local_capacity(model: GaussianModel, world_size: int) -> int:
 
 def _unstack_graph(graph: Any, index: int) -> Any:
     graphdef, state = nnx.split(graph)
-    return nnx.merge(
-        graphdef, jax.tree.map(lambda value: value[index], state)
-    )
+    return nnx.merge(graphdef, jax.tree.map(lambda value: value[index], state))
 
 
 def _stack_graphs(graphs: Sequence[Any]) -> Any:
     graphdef, first_state = nnx.split(graphs[0])
     states = [first_state] + [nnx.split(graph)[1] for graph in graphs[1:]]
-    return nnx.merge(
-        graphdef, jax.tree.map(lambda *values: jnp.stack(values), *states)
-    )
+    return nnx.merge(graphdef, jax.tree.map(lambda *values: jnp.stack(values), *states))
 
 
 def _validate_scene_capacity_operation(
@@ -77,9 +73,7 @@ def _validate_scene_capacity_operation(
     validate_capacity = getattr(scene, "validate_slot_capacity", None)
     operation_fn = getattr(scene, operation, None)
     if not callable(validate_capacity) or not callable(operation_fn):
-        raise TypeError(
-            "scene must implement the fixed-slot capacity interface"
-        )
+        raise TypeError("scene must implement the fixed-slot capacity interface")
     validate_capacity(capacity)
 
 
@@ -92,15 +86,12 @@ def _resize_state_tree(
     def resize(old_value: Any) -> Any:
         if not isinstance(old_value, jax.Array):
             return old_value
-        if (
-            old_value.ndim > 0
-            and old_value.shape[0] == old_capacity
-        ):
+        if old_value.ndim > 0 and old_value.shape[0] == old_capacity:
             if new_capacity < old_capacity:
                 return old_value[:new_capacity]
-            padding = ((0, new_capacity - old_capacity),) + (
-                (0, 0),
-            ) * (old_value.ndim - 1)
+            padding = ((0, new_capacity - old_capacity),) + ((0, 0),) * (
+                old_value.ndim - 1
+            )
             return jnp.pad(old_value, padding)
         return old_value
 
@@ -128,9 +119,7 @@ def resize_training_state(
         raise ValueError("new_capacity must be larger than the current capacity")
     if new_capacity > model.max_capacity:
         raise ValueError("new_capacity exceeds the model's logical maximum")
-    _validate_scene_capacity_operation(
-        scene, old_capacity, "resize_slot_capacity"
-    )
+    _validate_scene_capacity_operation(scene, old_capacity, "resize_slot_capacity")
     del optimizer_config
     padding = new_capacity - old_capacity
 
@@ -153,15 +142,11 @@ def resize_training_state(
     if model.has_appearance:
         sh0 = None
         sh_rest = None
-        features = jnp.pad(
-            model.features[...], ((0, padding), (0, 0))
-        )
+        features = jnp.pad(model.features[...], ((0, padding), (0, 0)))
         colors = jnp.pad(model.colors[...], ((0, padding), (0, 0)))
     else:
         sh0 = jnp.pad(model.sh0[...], ((0, padding), (0, 0), (0, 0)))
-        sh_rest = jnp.pad(
-            model.sh_rest[...], ((0, padding), (0, 0), (0, 0))
-        )
+        sh_rest = jnp.pad(model.sh_rest[...], ((0, padding), (0, 0), (0, 0)))
         features = None
         colors = None
     active_mask = jnp.pad(
@@ -310,12 +295,12 @@ def _compact_training_state(
     capacity = model.capacity
     active_count = jnp.count_nonzero(active)
     active_positions = jnp.cumsum(active.astype(jnp.int32)) - 1
-    inactive_positions = (
-        active_count + jnp.cumsum((~active).astype(jnp.int32)) - 1
-    )
+    inactive_positions = active_count + jnp.cumsum((~active).astype(jnp.int32)) - 1
     destinations = jnp.where(active, active_positions, inactive_positions)
-    order = jnp.zeros((capacity,), dtype=jnp.int32).at[destinations].set(
-        jnp.arange(capacity, dtype=jnp.int32)
+    order = (
+        jnp.zeros((capacity,), dtype=jnp.int32)
+        .at[destinations]
+        .set(jnp.arange(capacity, dtype=jnp.int32))
     )
 
     model.means[...] = model.means[...][order]
@@ -347,12 +332,8 @@ def compact_training_state(
 ) -> jax.Array:
     """Move every active training and optional scene row to one prefix."""
 
-    _validate_scene_capacity_operation(
-        scene, model.capacity, "apply_slot_permutation"
-    )
-    active_count, order = _compact_training_state(
-        model, optimizer, strategy_state
-    )
+    _validate_scene_capacity_operation(scene, model.capacity, "apply_slot_permutation")
+    active_count, order = _compact_training_state(model, optimizer, strategy_state)
     if scene is not None:
         scene.apply_slot_permutation(order)
     return active_count
@@ -373,7 +354,11 @@ def _active_rows(state: Any, capacity: int, count: int) -> Any:
     """Take the active prefix of every capacity-leading array in a state tree."""
 
     def take(value: Any) -> Any:
-        if isinstance(value, jax.Array) and value.ndim > 0 and value.shape[0] == capacity:
+        if (
+            isinstance(value, jax.Array)
+            and value.ndim > 0
+            and value.shape[0] == capacity
+        ):
             return value[:count]
         return value
 
@@ -436,28 +421,20 @@ def reshard_distributed_training_state(
     world_size = int(world_size)
     if world_size <= 0:
         raise ValueError("world_size must be positive")
-    old_world = _distributed_world_size(
-        model, optimizer, strategy_state, safety_state
-    )
+    old_world = _distributed_world_size(model, optimizer, strategy_state, safety_state)
     old_capacity = _distributed_local_capacity(model, old_world)
     optimizer_steps = jax.device_get(optimizer.step[...])
     if optimizer_steps.shape != (old_world,):
-        raise ValueError(
-            "distributed optimizer must hold one step counter per shard"
-        )
+        raise ValueError("distributed optimizer must hold one step counter per shard")
     if not bool(jnp.all(optimizer_steps == optimizer_steps[0])):
         raise ValueError(
             "distributed shards disagree on the optimizer step: "
             f"{optimizer_steps.tolist()}"
         )
 
-    source_optimizer_config = getattr(
-        optimizer, "_jax_gs_optimizer_config", None
-    )
+    source_optimizer_config = getattr(optimizer, "_jax_gs_optimizer_config", None)
     if source_optimizer_config != optimizer_config:
-        raise ValueError(
-            "optimizer_config must match the source optimizer contract"
-        )
+        raise ValueError("optimizer_config must match the source optimizer contract")
     optimizer_kind = getattr(optimizer, "_jax_gs_optimizer_kind", None)
     optimizer_factories = {
         "adam": create_optimizer,
@@ -465,15 +442,9 @@ def reshard_distributed_training_state(
         "visible_adam": create_visible_adam_optimizer,
     }
     if optimizer_kind not in optimizer_factories:
-        raise ValueError(
-            "source optimizer does not record a supported optimizer kind"
-        )
-    optimizer_batch_size = getattr(
-        optimizer, "_jax_gs_batch_size", None
-    )
-    optimizer_scene_scale = getattr(
-        optimizer, "_jax_gs_scene_scale", None
-    )
+        raise ValueError("source optimizer does not record a supported optimizer kind")
+    optimizer_batch_size = getattr(optimizer, "_jax_gs_batch_size", None)
+    optimizer_scene_scale = getattr(optimizer, "_jax_gs_scene_scale", None)
 
     # Compact first so each shard's active rows are a prefix we can slice.
     shards = []
@@ -512,9 +483,7 @@ def reshard_distributed_training_state(
 
     def gather(node_index: int, rows: list[tuple[int, int]]) -> Any:
         states = [
-            _active_rows(
-                nnx.as_pure(nnx.state(shard[node_index])), old_capacity, count
-            )
+            _active_rows(nnx.as_pure(nnx.state(shard[node_index])), old_capacity, count)
             for shard, count in shards
         ]
         if not rows:
@@ -592,16 +561,14 @@ def _rebuilt_shard_model(
     them, so an inactive slot means the same thing however it came to exist.
     """
 
-    log_scales = state["log_scales"].at[count:].set(
-        math.log(model_config.initial_scale)
+    log_scales = (
+        state["log_scales"].at[count:].set(math.log(model_config.initial_scale))
     )
     quats = state["quats"].at[count:].set(0.0).at[count:, 0].set(1.0)
     initial_opacity_logit = math.log(model_config.initial_opacity) - math.log1p(
         -model_config.initial_opacity
     )
-    opacity_logits = state["opacity_logits"].at[count:].set(
-        initial_opacity_logit
-    )
+    opacity_logits = state["opacity_logits"].at[count:].set(initial_opacity_logit)
     return GaussianModel(
         state["means"],
         log_scales,
@@ -620,9 +587,7 @@ def _reduced_safety_state(safety_state: Any, old_world: int, world_size: int) ->
     """Carry sticky overflow across a reshard by reducing then replicating."""
 
     shards = [_unstack_graph(safety_state, rank) for rank in range(old_world)]
-    tiles = jnp.max(
-        jnp.stack([shard.max_overflow_tiles[...] for shard in shards])
-    )
+    tiles = jnp.max(jnp.stack([shard.max_overflow_tiles[...] for shard in shards]))
     seen = jnp.any(
         jnp.stack([shard.intersection_overflow_seen[...] for shard in shards])
     )

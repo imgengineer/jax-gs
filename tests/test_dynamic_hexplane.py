@@ -1,14 +1,13 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import pytest
+from flax import nnx
 
 from jax_gs.contrib.dynamic.hexplane import (
     HexPlaneField,
     _grid_sample_wrapper,
     _normalize_aabb,
 )
-
 
 _SMALL_CONFIG = {
     "grid_dimensions": 2,
@@ -48,14 +47,15 @@ def test_hexplane_temporal_planes_start_at_one_and_spatial_planes_are_uniform():
     assert len(field.temporal_planes()) == 3
     assert all(jnp.all(plane >= 0.1) for plane in field.spatial_planes())
     assert all(jnp.all(plane < 0.5) for plane in field.spatial_planes())
-    assert all(jnp.array_equal(plane, jnp.ones_like(plane)) for plane in field.temporal_planes())
+    assert all(
+        jnp.array_equal(plane, jnp.ones_like(plane))
+        for plane in field.temporal_planes()
+    )
 
 
 def test_grid_sample_wrapper_matches_analytic_bilinear_values_and_border():
     grid = jnp.asarray([[[[0.0, 2.0], [4.0, 6.0]]]])
-    coordinates = jnp.asarray(
-        [[-1.0, -1.0], [0.0, 0.0], [1.0, 1.0], [2.0, -2.0]]
-    )
+    coordinates = jnp.asarray([[-1.0, -1.0], [0.0, 0.0], [1.0, 1.0], [2.0, -2.0]])
     sampled = _grid_sample_wrapper(grid, coordinates)
     assert sampled.shape == (4, 1)
     assert jnp.allclose(sampled[:, 0], jnp.asarray([0.0, 3.0, 6.0, 2.0]))
@@ -101,9 +101,7 @@ def test_hexplane_gradients_reach_planes_and_coordinates():
     )
     points = jnp.asarray([[0.13, -0.22, 0.31, 0.27]])
     parameter_gradients = nnx.grad(lambda module: jnp.sum(module(points)))(field)
-    plane_gradients = [
-        parameter_gradients.grids[0][index][...] for index in range(6)
-    ]
+    plane_gradients = [parameter_gradients.grids[0][index][...] for index in range(6)]
     assert any(bool(jnp.any(gradient != 0.0)) for gradient in plane_gradients)
 
     coordinate_gradient = jax.grad(lambda values: jnp.sum(field(values)))(points)

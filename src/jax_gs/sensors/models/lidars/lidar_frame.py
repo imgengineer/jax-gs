@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ...kernels.common.pose import DynamicPose, Pose
 from ..common.frame import Frame, FrameId
@@ -35,21 +35,13 @@ def _validate_lidar_observations(
             )
         return
     if distance_m.ndim != 2:
-        raise ValueError(
-            f"sparse distance_m must be (N, R), got {distance_m.shape}"
-        )
+        raise ValueError(f"sparse distance_m must be (N, R), got {distance_m.shape}")
     if model_element.ndim != 2 or model_element.shape[1] != 2:
-        raise ValueError(
-            f"model_element must be (N, 2), got {model_element.shape}"
-        )
+        raise ValueError(f"model_element must be (N, 2), got {model_element.shape}")
     if model_element.shape[0] != distance_m.shape[0]:
-        raise ValueError(
-            "model_element first dimension must match sparse distance_m"
-        )
+        raise ValueError("model_element first dimension must match sparse distance_m")
     if timestamp_us is not None and timestamp_us.shape != (distance_m.shape[0],):
-        raise ValueError(
-            f"sparse timestamp_us must be (N,), got {timestamp_us.shape}"
-        )
+        raise ValueError(f"sparse timestamp_us must be (N,), got {timestamp_us.shape}")
 
 
 class LidarFrame(Frame):
@@ -71,9 +63,7 @@ class LidarFrame(Frame):
     ) -> None:
         distance = jnp.asarray(distance_m)
         intensity_array = jnp.asarray(intensity)
-        element_array = (
-            None if model_element is None else jnp.asarray(model_element)
-        )
+        element_array = None if model_element is None else jnp.asarray(model_element)
         timestamp_array = None if timestamp_us is None else jnp.asarray(timestamp_us)
         _validate_lidar_observations(
             distance, intensity_array, element_array, timestamp_array

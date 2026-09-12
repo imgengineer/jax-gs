@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import operator
-from collections.abc import Hashable, Sequence
 import os
+from collections.abc import Hashable, Sequence
 from typing import Any
 
 import jax
@@ -103,8 +103,7 @@ def all_gather_tensor_list(
         return tensors
     axis_name = _check_collective_axis(world_size, axis_name)
     return [
-        jax.lax.all_gather(tensor, axis_name, axis=0, tiled=True)
-        for tensor in tensors
+        jax.lax.all_gather(tensor, axis_name, axis=0, tiled=True) for tensor in tensors
     ]
 
 
@@ -180,9 +179,7 @@ def all_to_all_tensor_list(
     ]
 
 
-def _all_gather_axis(
-    value: jax.Array, axis: int, axis_name: Hashable
-) -> jax.Array:
+def _all_gather_axis(value: jax.Array, axis: int, axis_name: Hashable) -> jax.Array:
     return jax.lax.all_gather(value, axis_name, axis=axis, tiled=True)
 
 
@@ -210,10 +207,7 @@ def _all_gather_feature_shards(
 
     value = jnp.asarray(value)
     per_camera_rank = 4 if sh_degree is not None else 3
-    per_camera = (
-        value.ndim == per_camera_rank
-        and value.shape[0] == camera_count
-    )
+    per_camera = value.ndim == per_camera_rank and value.shape[0] == camera_count
     gaussian_axis = 1 if per_camera else 0
     if value.ndim <= gaussian_axis or value.shape[gaussian_axis] != local_capacity:
         layout = "[C, local_capacity, ...] or [local_capacity, ...]"
@@ -247,9 +241,9 @@ def _evaluate_distributed_sh(
 
     def evaluate(camera_inputs):
         direction, mask = camera_inputs
-        values = spherical_harmonics(
-            sh_degree, direction, coefficients, masks=mask
-        ) + 0.5
+        values = (
+            spherical_harmonics(sh_degree, direction, coefficients, masks=mask) + 0.5
+        )
         return jnp.maximum(values, 0.0) if clamp_min else values
 
     if camera_centers.shape[0] == 1:
@@ -281,9 +275,7 @@ def _exchange_camera_features(
         tiled=True,
     )
     return (
-        exchanged.reshape(
-            world_size, local_camera_count, local_capacity, channels
-        )
+        exchanged.reshape(world_size, local_camera_count, local_capacity, channels)
         .transpose(1, 0, 2, 3)
         .reshape(local_camera_count, world_size * local_capacity, channels)
     )
@@ -316,6 +308,8 @@ def rasterization(
     from .rasterization import (
         _camera_centers,
         _normalize_color_input,
+    )
+    from .rasterization import (
         rasterization as local_rasterization,
     )
     from .rendering_types import render_mode_has_color
@@ -457,9 +451,7 @@ def rasterization(
             axis_name=axis_name,
         )
     if kwargs.get("covars") is not None:
-        kwargs["covars"] = _all_gather_axis(
-            jnp.asarray(kwargs["covars"]), 0, axis_name
-        )
+        kwargs["covars"] = _all_gather_axis(jnp.asarray(kwargs["covars"]), 0, axis_name)
     if exchanged_extra is not None:
         kwargs["extra_signals"] = exchanged_extra
         kwargs["extra_signals_sh_degree"] = None
@@ -477,9 +469,7 @@ def rasterization(
         local_shape = (camera_count, local_capacity, 2)
         global_shape = (camera_count, local_capacity * world_size, 2)
         if means2d_offset.shape == local_shape:
-            means2d_offset = _all_gather_axis(
-                means2d_offset, 1, axis_name
-            )
+            means2d_offset = _all_gather_axis(means2d_offset, 1, axis_name)
         # Training uses an already-global probe per local camera batch so its
         # screen gradient stays separate until after the per-camera norm.
         elif means2d_offset.shape != global_shape:

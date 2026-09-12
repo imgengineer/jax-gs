@@ -2,7 +2,15 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+import jax_gs
+import jax_gs.trace as trace_module
 from jax_gs.init_utils import knn_scale_init, multi_frame_depth_unprojection
+from jax_gs.sensors import models as sensor_models
+from jax_gs.sensors.kernels import projective_sensor_ops
+from jax_gs.sensors.kernels.cameras import (
+    REGISTERED_CAMERA_PROJECTIONS,
+    REGISTERED_DISTORTIONS,
+)
 from jax_gs.sensors.kernels.common.tensor_ops import (
     raise_or_target_device,
     timestamp_bounds,
@@ -16,14 +24,6 @@ from jax_gs.sensors.kernels.lidars.types import (
 )
 from jax_gs.training import TwoStageScheduler
 from jax_gs.training.schedulers import TwoStageScheduleStep
-import jax_gs.trace as trace_module
-import jax_gs
-from jax_gs.sensors import models as sensor_models
-from jax_gs.sensors.kernels import projective_sensor_ops
-from jax_gs.sensors.kernels.cameras import (
-    REGISTERED_CAMERA_PROJECTIONS,
-    REGISTERED_DISTORTIONS,
-)
 
 
 def _lidar_projection() -> RowOffsetStructuredSpinningLidarProjection:
@@ -48,20 +48,15 @@ def test_multiframe_unprojection_recovers_grid_and_uint8_colors():
     depths = jnp.ones((1, 2, 2), jnp.float32)
     masks = jnp.ones((1, 2, 2), jnp.bool_)
     poses = jnp.eye(4, dtype=jnp.float32)[None]
-    intrinsics = jnp.asarray(
-        [[[1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]]]
-    )
+    intrinsics = jnp.asarray([[[1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]]])
 
-    xyz, rgb = multi_frame_depth_unprojection(
-        images, depths, masks, poses, intrinsics
-    )
+    xyz, rgb = multi_frame_depth_unprojection(images, depths, masks, poses, intrinsics)
 
     assert xyz.shape == (4, 3)
     assert jnp.allclose(
         xyz,
         jnp.asarray(
-            [[-1.0, -1.0, 1.0], [0.0, -1.0, 1.0],
-             [-1.0, 0.0, 1.0], [0.0, 0.0, 1.0]]
+            [[-1.0, -1.0, 1.0], [0.0, -1.0, 1.0], [-1.0, 0.0, 1.0], [0.0, 0.0, 1.0]]
         ),
     )
     assert jnp.allclose(rgb, images.reshape(-1, 3).astype(jnp.float32) / 255.0)
@@ -99,8 +94,10 @@ def test_multiframe_unprojection_validates_frames_and_returns_empty():
 
 
 def test_knn_scale_init_matches_uniform_grid_across_chunks():
-    xyz = jnp.zeros((8, 3), jnp.float32).at[:, 0].set(
-        jnp.arange(8, dtype=jnp.float32) * 0.5
+    xyz = (
+        jnp.zeros((8, 3), jnp.float32)
+        .at[:, 0]
+        .set(jnp.arange(8, dtype=jnp.float32) * 0.5)
     )
     result = knn_scale_init(xyz, k=1, chunk_size=3)
     assert jnp.allclose(result, jnp.log(0.5), atol=1.0e-6)

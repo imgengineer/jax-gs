@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
 import warnings
+from typing import Literal
 
 import jax.numpy as jnp
 from jax import Array
 
 from .math import quat_scale_to_covar_preci, quat_to_rotmat, triu_to_full
-
 
 CameraModel = Literal["pinhole", "ortho", "fisheye"]
 _FACTOR_PROJECTION_MIN_GAUSSIANS = 262_144
@@ -41,9 +40,7 @@ def world_to_cam(
     translation = viewmats[..., :3, 3]
     means_c = jnp.einsum("...cij,...nj->...cni", rotation, means)
     means_c = means_c + translation[..., None, :]
-    covars_c = jnp.einsum(
-        "...cij,...njk,...clk->...cnil", rotation, covars, rotation
-    )
+    covars_c = jnp.einsum("...cij,...njk,...clk->...cnil", rotation, covars, rotation)
     return means_c, covars_c
 
 
@@ -100,9 +97,9 @@ def _pinhole_mean_and_jacobian(
         means, Ks, width, height, eps
     )
     zeros = jnp.zeros_like(j00)
-    jacobian = jnp.stack(
-        (j00, zeros, j02, zeros, j11, j12), axis=-1
-    ).reshape(means.shape[:-1] + (2, 3))
+    jacobian = jnp.stack((j00, zeros, j02, zeros, j11, j12), axis=-1).reshape(
+        means.shape[:-1] + (2, 3)
+    )
     return means2d, jacobian
 
 
@@ -116,13 +113,9 @@ def pinhole_proj(
 ) -> tuple[Array, Array]:
     """Project camera-space Gaussians with gsplat's pinhole EWA model."""
 
-    means2d, jacobian = _pinhole_mean_and_jacobian(
-        means, Ks, width, height, eps
-    )
+    means2d, jacobian = _pinhole_mean_and_jacobian(means, Ks, width, height, eps)
     covars = jnp.asarray(covars)
-    covars2d = jnp.einsum(
-        "...ij,...jk,...lk->...il", jacobian, covars, jacobian
-    )
+    covars2d = jnp.einsum("...ij,...jk,...lk->...il", jacobian, covars, jacobian)
     return means2d, covars2d
 
 
@@ -140,19 +133,17 @@ def _pinhole_proj_factors(
     )
     factors = jnp.asarray(factors)
     projected_x = (
-        j00[..., None] * factors[..., 0, :]
-        + j02[..., None] * factors[..., 2, :]
+        j00[..., None] * factors[..., 0, :] + j02[..., None] * factors[..., 2, :]
     )
     projected_y = (
-        j11[..., None] * factors[..., 1, :]
-        + j12[..., None] * factors[..., 2, :]
+        j11[..., None] * factors[..., 1, :] + j12[..., None] * factors[..., 2, :]
     )
     covar_xx = jnp.sum(projected_x * projected_x, axis=-1)
     covar_xy = jnp.sum(projected_x * projected_y, axis=-1)
     covar_yy = jnp.sum(projected_y * projected_y, axis=-1)
-    covars2d = jnp.stack(
-        (covar_xx, covar_xy, covar_xy, covar_yy), axis=-1
-    ).reshape(means.shape[:-1] + (2, 2))
+    covars2d = jnp.stack((covar_xx, covar_xy, covar_xy, covar_yy), axis=-1).reshape(
+        means.shape[:-1] + (2, 2)
+    )
     return means2d, covars2d
 
 
@@ -182,13 +173,12 @@ def _pinhole_proj_world_factors(
     covar_xx = jnp.sum(projected_x * projected_x, axis=-1)
     covar_xy = jnp.sum(projected_x * projected_y, axis=-1)
     covar_yy = jnp.sum(projected_y * projected_y, axis=-1)
-    covars2d = jnp.stack(
-        (covar_xx, covar_xy, covar_xy, covar_yy), axis=-1
-    ).reshape(means.shape[:-1] + (2, 2))
+    covars2d = jnp.stack((covar_xx, covar_xy, covar_xy, covar_yy), axis=-1).reshape(
+        means.shape[:-1] + (2, 2)
+    )
     return means2d, covars2d
 
 
-persp_proj = pinhole_proj
 pinhole_projection = pinhole_proj
 
 
@@ -213,12 +203,8 @@ def ortho_proj(
     jacobian = jnp.stack(
         (fx + zeros, zeros, zeros, zeros, fy + zeros, zeros), axis=-1
     ).reshape(means.shape[:-1] + (2, 3))
-    covars2d = jnp.einsum(
-        "...ij,...jk,...lk->...il", jacobian, covars, jacobian
-    )
-    means2d = jnp.stack(
-        (fx * means[..., 0] + cx, fy * means[..., 1] + cy), axis=-1
-    )
+    covars2d = jnp.einsum("...ij,...jk,...lk->...il", jacobian, covars, jacobian)
+    means2d = jnp.stack((fx * means[..., 0] + cx, fy * means[..., 1] + cy), axis=-1)
     return means2d, covars2d
 
 
@@ -286,9 +272,7 @@ def fisheye_proj(
     j12 = jnp.where(axis, 0.0, j12)
     jacobian = jnp.stack((j00, j01, j02, j10, j11, j12), axis=-1)
     jacobian = jacobian.reshape(means.shape[:-1] + (2, 3))
-    covars2d = jnp.einsum(
-        "...ij,...jk,...lk->...il", jacobian, covars, jacobian
-    )
+    covars2d = jnp.einsum("...ij,...jk,...lk->...il", jacobian, covars, jacobian)
     return means2d, covars2d
 
 
@@ -339,19 +323,19 @@ def fully_fused_projection(
     width: int,
     height: int,
     *,
-    quats: Optional[Array] = None,
-    scales: Optional[Array] = None,
-    covars: Optional[Array] = None,
+    quats: Array | None = None,
+    scales: Array | None = None,
+    covars: Array | None = None,
     eps2d: float = 0.3,
     near_plane: float = 0.01,
     far_plane: float = 1e10,
     radius_clip: float = 0.0,
     calc_compensations: bool = False,
     camera_model: CameraModel = "pinhole",
-    opacities: Optional[Array] = None,
-    active_mask: Optional[Array] = None,
+    opacities: Array | None = None,
+    active_mask: Array | None = None,
     alpha_threshold: float = 1.0 / 255.0,
-) -> tuple[Array, Array, Array, Array, Optional[Array], Array]:
+) -> tuple[Array, Array, Array, Array, Array | None, Array]:
     """Transform and project a fixed-size Gaussian buffer.
 
     This is the dense, fixed-shape counterpart of gsplat v1.5.3's fused CUDA
@@ -435,12 +419,8 @@ def fully_fused_projection(
         opacity_extend = jnp.sqrt(jnp.maximum(2.0 * jnp.log(opacity_ratio), 0.0))
         extend = jnp.minimum(extend, opacity_extend)
 
-    radius_x = jnp.ceil(
-        extend * jnp.sqrt(jnp.maximum(covars2d[..., 0, 0], 0.0))
-    )
-    radius_y = jnp.ceil(
-        extend * jnp.sqrt(jnp.maximum(covars2d[..., 1, 1], 0.0))
-    )
+    radius_x = jnp.ceil(extend * jnp.sqrt(jnp.maximum(covars2d[..., 0, 0], 0.0)))
+    radius_y = jnp.ceil(extend * jnp.sqrt(jnp.maximum(covars2d[..., 1, 1], 0.0)))
     radius = jnp.stack((radius_x, radius_y), axis=-1)
     depths = means_c[..., 2]
 

@@ -60,7 +60,7 @@ class DynamicPose:
     end_pose: Pose
 
     @staticmethod
-    def from_static_pose(pose: Pose) -> "DynamicPose":
+    def from_static_pose(pose: Pose) -> DynamicPose:
         end_pose = Pose(
             translation=jnp.array(pose.translation),
             rotation=jnp.array(pose.rotation),

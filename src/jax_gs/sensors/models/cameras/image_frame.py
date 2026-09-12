@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from flax import nnx
 import jax.numpy as jnp
+from flax import nnx
 
 from ...kernels.common.pose import DynamicPose, Pose
 from ..common.frame import Frame, FrameId
@@ -52,7 +52,9 @@ class ImageFrame(Frame):
 
     def forward(self, *args, **kwargs):
         del args, kwargs
-        raise NotImplementedError("ImageFrame is a data container, not a callable model")
+        raise NotImplementedError(
+            "ImageFrame is a data container, not a callable model"
+        )
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)

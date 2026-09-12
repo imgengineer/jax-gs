@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import operator
 import math
+import operator
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-
 
 _DIRECT_SORT_MIN_CAPACITY = 65_536
 _GAUSSIAN_EXTEND = 3.33
@@ -95,9 +94,7 @@ def _map_intersections_jax(
     output_valid = ranks < valid_count
     return (
         jnp.where(output_valid, gaussian_ids, -1).astype(jnp.int32),
-        jnp.where(output_valid, tile_y * tile_width + tile_x, -1).astype(
-            jnp.int32
-        ),
+        jnp.where(output_valid, tile_y * tile_width + tile_x, -1).astype(jnp.int32),
     )
 
 
@@ -175,11 +172,7 @@ def _prepare_accutile_state_jax(
         jnp.float32(2.0) * jnp.log(safe_opacity / threshold),
     )
     ellipse_valid = (
-        base_valid
-        & jnp.isfinite(disc)
-        & jnp.isfinite(t)
-        & (disc < 0.0)
-        & (t > 0.0)
+        base_valid & jnp.isfinite(disc) & jnp.isfinite(t) & (disc < 0.0) & (t > 0.0)
     )
     safe_disc = jnp.where(ellipse_valid, disc, -1.0)
     safe_t = jnp.where(ellipse_valid, t, 1.0)
@@ -217,18 +210,10 @@ def _prepare_accutile_state_jax(
     argmax_x = jnp.where(derived_finite, argmax_x, 0.0)
     argmax_y = jnp.where(derived_finite, argmax_y, 0.0)
 
-    rect_min_x = jnp.clip(
-        (bbox_min_x / block).astype(jnp.int32), 0, tile_width
-    )
-    rect_min_y = jnp.clip(
-        (bbox_min_y / block).astype(jnp.int32), 0, tile_height
-    )
-    rect_max_x = jnp.clip(
-        (bbox_max_x / block + 1.0).astype(jnp.int32), 0, tile_width
-    )
-    rect_max_y = jnp.clip(
-        (bbox_max_y / block + 1.0).astype(jnp.int32), 0, tile_height
-    )
+    rect_min_x = jnp.clip((bbox_min_x / block).astype(jnp.int32), 0, tile_width)
+    rect_min_y = jnp.clip((bbox_min_y / block).astype(jnp.int32), 0, tile_height)
+    rect_max_x = jnp.clip((bbox_max_x / block + 1.0).astype(jnp.int32), 0, tile_width)
+    rect_max_y = jnp.clip((bbox_max_y / block + 1.0).astype(jnp.int32), 0, tile_height)
     span_x = rect_max_x - rect_min_x
     span_y = rect_max_y - rect_min_y
     state_valid = derived_finite & (span_x > 0) & (span_y > 0)
@@ -308,23 +293,19 @@ def _accutile_column_span_jax(
     current_min = jnp.where(intersects, line_min, previous_min)
     current_max = jnp.where(intersects, line_max, previous_max)
     ellipse_min = jnp.where(
-        (min_line <= state.argmin_outer)
-        & (state.argmin_outer < max_line),
+        (min_line <= state.argmin_outer) & (state.argmin_outer < max_line),
         state.cross_bbox_min,
         jnp.minimum(previous_min, current_min),
     )
     ellipse_max = jnp.where(
-        (min_line <= state.argmax_outer)
-        & (state.argmax_outer < max_line),
+        (min_line <= state.argmax_outer) & (state.argmax_outer < max_line),
         state.cross_bbox_max,
         jnp.maximum(previous_max, current_max),
     )
     block = jnp.float32(tile_size)
     min_v = jnp.maximum(
         state.cross_min,
-        jnp.minimum(
-            state.cross_max, (ellipse_min / block).astype(jnp.int32)
-        ),
+        jnp.minimum(state.cross_max, (ellipse_min / block).astype(jnp.int32)),
     )
     max_v = jnp.minimum(
         state.cross_max,
@@ -343,9 +324,7 @@ def _count_accutile_intersections_jax(
     tile_width: int,
     tile_height: int,
 ) -> jax.Array:
-    previous_min, previous_max = _accutile_initial_span_jax(
-        state, tile_size=tile_size
-    )
+    previous_min, previous_max = _accutile_initial_span_jax(state, tile_size=tile_size)
     counts = jnp.zeros(state.valid.shape, dtype=jnp.int32)
 
     def count_outer(
@@ -353,14 +332,12 @@ def _count_accutile_intersections_jax(
         carry: tuple[jax.Array, jax.Array, jax.Array],
     ) -> tuple[jax.Array, jax.Array, jax.Array]:
         previous_min, previous_max, counts = carry
-        min_v, max_v, current_min, current_max, active, _ = (
-            _accutile_column_span_jax(
-                state,
-                jnp.int32(outer_offset),
-                previous_min,
-                previous_max,
-                tile_size=tile_size,
-            )
+        min_v, max_v, current_min, current_max, active, _ = _accutile_column_span_jax(
+            state,
+            jnp.int32(outer_offset),
+            previous_min,
+            previous_max,
+            tile_size=tile_size,
         )
         counts = counts + jnp.where(active, max_v - min_v, 0)
         previous_min = jnp.where(active, current_min, previous_min)
@@ -411,15 +388,11 @@ def _emit_accutile_intersections_jax(
         0,
         gaussian_count - 1,
     )
-    previous = jnp.where(
-        owner > 0, cumulative[jnp.maximum(owner - 1, 0)], 0
-    )
+    previous = jnp.where(owner > 0, cumulative[jnp.maximum(owner - 1, 0)], 0)
     local = ranks - previous
     output_valid = ranks < valid_count
 
-    previous_min, previous_max = _accutile_initial_span_jax(
-        state, tile_size=tile_size
-    )
+    previous_min, previous_max = _accutile_initial_span_jax(state, tile_size=tile_size)
     emitted = jnp.zeros(state.valid.shape, dtype=jnp.int32)
     cross = jnp.zeros((capacity,), dtype=jnp.int32)
     outer_offset_of_slot = jnp.zeros((capacity,), dtype=jnp.int32)
@@ -441,14 +414,12 @@ def _emit_accutile_intersections_jax(
         jax.Array,
     ]:
         previous_min, previous_max, emitted, cross, outer_offset_of_slot = carry
-        min_v, max_v, current_min, current_max, active, _ = (
-            _accutile_column_span_jax(
-                state,
-                jnp.int32(outer_offset),
-                previous_min,
-                previous_max,
-                tile_size=tile_size,
-            )
+        min_v, max_v, current_min, current_max, active, _ = _accutile_column_span_jax(
+            state,
+            jnp.int32(outer_offset),
+            previous_min,
+            previous_max,
+            tile_size=tile_size,
         )
         span = jnp.where(active, max_v - min_v, 0)
         # The run this column contributes occupies the Gaussian's output slots
@@ -636,9 +607,7 @@ def intersect_tiles(
     tight_inputs = conics is not None and opacities is not None
     use_accutile = mode != "aabb" and tight_inputs
     if backend == "cuda_tile" and not use_accutile:
-        raise ValueError(
-            f"backend={backend!r} requires opacity-aware AccuTile inputs"
-        )
+        raise ValueError(f"backend={backend!r} requires opacity-aware AccuTile inputs")
     accutile_state = None
     min_x = min_y = span_x = None
     if mode == "accutile" and not tight_inputs:
@@ -707,15 +676,11 @@ def intersect_tiles(
                 & jnp.isfinite(depths)
             )
             safe_means = jnp.where(finite[:, None], means2d, 0.0)
-            safe_radii = jnp.where(finite[:, None], radii, 0.0).astype(
-                means2d.dtype
-            )
+            safe_radii = jnp.where(finite[:, None], radii, 0.0).astype(means2d.dtype)
             tile_min = jnp.floor((safe_means - safe_radii) / tile_size).astype(
                 jnp.int32
             )
-            tile_max = jnp.ceil((safe_means + safe_radii) / tile_size).astype(
-                jnp.int32
-            )
+            tile_max = jnp.ceil((safe_means + safe_radii) / tile_size).astype(jnp.int32)
             min_x = jnp.clip(tile_min[:, 0], 0, tile_width)
             min_y = jnp.clip(tile_min[:, 1], 0, tile_height)
             max_x = jnp.clip(tile_max[:, 0], 0, tile_width)
@@ -723,16 +688,12 @@ def intersect_tiles(
             span_x = jnp.maximum(max_x - min_x, 0)
             span_y = jnp.maximum(max_y - min_y, 0)
             gaussian_valid = valid & finite & jnp.all(radii > 0, axis=-1)
-            tiles_per_gaussian = jnp.where(
-                gaussian_valid, span_x * span_y, 0
-            ).astype(jnp.int32)
-        required_cumulative = _saturating_cumsum(
-            tiles_per_gaussian, 2**30 - 1
-        )
+            tiles_per_gaussian = jnp.where(gaussian_valid, span_x * span_y, 0).astype(
+                jnp.int32
+            )
+        required_cumulative = _saturating_cumsum(tiles_per_gaussian, 2**30 - 1)
         required_count = required_cumulative[-1]
-        cumulative = jnp.minimum(
-            required_cumulative, jnp.int32(capacity + 1)
-        )
+        cumulative = jnp.minimum(required_cumulative, jnp.int32(capacity + 1))
         valid_count = jnp.minimum(required_count, jnp.int32(capacity))
         overflow = required_count > capacity
     if capacity == 0:
@@ -793,9 +754,7 @@ def intersect_tiles(
                 jnp.arange(tile_count, dtype=jnp.int32),
                 side="left",
             )
-            offsets = offsets.astype(jnp.int32).reshape(
-                tile_height, tile_width
-            )
+            offsets = offsets.astype(jnp.int32).reshape(tile_height, tile_width)
     else:
         with jax.named_scope("intersection_sort"):
             order = jax.lax.stop_gradient(
@@ -816,9 +775,11 @@ def intersect_tiles(
 
         with jax.named_scope("intersection_offsets"):
             safe_tile_ids = jnp.clip(tile_ids, 0, tile_count - 1)
-            tile_counts = jnp.zeros((tile_count,), dtype=jnp.int32).at[
-                safe_tile_ids
-            ].add(output_valid.astype(jnp.int32))
+            tile_counts = (
+                jnp.zeros((tile_count,), dtype=jnp.int32)
+                .at[safe_tile_ids]
+                .add(output_valid.astype(jnp.int32))
+            )
             offsets = (jnp.cumsum(tile_counts) - tile_counts).reshape(
                 tile_height, tile_width
             )

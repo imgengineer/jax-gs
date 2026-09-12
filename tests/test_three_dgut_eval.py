@@ -11,7 +11,6 @@ from jax_gs.three_dgut import (
     rasterize_to_pixels_eval3d_extra,
 )
 
-
 pytestmark = pytest.mark.resource_heavy
 
 
@@ -136,16 +135,10 @@ def test_eval3d_chunk_size_does_not_truncate_tile_candidates():
 
 
 def test_eval3d_low_level_supports_leading_batch_dimensions():
-    means = jnp.asarray(
-        [[[0.0, 0.0, 2.0]], [[0.0, 0.0, 3.0]]], jnp.float32
-    )
-    quats = jnp.broadcast_to(
-        jnp.asarray([1.0, 0.0, 0.0, 0.0], jnp.float32), (2, 1, 4)
-    )
+    means = jnp.asarray([[[0.0, 0.0, 2.0]], [[0.0, 0.0, 3.0]]], jnp.float32)
+    quats = jnp.broadcast_to(jnp.asarray([1.0, 0.0, 0.0, 0.0], jnp.float32), (2, 1, 4))
     scales = jnp.full((2, 1, 3), 0.1, jnp.float32)
-    colors = jnp.asarray(
-        [[[[1.0, 0.0, 0.0]]], [[[0.0, 1.0, 0.0]]]], jnp.float32
-    )
+    colors = jnp.asarray([[[[1.0, 0.0, 0.0]]], [[[0.0, 1.0, 0.0]]]], jnp.float32)
     opacities = jnp.asarray([[[0.8]], [[0.6]]], jnp.float32)
     viewmats = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32), (2, 1, 4, 4))
     Ks = jnp.broadcast_to(
@@ -320,9 +313,7 @@ def test_eval3d_custom_rays_hit_distance_and_normals():
     )
 
     np.testing.assert_allclose(np.asarray(alpha[0, 4, 4, 0]), 0.8, atol=1e-6)
-    np.testing.assert_allclose(
-        np.asarray(accumulated[0, 4, 4, 0]), 1.6, atol=1e-5
-    )
+    np.testing.assert_allclose(np.asarray(accumulated[0, 4, 4, 0]), 1.6, atol=1e-5)
     np.testing.assert_allclose(np.asarray(expected[0, 4, 4, 0]), 2.0, atol=1e-5)
     np.testing.assert_allclose(
         np.asarray(combined[0, 4, 4]), [0.8, 0.0, 0.0, 1.6], atol=1e-5

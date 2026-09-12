@@ -1,9 +1,9 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import pytest
+from flax import nnx
 
 from jax_gs.config import DataConfig, TrainConfig
 from jax_gs.model import sh_to_rgb
@@ -168,9 +168,7 @@ def test_view_direction_normalization_matches_upstream_epsilon():
     module = _probe_module()
     features = jnp.asarray([[4.0], [5.0]], dtype=jnp.float32)
     embed_ids = jnp.asarray([2], dtype=jnp.int32)
-    dirs = jnp.asarray(
-        [[[0.0, 0.0, 1.0e-10], [0.0, 0.0, 0.0]]], dtype=jnp.float32
-    )
+    dirs = jnp.asarray([[[0.0, 0.0, 1.0e-10], [0.0, 0.0, 0.0]]], dtype=jnp.float32)
 
     corrections = module(features, embed_ids, dirs, 1)
 
@@ -202,19 +200,11 @@ def test_gradients_follow_zero_output_initialization_then_reach_all_layers():
     np.testing.assert_array_equal(initial_gradients.embeds.embedding[...], 0.0)
     np.testing.assert_array_equal(initial_gradients.color_head[0].kernel[...], 0.0)
     output_index = len(module.color_head) - 1
-    assert jnp.any(
-        initial_gradients.color_head[output_index].kernel[...] != 0.0
-    )
-    assert jnp.any(
-        initial_gradients.color_head[output_index].bias[...] != 0.0
-    )
+    assert jnp.any(initial_gradients.color_head[output_index].kernel[...] != 0.0)
+    assert jnp.any(initial_gradients.color_head[output_index].bias[...] != 0.0)
 
-    module.embeds.embedding[...] = (
-        jnp.abs(module.embeds.embedding[...]) + 0.1
-    )
-    module.color_head[0].kernel[...] = (
-        jnp.abs(module.color_head[0].kernel[...]) + 0.1
-    )
+    module.embeds.embedding[...] = jnp.abs(module.embeds.embedding[...]) + 0.1
+    module.color_head[0].kernel[...] = jnp.abs(module.color_head[0].kernel[...]) + 0.1
     module.color_head[0].bias[...] = 0.1
     module.color_head[-1].kernel[...] = 0.1
     gradients = nnx.grad(loss)(module)
@@ -233,12 +223,8 @@ def test_nnx_optimizer_trains_embeddings_and_color_head_under_jit():
         mlp_depth=1,
         rngs=nnx.Rngs(17),
     )
-    module.embeds.embedding[...] = (
-        jnp.abs(module.embeds.embedding[...]) + 0.1
-    )
-    module.color_head[0].kernel[...] = (
-        jnp.abs(module.color_head[0].kernel[...]) + 0.05
-    )
+    module.embeds.embedding[...] = jnp.abs(module.embeds.embedding[...]) + 0.1
+    module.color_head[0].kernel[...] = jnp.abs(module.color_head[0].kernel[...]) + 0.05
     module.color_head[0].bias[...] = 0.1
     features, embed_ids, dirs = _inputs()
     target = jnp.asarray(
@@ -319,9 +305,7 @@ def test_appearance_optimizer_applies_decay_only_to_embeddings():
     optimizer = create_appearance_optimizer(module, config)
     embedding_before = np.asarray(module.embeds.embedding[...]).copy()
     head_before = np.asarray(module.color_head[0].kernel[...]).copy()
-    zero_gradients = jax.tree.map(
-        jnp.zeros_like, nnx.state(module, nnx.Param)
-    )
+    zero_gradients = jax.tree.map(jnp.zeros_like, nnx.state(module, nnx.Param))
 
     optimizer.update(module, zero_gradients)
 
@@ -333,13 +317,9 @@ def test_appearance_optimizer_applies_decay_only_to_embeddings():
 def test_canonical_appearance_bake_uses_zero_embedding_and_direction():
     module = _probe_module()
     features = jnp.asarray([[4.0], [5.0]], dtype=jnp.float32)
-    color_logits = jnp.asarray(
-        [[0.2, -0.3, 0.4], [-0.5, 0.6, -0.7]], dtype=jnp.float32
-    )
+    color_logits = jnp.asarray([[0.2, -0.3, 0.4], [-0.5, 0.6, -0.7]], dtype=jnp.float32)
 
-    sh0, sh_rest = bake_appearance_sh(
-        module, features, color_logits, sh_degree=1
-    )
+    sh0, sh_rest = bake_appearance_sh(module, features, color_logits, sh_degree=1)
 
     expected_rgb = jax.nn.sigmoid(
         module(

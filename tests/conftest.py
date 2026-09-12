@@ -1,6 +1,5 @@
 import os
 
-
 # Must be set before test modules import JAX. This keeps the test runner from
 # reserving most GPU memory and is especially important when a desktop session
 # or another CUDA process is active.

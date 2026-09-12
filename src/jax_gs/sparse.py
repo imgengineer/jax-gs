@@ -8,10 +8,11 @@ array values.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import operator
-from typing import Iterator, NamedTuple
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -22,7 +23,6 @@ from .low_level import (
     MAX_ALPHA,
     _broadcast_means_with_absgrad_probe,
 )
-
 
 _WORD_BITS = 32
 _MAX_INT32_INDEX = 2**30 - 2
@@ -212,9 +212,7 @@ def build_sparse_tile_layout(
     if max_active_tiles is None:
         active_capacity = default_capacity
     else:
-        active_capacity = _static_int(
-            "max_active_tiles", max_active_tiles, minimum=0
-        )
+        active_capacity = _static_int("max_active_tiles", max_active_tiles, minimum=0)
     if active_capacity > _MAX_INT32_INDEX:
         raise ValueError("max_active_tiles is too large for int32 indexing")
 
@@ -223,16 +221,12 @@ def build_sparse_tile_layout(
     tiles_per_image = tile_width * tile_height
     tile_rows = rows // tile_size
     tile_columns = columns // tile_size
-    dense_tile_ids = (
-        image_ids * tiles_per_image + tile_rows * tile_width + tile_columns
-    )
-    pixel_ids_in_tile = (
-        (rows % tile_size) * tile_size + columns % tile_size
-    )
+    dense_tile_ids = image_ids * tiles_per_image + tile_rows * tile_width + tile_columns
+    pixel_ids_in_tile = (rows % tile_size) * tile_size + columns % tile_size
 
-    active_tile_mask_flat = jnp.zeros(
-        (dense_tile_count,), dtype=jnp.bool_
-    ).at[dense_tile_ids].set(True)
+    active_tile_mask_flat = (
+        jnp.zeros((dense_tile_count,), dtype=jnp.bool_).at[dense_tile_ids].set(True)
+    )
     required_count = jnp.count_nonzero(active_tile_mask_flat).astype(jnp.int32)
     valid_count = jnp.minimum(required_count, jnp.int32(active_capacity))
     overflow = required_count > active_capacity
@@ -243,22 +237,22 @@ def build_sparse_tile_layout(
     active_tiles = jnp.where(active_slots, active_tiles, -1)
 
     original_ids = jnp.arange(pixel_count, dtype=jnp.int32)
-    pixel_map = jnp.lexsort(
-        (original_ids, pixel_ids_in_tile, dense_tile_ids)
-    ).astype(jnp.int32)
+    pixel_map = jnp.lexsort((original_ids, pixel_ids_in_tile, dense_tile_ids)).astype(
+        jnp.int32
+    )
 
-    words_per_tile = (
-        tile_size * tile_size + _WORD_BITS - 1
-    ) // _WORD_BITS
+    words_per_tile = (tile_size * tile_size + _WORD_BITS - 1) // _WORD_BITS
     if active_capacity:
         safe_active_tiles = jnp.where(active_slots, active_tiles, 0)
-        tile_to_active = jnp.full(
-            (dense_tile_count,), -1, dtype=jnp.int32
-        ).at[safe_active_tiles].max(
-            jnp.where(
-                active_slots,
-                jnp.arange(active_capacity, dtype=jnp.int32),
-                -1,
+        tile_to_active = (
+            jnp.full((dense_tile_count,), -1, dtype=jnp.int32)
+            .at[safe_active_tiles]
+            .max(
+                jnp.where(
+                    active_slots,
+                    jnp.arange(active_capacity, dtype=jnp.int32),
+                    -1,
+                )
             )
         )
         active_ranks = tile_to_active[dense_tile_ids]
@@ -267,26 +261,24 @@ def build_sparse_tile_layout(
         word_ids = pixel_ids_in_tile // _WORD_BITS
         bit_ids = (pixel_ids_in_tile % _WORD_BITS).astype(jnp.uint32)
         bit_values = jnp.left_shift(jnp.uint32(1), bit_ids)
-        tile_pixel_mask = jnp.zeros(
-            (active_capacity, words_per_tile), dtype=jnp.uint32
-        ).at[safe_ranks, word_ids].add(
-            jnp.where(retained, bit_values, jnp.uint32(0))
+        tile_pixel_mask = (
+            jnp.zeros((active_capacity, words_per_tile), dtype=jnp.uint32)
+            .at[safe_ranks, word_ids]
+            .add(jnp.where(retained, bit_values, jnp.uint32(0)))
         )
-        tile_counts = jnp.zeros(
-            (active_capacity,), dtype=jnp.int32
-        ).at[safe_ranks].add(retained.astype(jnp.int32))
+        tile_counts = (
+            jnp.zeros((active_capacity,), dtype=jnp.int32)
+            .at[safe_ranks]
+            .add(retained.astype(jnp.int32))
+        )
         tile_pixel_cumsum = jnp.cumsum(tile_counts, dtype=jnp.int32)
     else:
-        tile_pixel_mask = jnp.zeros(
-            (0, words_per_tile), dtype=jnp.uint32
-        )
+        tile_pixel_mask = jnp.zeros((0, words_per_tile), dtype=jnp.uint32)
         tile_pixel_cumsum = jnp.zeros((1,), dtype=jnp.int32)
 
     return PaddedSparseTileLayout(
         active_tiles,
-        active_tile_mask_flat.reshape(
-            n_images, tile_height, tile_width
-        ),
+        active_tile_mask_flat.reshape(n_images, tile_height, tile_width),
         tile_pixel_mask,
         tile_pixel_cumsum,
         pixel_map,
@@ -336,9 +328,7 @@ def isect_tiles_sparse(
     radii = jax.lax.stop_gradient(jnp.asarray(radii))
     depths = jax.lax.stop_gradient(jnp.asarray(depths))
     tile_mask = jax.lax.stop_gradient(jnp.asarray(tile_mask, dtype=jnp.bool_))
-    active_tiles = jax.lax.stop_gradient(
-        jnp.asarray(active_tiles, dtype=jnp.int32)
-    )
+    active_tiles = jax.lax.stop_gradient(jnp.asarray(active_tiles, dtype=jnp.int32))
     if tile_mask.shape != (n_images, tile_height, tile_width):
         raise ValueError(
             "tile_mask must have shape [n_images, tile_height, tile_width]"
@@ -346,9 +336,7 @@ def isect_tiles_sparse(
     if active_tiles.ndim != 1:
         raise ValueError("active_tiles must have shape [active_capacity]")
     active_capacity = active_tiles.shape[0]
-    normalized_active_count = _normalize_count(
-        active_tile_count, active_capacity
-    )
+    normalized_active_count = _normalize_count(active_tile_count, active_capacity)
     if active_tile_count is None:
         normalized_active_count = jnp.count_nonzero(
             (active_tiles >= 0) & (active_tiles < dense_tile_count)
@@ -365,9 +353,7 @@ def isect_tiles_sparse(
             raise ValueError("packed depths must have shape [nnz]")
         if image_ids is None:
             raise ValueError("packed inputs require image_ids")
-        image_of = jax.lax.stop_gradient(
-            jnp.asarray(image_ids, dtype=jnp.int32)
-        )
+        image_of = jax.lax.stop_gradient(jnp.asarray(image_ids, dtype=jnp.int32))
         if image_of.shape != (gaussian_count,):
             raise ValueError("image_ids must have shape [nnz]")
         flat_means = means2d
@@ -406,9 +392,7 @@ def isect_tiles_sparse(
     if intersection_capacity > _MAX_INT32_INDEX:
         raise ValueError("max_intersections is too large for int32 indexing")
 
-    empty_ids = jnp.full(
-        (intersection_capacity,), -1, dtype=jnp.int32
-    )
+    empty_ids = jnp.full((intersection_capacity,), -1, dtype=jnp.int32)
     empty_offsets = jnp.zeros((active_capacity + 1,), dtype=jnp.int32)
     if gaussian_count == 0 or active_capacity == 0:
         return PaddedSparseIntersections(
@@ -427,12 +411,8 @@ def isect_tiles_sparse(
     )
     safe_means = jnp.where(finite[:, None], flat_means, 0.0)
     safe_radii = jnp.where(finite[:, None], flat_radii, 0.0)
-    tile_min = jnp.floor((safe_means - safe_radii) / tile_size).astype(
-        jnp.int32
-    )
-    tile_max = jnp.ceil((safe_means + safe_radii) / tile_size).astype(
-        jnp.int32
-    )
+    tile_min = jnp.floor((safe_means - safe_radii) / tile_size).astype(jnp.int32)
+    tile_max = jnp.ceil((safe_means + safe_radii) / tile_size).astype(jnp.int32)
     min_x = jnp.clip(tile_min[:, 0], 0, tile_width)
     min_y = jnp.clip(tile_min[:, 1], 0, tile_height)
     max_x = jnp.clip(tile_max[:, 0], 0, tile_width)
@@ -467,9 +447,7 @@ def isect_tiles_sparse(
         & (active_y[None, :] < max_y[:, None])
     )
     required_count = jnp.count_nonzero(overlaps).astype(jnp.int32)
-    valid_count = jnp.minimum(
-        required_count, jnp.int32(intersection_capacity)
-    )
+    valid_count = jnp.minimum(required_count, jnp.int32(intersection_capacity))
     overflow = required_count > intersection_capacity
     if intersection_capacity == 0:
         return PaddedSparseIntersections(
@@ -486,9 +464,7 @@ def isect_tiles_sparse(
     )[0]
     selected_gaussians = overlap_positions // active_capacity
     selected_active_ranks = overlap_positions % active_capacity
-    selected_valid = (
-        jnp.arange(intersection_capacity, dtype=jnp.int32) < valid_count
-    )
+    selected_valid = jnp.arange(intersection_capacity, dtype=jnp.int32) < valid_count
     selected_depths = flat_depths[selected_gaussians].astype(jnp.float32)
     order = jax.lax.stop_gradient(
         jnp.lexsort(
@@ -503,14 +479,14 @@ def isect_tiles_sparse(
     selected_gaussians = selected_gaussians[order]
     selected_active_ranks = selected_active_ranks[order]
     selected_valid = selected_valid[order]
-    flatten_ids = jnp.where(
-        selected_valid, selected_gaussians, -1
-    ).astype(jnp.int32)
+    flatten_ids = jnp.where(selected_valid, selected_gaussians, -1).astype(jnp.int32)
 
     safe_ranks = jnp.where(selected_valid, selected_active_ranks, 0)
-    counts = jnp.zeros((active_capacity,), dtype=jnp.int32).at[
-        safe_ranks
-    ].add(selected_valid.astype(jnp.int32))
+    counts = (
+        jnp.zeros((active_capacity,), dtype=jnp.int32)
+        .at[safe_ranks]
+        .add(selected_valid.astype(jnp.int32))
+    )
     tile_offsets = jnp.concatenate(
         (
             jnp.zeros((1,), dtype=jnp.int32),
@@ -543,9 +519,7 @@ def _decode_sparse_pixels(
 ) -> _DecodedSparsePixels:
     """Decode the uint32 layout back into tile/raster-ordered pixels."""
 
-    active_tiles = jax.lax.stop_gradient(
-        jnp.asarray(active_tiles, dtype=jnp.int32)
-    )
+    active_tiles = jax.lax.stop_gradient(jnp.asarray(active_tiles, dtype=jnp.int32))
     raw_pixel_mask = jnp.asarray(tile_pixel_mask)
     if raw_pixel_mask.dtype != jnp.uint32:
         raise TypeError(
@@ -575,22 +549,15 @@ def _decode_sparse_pixels(
             "an empty active-tile layout"
         )
     if image_ids is not None:
-        image_ids = jax.lax.stop_gradient(
-            jnp.asarray(image_ids, dtype=jnp.int32)
-        )
+        image_ids = jax.lax.stop_gradient(jnp.asarray(image_ids, dtype=jnp.int32))
         if image_ids.shape != (pixel_count,):
             raise ValueError("image_ids must have shape [P]")
 
-    normalized_active_count = _normalize_count(
-        active_tile_count, active_capacity
-    )
+    normalized_active_count = _normalize_count(active_tile_count, active_capacity)
     if active_tile_count is None:
-        normalized_active_count = jnp.count_nonzero(active_tiles >= 0).astype(
-            jnp.int32
-        )
+        normalized_active_count = jnp.count_nonzero(active_tiles >= 0).astype(jnp.int32)
     active_slots = (
-        jnp.arange(active_capacity, dtype=jnp.int32)
-        < normalized_active_count
+        jnp.arange(active_capacity, dtype=jnp.int32) < normalized_active_count
     )
     active_in_range = active_slots & (active_tiles >= 0)
     tile_pixel_count = tile_size * tile_size
@@ -598,11 +565,7 @@ def _decode_sparse_pixels(
     word_ids = pixel_ids_in_tile // _WORD_BITS
     bit_ids = (pixel_ids_in_tile % _WORD_BITS).astype(jnp.uint32)
     requested = (
-        (
-            tile_pixel_mask[:, word_ids]
-            >> bit_ids[None, :]
-        )
-        & jnp.uint32(1)
+        (tile_pixel_mask[:, word_ids] >> bit_ids[None, :]) & jnp.uint32(1)
     ).astype(jnp.bool_)
     requested = requested & active_in_range[:, None]
     decoded_count = jnp.count_nonzero(requested).astype(jnp.int32)
@@ -611,14 +574,11 @@ def _decode_sparse_pixels(
     )[0]
     active_ranks = selected_positions // tile_pixel_count
     selected_pixel_ids = selected_positions % tile_pixel_count
-    selected_valid = (
-        jnp.arange(pixel_count, dtype=jnp.int32)
-        < jnp.minimum(decoded_count, jnp.int32(pixel_count))
+    selected_valid = jnp.arange(pixel_count, dtype=jnp.int32) < jnp.minimum(
+        decoded_count, jnp.int32(pixel_count)
     )
 
-    safe_active_ranks = jnp.clip(
-        active_ranks, 0, max(active_capacity - 1, 0)
-    )
+    safe_active_ranks = jnp.clip(active_ranks, 0, max(active_capacity - 1, 0))
     if active_capacity:
         selected_tiles = active_tiles[safe_active_ranks]
     else:
@@ -634,22 +594,19 @@ def _decode_sparse_pixels(
     selected_tile_rows = selected_tiles_in_image // tile_width
     selected_tile_columns = selected_tiles_in_image % tile_width
     rows = selected_tile_rows * tile_size + selected_pixel_ids // tile_size
-    columns = (
-        selected_tile_columns * tile_size + selected_pixel_ids % tile_size
-    )
+    columns = selected_tile_columns * tile_size + selected_pixel_ids % tile_size
     coordinates_valid = (
-        (rows >= 0)
-        & (rows < image_height)
-        & (columns >= 0)
-        & (columns < image_width)
+        (rows >= 0) & (rows < image_height) & (columns >= 0) & (columns < image_width)
     )
 
     output_slots_in_range = (pixel_map >= 0) & (pixel_map < pixel_count)
     safe_output_slots = jnp.clip(pixel_map, 0, max(pixel_count - 1, 0))
     if pixel_count:
-        permutation_counts = jnp.zeros(
-            (pixel_count,), dtype=jnp.int32
-        ).at[safe_output_slots].add(output_slots_in_range.astype(jnp.int32))
+        permutation_counts = (
+            jnp.zeros((pixel_count,), dtype=jnp.int32)
+            .at[safe_output_slots]
+            .add(output_slots_in_range.astype(jnp.int32))
+        )
         permutation_valid = jnp.all(permutation_counts == 1)
     else:
         permutation_valid = jnp.asarray(True)
@@ -678,11 +635,7 @@ def _decode_sparse_pixels(
             | (sorted_supplied_images == selected_images)
         )
 
-    valid = (
-        selected_tile_valid
-        & coordinates_valid
-        & output_slots_in_range
-    )
+    valid = selected_tile_valid & coordinates_valid & output_slots_in_range
     layout_error = (
         (decoded_count != pixel_count)
         | (~permutation_valid)
@@ -775,12 +728,8 @@ def _validate_sparse_intersections(
     *,
     valid_count: jax.Array | int | None,
 ) -> _SparseIntersectionData:
-    tile_offsets = jax.lax.stop_gradient(
-        jnp.asarray(tile_offsets, dtype=jnp.int32)
-    )
-    flatten_ids = jax.lax.stop_gradient(
-        jnp.asarray(flatten_ids, dtype=jnp.int32)
-    )
+    tile_offsets = jax.lax.stop_gradient(jnp.asarray(tile_offsets, dtype=jnp.int32))
+    flatten_ids = jax.lax.stop_gradient(jnp.asarray(flatten_ids, dtype=jnp.int32))
     if tile_offsets.shape != (active_capacity + 1,):
         raise ValueError("tile_offsets must have shape [active_capacity + 1]")
     if flatten_ids.ndim != 1:
@@ -789,9 +738,7 @@ def _validate_sparse_intersections(
     normalized_count = _normalize_count(valid_count, intersection_capacity)
     if valid_count is None:
         normalized_count = jnp.count_nonzero(flatten_ids >= 0).astype(jnp.int32)
-    offsets_in_range = (tile_offsets >= 0) & (
-        tile_offsets <= normalized_count
-    )
+    offsets_in_range = (tile_offsets >= 0) & (tile_offsets <= normalized_count)
     offsets_ordered = jnp.all(tile_offsets[1:] >= tile_offsets[:-1])
     intersection_slots = jnp.arange(intersection_capacity, dtype=jnp.int32)
     prefix_valid = jnp.all(
@@ -833,13 +780,9 @@ def _sparse_sample_weights(
     start = intersections.tile_offsets[active_rank]
     end = intersections.tile_offsets[active_rank + 1]
     positions = start + candidate_slots
-    safe_positions = jnp.clip(
-        positions, 0, max(intersection_capacity - 1, 0)
-    )
+    safe_positions = jnp.clip(positions, 0, max(intersection_capacity - 1, 0))
     flatten_ids = intersections.flatten_ids[safe_positions]
-    safe_flatten_ids = jnp.clip(
-        flatten_ids, 0, max(gaussians.slot_count - 1, 0)
-    )
+    safe_flatten_ids = jnp.clip(flatten_ids, 0, max(gaussians.slot_count - 1, 0))
     candidate_valid = (
         (positions < end)
         & (positions < intersections.valid_count)
@@ -867,17 +810,11 @@ def _sparse_sample_weights(
     delta_x = pixel_x - selected_means[:, 0]
     delta_y = pixel_y - selected_means[:, 1]
     sigma = (
-        0.5
-        * (
-            selected_conics[:, 0] * delta_x**2
-            + selected_conics[:, 2] * delta_y**2
-        )
+        0.5 * (selected_conics[:, 0] * delta_x**2 + selected_conics[:, 2] * delta_y**2)
         + selected_conics[:, 1] * delta_x * delta_y
     )
     alpha = jnp.minimum(selected_opacities * jnp.exp(-sigma), MAX_ALPHA)
-    alpha = jnp.nan_to_num(
-        alpha, nan=0.0, posinf=MAX_ALPHA, neginf=0.0
-    )
+    alpha = jnp.nan_to_num(alpha, nan=0.0, posinf=MAX_ALPHA, neginf=0.0)
     alpha_valid = (
         candidate_valid
         & jnp.isfinite(sigma)
@@ -892,9 +829,7 @@ def _sparse_sample_weights(
         )
     )
     next_transmittance = transmittance * (1.0 - alpha)
-    accepted = alpha_valid & (
-        next_transmittance > transmittance_threshold
-    )
+    accepted = alpha_valid & (next_transmittance > transmittance_threshold)
     weights = jnp.where(accepted, alpha * transmittance, 0.0)
     return safe_flatten_ids, weights, accepted
 
@@ -974,13 +909,8 @@ def rasterize_to_pixels_sparse(
         raise ValueError("tile_height does not cover image_height")
     if not math.isfinite(alpha_threshold) or alpha_threshold <= 0.0:
         raise ValueError("alpha_threshold must be positive and finite")
-    if (
-        not math.isfinite(transmittance_threshold)
-        or transmittance_threshold <= 0.0
-    ):
-        raise ValueError(
-            "transmittance_threshold must be positive and finite"
-        )
+    if not math.isfinite(transmittance_threshold) or transmittance_threshold <= 0.0:
+        raise ValueError("transmittance_threshold must be positive and finite")
 
     gaussians = _flatten_sparse_gaussians(
         means2d, conics, colors, opacities, packed=packed
@@ -1017,10 +947,7 @@ def rasterize_to_pixels_sparse(
     if gaussians.image_count is not None:
         dense_image_error = jnp.any(
             decoded.valid
-            & (
-                (decoded.image_ids < 0)
-                | (decoded.image_ids >= gaussians.image_count)
-            )
+            & ((decoded.image_ids < 0) | (decoded.image_ids >= gaussians.image_count))
         )
 
     tile_enabled = jnp.ones((pixel_count,), dtype=jnp.bool_)
@@ -1039,9 +966,7 @@ def rasterize_to_pixels_sparse(
         mask_images_valid = (decoded.image_ids >= 0) & (
             decoded.image_ids < masks.shape[0]
         )
-        safe_images = jnp.clip(
-            decoded.image_ids, 0, max(masks.shape[0] - 1, 0)
-        )
+        safe_images = jnp.clip(decoded.image_ids, 0, max(masks.shape[0] - 1, 0))
         active_capacity = jnp.asarray(active_tiles).shape[0]
         if active_capacity:
             safe_tiles = jnp.maximum(
@@ -1059,9 +984,7 @@ def rasterize_to_pixels_sparse(
         tile_ids_in_image = safe_tiles % (tile_width * tile_height)
         tile_rows = tile_ids_in_image // tile_width
         tile_columns = tile_ids_in_image % tile_width
-        tile_enabled = mask_images_valid & masks[
-            safe_images, tile_rows, tile_columns
-        ]
+        tile_enabled = mask_images_valid & masks[safe_images, tile_rows, tile_columns]
         mask_error = jnp.any(decoded.valid & ~mask_images_valid)
 
     if backgrounds is None:
@@ -1077,9 +1000,7 @@ def rasterize_to_pixels_sparse(
             gaussians.image_count is not None
             and backgrounds.shape[0] != gaussians.image_count
         ):
-            raise ValueError(
-                "backgrounds image dimension does not match dense inputs"
-            )
+            raise ValueError("backgrounds image dimension does not match dense inputs")
         if pixel_count:
             sorted_image_ids = image_ids[
                 jnp.clip(decoded.output_slots, 0, pixel_count - 1)
@@ -1090,16 +1011,12 @@ def rasterize_to_pixels_sparse(
             sorted_image_ids < backgrounds.shape[0]
         )
         sorted_backgrounds = backgrounds[
-            jnp.clip(
-                sorted_image_ids, 0, max(backgrounds.shape[0] - 1, 0)
-            )
+            jnp.clip(sorted_image_ids, 0, max(backgrounds.shape[0] - 1, 0))
         ]
         sorted_backgrounds = jnp.where(
             background_images_valid[:, None], sorted_backgrounds, 0.0
         )
-        background_error = jnp.any(
-            decoded.valid & ~background_images_valid
-        )
+        background_error = jnp.any(decoded.valid & ~background_images_valid)
 
     can_sample = (
         gaussians.slot_count > 0
@@ -1107,6 +1024,7 @@ def rasterize_to_pixels_sparse(
         and pixel_count > 0
     )
     if can_sample:
+
         def render_pixel(pixel_index):
             selected_ids, weights, _ = _sparse_sample_weights(
                 decoded.active_ranks[pixel_index],
@@ -1138,36 +1056,27 @@ def rasterize_to_pixels_sparse(
             jnp.arange(pixel_count, dtype=jnp.int32),
         )
     else:
-        sorted_colors = jnp.zeros(
-            (pixel_count, channels), dtype=gaussians.colors.dtype
-        )
-        sorted_alphas = jnp.zeros(
-            (pixel_count,), dtype=gaussians.opacities.dtype
-        )
-    sorted_colors = sorted_colors + sorted_backgrounds * (
-        1.0 - sorted_alphas[:, None]
-    )
+        sorted_colors = jnp.zeros((pixel_count, channels), dtype=gaussians.colors.dtype)
+        sorted_alphas = jnp.zeros((pixel_count,), dtype=gaussians.opacities.dtype)
+    sorted_colors = sorted_colors + sorted_backgrounds * (1.0 - sorted_alphas[:, None])
 
-    safe_output_slots = jnp.clip(
-        decoded.output_slots, 0, max(pixel_count - 1, 0)
+    safe_output_slots = jnp.clip(decoded.output_slots, 0, max(pixel_count - 1, 0))
+    render_colors = (
+        jnp.zeros_like(sorted_colors)
+        .at[safe_output_slots]
+        .set(jnp.where(decoded.valid[:, None], sorted_colors, 0.0))
     )
-    render_colors = jnp.zeros_like(sorted_colors).at[safe_output_slots].set(
-        jnp.where(decoded.valid[:, None], sorted_colors, 0.0)
+    render_alphas = (
+        jnp.zeros_like(sorted_alphas)
+        .at[safe_output_slots]
+        .set(jnp.where(decoded.valid, sorted_alphas, 0.0))[:, None]
     )
-    render_alphas = jnp.zeros_like(sorted_alphas).at[safe_output_slots].set(
-        jnp.where(decoded.valid, sorted_alphas, 0.0)
-    )[:, None]
 
     input_overflow = jnp.asarray(overflow, dtype=jnp.bool_)
     layout_error = (
-        decoded.layout_error
-        | dense_image_error
-        | mask_error
-        | background_error
+        decoded.layout_error | dense_image_error | mask_error | background_error
     )
-    combined_overflow = (
-        input_overflow | layout_error | intersections.error
-    )
+    combined_overflow = input_overflow | layout_error | intersections.error
     info = {
         "active_tile_count": decoded.active_tile_count,
         "decoded_pixel_count": decoded.decoded_count,
@@ -1177,10 +1086,9 @@ def rasterize_to_pixels_sparse(
         "overflow": combined_overflow,
     }
     if not return_info:
+
         def report_overflow(_):
-            jax.debug.callback(
-                _raise_sparse_rasterization_overflow, ordered=True
-            )
+            jax.debug.callback(_raise_sparse_rasterization_overflow, ordered=True)
             return jnp.asarray(0, dtype=jnp.int32)
 
         jax.lax.cond(

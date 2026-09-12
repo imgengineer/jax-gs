@@ -40,9 +40,7 @@ class Scene(ABC):
     def on_remove(self, remove_mask: jax.Array) -> None:
         del remove_mask
 
-    def on_relocate(
-        self, dead_indices: jax.Array, sampled_indices: jax.Array
-    ) -> None:
+    def on_relocate(self, dead_indices: jax.Array, sampled_indices: jax.Array) -> None:
         del dead_indices, sampled_indices
 
     def on_sample_add(self, sampled_indices: jax.Array) -> None:

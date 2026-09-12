@@ -1,6 +1,7 @@
 """Deformable and four-dimensional Gaussian splatting components."""
 
-from .deformation import DeformationTable, DeformNetwork
+from .deformation import DeformationTable as DeformationTable
+from .deformation import DeformNetwork
 from .hexplane import HexPlaneField
 from .regulation import (
     hexplane_regularization,

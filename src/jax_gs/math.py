@@ -7,8 +7,6 @@ be composed with :func:`jax.jit` and :func:`jax.vmap` without reshaping data.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import jax.numpy as jnp
 from jax import Array
 
@@ -110,7 +108,7 @@ def quat_scale_to_covar_preci(
     compute_preci: bool = True,
     triu: bool = False,
     eps: float = 1e-8,
-) -> tuple[Optional[Array], Optional[Array]]:
+) -> tuple[Array | None, Array | None]:
     """Convert quaternion/scale pairs to covariance and precision matrices.
 
     ``compute_covar``, ``compute_preci`` and ``triu`` are intended as static

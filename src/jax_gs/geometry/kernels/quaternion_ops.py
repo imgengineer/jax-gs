@@ -7,7 +7,6 @@ from numbers import Real
 import jax
 import jax.numpy as jnp
 
-
 SLERP_SMALL_ANGLE_DOT_THRESHOLD = 0.9995
 
 _FLOAT_DTYPES = (jnp.dtype(jnp.float32), jnp.dtype(jnp.float64))
@@ -21,9 +20,7 @@ def _expect_array(name: str, value: object) -> jax.Array:
 
 def _require_float(name: str, value: jax.Array) -> None:
     if value.dtype not in _FLOAT_DTYPES:
-        raise TypeError(
-            f"{name} must have dtype float32 or float64, got {value.dtype}"
-        )
+        raise TypeError(f"{name} must have dtype float32 or float64, got {value.dtype}")
 
 
 def _require_last_dim(name: str, value: jax.Array, size: int) -> None:
@@ -72,14 +69,8 @@ def _normalization_epsilon(dtype: jnp.dtype) -> float:
 def _quat_multiply_raw(q1: jax.Array, q2: jax.Array) -> jax.Array:
     vector1, scalar1 = q1[..., :3], q1[..., 3:4]
     vector2, scalar2 = q2[..., :3], q2[..., 3:4]
-    vector = (
-        scalar1 * vector2
-        + scalar2 * vector1
-        + jnp.cross(vector1, vector2)
-    )
-    scalar = scalar1 * scalar2 - jnp.sum(
-        vector1 * vector2, axis=-1, keepdims=True
-    )
+    vector = scalar1 * vector2 + scalar2 * vector1 + jnp.cross(vector1, vector2)
+    scalar = scalar1 * scalar2 - jnp.sum(vector1 * vector2, axis=-1, keepdims=True)
     return jnp.concatenate((vector, scalar), axis=-1)
 
 
@@ -98,16 +89,14 @@ def _blend_parameter(q_flat: jax.Array, t: float | jax.Array) -> jax.Array:
     t_array = _expect_array("t", t)
     if not jnp.issubdtype(t_array.dtype, jnp.floating):
         raise TypeError(
-            "t must be a floating-point array when array-valued, "
-            f"got {t_array.dtype}"
+            f"t must be a floating-point array when array-valued, got {t_array.dtype}"
         )
     t_flat = jnp.asarray(t_array, dtype=q_flat.dtype).reshape(-1)
     if t_flat.size == 1:
         return jnp.broadcast_to(t_flat, (count,))
     if t_flat.size != count:
         raise ValueError(
-            f"t must have batch size 1 or {count} when array-valued; "
-            f"got {t_flat.size}"
+            f"t must have batch size 1 or {count} when array-valued; got {t_flat.size}"
         )
     return t_flat
 
@@ -118,9 +107,7 @@ def _slerp_rows(q1: jax.Array, q2: jax.Array, t: jax.Array) -> jax.Array:
     t = t[..., None]
     dot = jnp.sum(q1 * q2, axis=-1, keepdims=True)
     q2_short = jnp.where(dot < 0, -q2, q2)
-    cosine = jnp.clip(
-        jnp.sum(q1 * q2_short, axis=-1, keepdims=True), -1, 1
-    )
+    cosine = jnp.clip(jnp.sum(q1 * q2_short, axis=-1, keepdims=True), -1, 1)
     use_lerp = cosine > SLERP_SMALL_ANGLE_DOT_THRESHOLD
 
     linear_raw = (1 - t) * q1 + t * q2_short
@@ -210,9 +197,7 @@ def quat_to_matrix(quat: jax.Array) -> jax.Array:
     ).reshape(quat.shape[:-1] + (3, 3))
 
 
-def quat_slerp(
-    q1: jax.Array, q2: jax.Array, t: float | jax.Array
-) -> jax.Array:
+def quat_slerp(q1: jax.Array, q2: jax.Array, t: float | jax.Array) -> jax.Array:
     """Spherically interpolate matching quaternion batches."""
 
     q1 = _validate_quaternion("q1", q1)
@@ -330,7 +315,9 @@ def _so3_log(quaternion: jax.Array) -> jax.Array:
     normalized = quaternion * jax.lax.rsqrt(safe_norm_sq)
     quaternion = jnp.where(needs_normalization, normalized, quaternion)
 
-    vector = jnp.where(quaternion[..., 3:4] < 0, -quaternion[..., :3], quaternion[..., :3])
+    vector = jnp.where(
+        quaternion[..., 3:4] < 0, -quaternion[..., :3], quaternion[..., :3]
+    )
     scalar_abs = jnp.abs(quaternion[..., 3:4])
     vector_norm_sq = jnp.sum(vector * vector, axis=-1, keepdims=True)
     small = vector_norm_sq < 1.0e-12
@@ -349,9 +336,7 @@ def _so3_exp(rotation_vector: jax.Array) -> jax.Array:
 
     quarter_angle_sq = 0.25 * angle_sq
     series_scale = 0.5 - quarter_angle_sq / 12 + angle_sq**2 / 2880
-    series_scalar = 1 - quarter_angle_sq * (
-        1 - angle_sq / 24 + angle_sq**2 / 720
-    )
+    series_scalar = 1 - quarter_angle_sq * (1 - angle_sq / 24 + angle_sq**2 / 720)
 
     safe_angle_sq = jnp.where(small, 1, angle_sq)
     angle = jnp.sqrt(safe_angle_sq)
@@ -359,7 +344,9 @@ def _so3_exp(rotation_vector: jax.Array) -> jax.Array:
     regular_scale = jnp.sin(half_angle) / angle
     regular_scalar = jnp.cos(half_angle)
 
-    vector = jnp.where(small, rotation_vector * series_scale, rotation_vector * regular_scale)
+    vector = jnp.where(
+        small, rotation_vector * series_scale, rotation_vector * regular_scale
+    )
     scalar = jnp.where(small, series_scalar, regular_scalar)
     return jnp.concatenate((vector, scalar), axis=-1)
 

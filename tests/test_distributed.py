@@ -1,8 +1,7 @@
-import numpy as np
-import pytest
-
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 
 import jax_gs
 from jax_gs.config import RasterizationConfig
@@ -14,7 +13,6 @@ from jax_gs.distributed import (
     cli,
 )
 
-
 _DISTRIBUTED_RENDER_CONFIG = RasterizationConfig(
     backend="reference",
     tile_size=4,
@@ -24,23 +22,13 @@ _DISTRIBUTED_RENDER_CONFIG = RasterizationConfig(
 
 
 def _distributed_render_inputs(sh_degree):
-    means = jnp.asarray(
-        [[[-0.08, 0.01, 2.0]], [[0.09, -0.02, 2.2]]], jnp.float32
-    )
-    quats = jnp.asarray(
-        [[[1.0, 0.1, 0.0, 0.0]], [[1.0, 0.0, 0.1, 0.0]]], jnp.float32
-    )
-    scales = jnp.asarray(
-        [[[0.08, 0.11, 0.09]], [[0.10, 0.07, 0.12]]], jnp.float32
-    )
+    means = jnp.asarray([[[-0.08, 0.01, 2.0]], [[0.09, -0.02, 2.2]]], jnp.float32)
+    quats = jnp.asarray([[[1.0, 0.1, 0.0, 0.0]], [[1.0, 0.0, 0.1, 0.0]]], jnp.float32)
+    scales = jnp.asarray([[[0.08, 0.11, 0.09]], [[0.10, 0.07, 0.12]]], jnp.float32)
     opacities = jnp.asarray([[0.7], [0.6]], jnp.float32)
     if sh_degree is None:
-        colors = jnp.asarray(
-            [[[0.8, 0.2, 0.1]], [[0.1, 0.4, 0.9]]], jnp.float32
-        )
-        extra_signals = jnp.asarray(
-            [[[0.2, 0.7]], [[0.8, 0.3]]], jnp.float32
-        )
+        colors = jnp.asarray([[[0.8, 0.2, 0.1]], [[0.1, 0.4, 0.9]]], jnp.float32)
+        extra_signals = jnp.asarray([[[0.2, 0.7]], [[0.8, 0.3]]], jnp.float32)
     else:
         basis_count = (sh_degree + 1) ** 2
         weights = jnp.where(
@@ -48,12 +36,16 @@ def _distributed_render_inputs(sh_degree):
             1.0,
             0.01 * (jnp.arange(basis_count) + 1),
         )
-        colors = jnp.asarray(
-            [[[0.8, 0.2, 0.1]], [[0.1, 0.4, 0.9]]], jnp.float32
-        )[:, :, None, :] * weights[None, None, :, None]
-        extra_signals = jnp.asarray(
-            [[[0.2, 0.7]], [[0.8, 0.3]]], jnp.float32
-        )[:, :, None, :] * weights[None, None, :, None]
+        colors = (
+            jnp.asarray([[[0.8, 0.2, 0.1]], [[0.1, 0.4, 0.9]]], jnp.float32)[
+                :, :, None, :
+            ]
+            * weights[None, None, :, None]
+        )
+        extra_signals = (
+            jnp.asarray([[[0.2, 0.7]], [[0.8, 0.3]]], jnp.float32)[:, :, None, :]
+            * weights[None, None, :, None]
+        )
     viewmats = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32), (2, 1, 4, 4))
     viewmats = viewmats.at[1, 0, 0, 3].set(0.04)
     Ks = jnp.broadcast_to(
@@ -246,18 +238,14 @@ def test_named_vmap_static_collectives():
     np.testing.assert_array_equal(np.asarray(exchanged), [[0, 10], [1, 11]])
 
     def collect_tensor(value):
-        gathered_leaf = all_gather_tensor_list(
-            2, [value], axis_name="rank"
-        )[0]
-        exchanged_leaf = all_to_all_tensor_list(
-            2, [value], axis_name="rank"
-        )[0]
+        gathered_leaf = all_gather_tensor_list(2, [value], axis_name="rank")[0]
+        exchanged_leaf = all_to_all_tensor_list(2, [value], axis_name="rank")[0]
         return gathered_leaf, exchanged_leaf
 
     values = jnp.arange(8, dtype=jnp.float32).reshape(2, 4)
-    gathered_leaf, exchanged_leaf = jax.jit(
-        jax.vmap(collect_tensor, axis_name="rank")
-    )(values)
+    gathered_leaf, exchanged_leaf = jax.jit(jax.vmap(collect_tensor, axis_name="rank"))(
+        values
+    )
     np.testing.assert_array_equal(
         np.asarray(gathered_leaf),
         [[0, 1, 2, 3, 4, 5, 6, 7], [0, 1, 2, 3, 4, 5, 6, 7]],
@@ -267,9 +255,7 @@ def test_named_vmap_static_collectives():
     )
 
 
-@pytest.mark.parametrize(
-    "sh_degree", [None, 0, 3], ids=["features", "sh0", "sh3"]
-)
+@pytest.mark.parametrize("sh_degree", [None, 0, 3], ids=["features", "sh0", "sh3"])
 def test_root_distributed_flag_matches_concatenated_scene_and_shard_gradients(
     sh_degree,
 ):
@@ -289,9 +275,7 @@ def test_root_distributed_flag_matches_concatenated_scene_and_shard_gradients(
         np.testing.assert_allclose(
             distributed_value, baseline_value, rtol=1e-5, atol=1e-6
         )
-    np.testing.assert_array_equal(
-        np.asarray(distributed_outputs[3]), [True, True]
-    )
+    np.testing.assert_array_equal(np.asarray(distributed_outputs[3]), [True, True])
     np.testing.assert_array_equal(np.asarray(distributed_outputs[4]), [2, 2])
     np.testing.assert_array_equal(
         np.asarray(distributed_outputs[5]),
@@ -303,24 +287,18 @@ def test_root_distributed_flag_matches_concatenated_scene_and_shard_gradients(
     )
 
     def distributed_loss(*values):
-        outputs = _render_distributed_shards(
-            *values, sh_degree=sh_degree
-        )
+        outputs = _render_distributed_shards(*values, sh_degree=sh_degree)
         return sum(jnp.sum(value) for value in outputs[:3])
 
     def baseline_loss(*values):
-        outputs = _render_concatenated_baseline(
-            *values, sh_degree=sh_degree
-        )
+        outputs = _render_concatenated_baseline(*values, sh_degree=sh_degree)
         return sum(jnp.sum(value) for value in outputs)
 
     argument_numbers = tuple(range(len(inputs)))
-    distributed_gradients = jax.grad(
-        distributed_loss, argnums=argument_numbers
-    )(*inputs)
-    baseline_gradients = jax.grad(baseline_loss, argnums=argument_numbers)(
+    distributed_gradients = jax.grad(distributed_loss, argnums=argument_numbers)(
         *inputs
     )
+    baseline_gradients = jax.grad(baseline_loss, argnums=argument_numbers)(*inputs)
     for distributed_gradient, baseline_gradient in zip(
         distributed_gradients, baseline_gradients, strict=True
     ):
@@ -338,12 +316,8 @@ def test_distributed_feature_exchange_supports_split_sh_and_multiple_cameras():
     inputs[6] = jnp.concatenate((inputs[6], second_view), axis=1)
     inputs[7] = jnp.concatenate((inputs[7], inputs[7]), axis=1)
 
-    distributed_outputs = _render_distributed_shards(
-        *inputs, sh_degree=3
-    )
-    baseline_outputs = _render_concatenated_baseline(
-        *inputs, sh_degree=3
-    )
+    distributed_outputs = _render_distributed_shards(*inputs, sh_degree=3)
+    baseline_outputs = _render_concatenated_baseline(*inputs, sh_degree=3)
     for distributed_value, baseline_value in zip(
         distributed_outputs[:2], baseline_outputs[:2], strict=True
     ):
@@ -394,9 +368,7 @@ def test_distributed_feature_exchange_masks_inactive_nan_rows():
         values[0] = means
         values[4] = colors
         values[5] = extra_signals
-        outputs = render(
-            *values, sh_degree=3, active_masks=active_masks
-        )
+        outputs = render(*values, sh_degree=3, active_masks=active_masks)
         return sum(jnp.sum(value) for value in outputs[:3])
 
     gradient_inputs = (inputs[0], inputs[4], inputs[5])

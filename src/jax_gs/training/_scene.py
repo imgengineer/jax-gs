@@ -36,8 +36,7 @@ class SceneTransform:
         cameras = np.asarray(camera_to_world)
         if cameras.ndim < 2 or cameras.shape[-2:] != (4, 4):
             raise ValueError(
-                "camera_to_world must have shape (..., 4, 4), "
-                f"got {cameras.shape}"
+                f"camera_to_world must have shape (..., 4, 4), got {cameras.shape}"
             )
         batched = cameras.reshape((-1, 4, 4))
         transformed = transform_cameras(self.matrix, batched)
@@ -49,8 +48,7 @@ class SceneTransform:
         cameras = np.asarray(world_to_camera)
         if cameras.ndim < 2 or cameras.shape[-2:] != (4, 4):
             raise ValueError(
-                "world_to_camera must have shape (..., 4, 4), "
-                f"got {cameras.shape}"
+                f"world_to_camera must have shape (..., 4, 4), got {cameras.shape}"
             )
         transformed = self.camera_to_world(np.linalg.inv(cameras))
         result = np.linalg.inv(transformed)
@@ -102,13 +100,9 @@ def _legacy_training_scene_scale(scene: ColmapScene) -> float:
     normalization_scale = float(
         np.max(np.linalg.norm(centers - center[None, :], axis=-1))
     )
-    normalized = (centers - center[None, :]) / max(
-        normalization_scale, 1.0e-6
-    )
+    normalized = (centers - center[None, :]) / max(normalization_scale, 1.0e-6)
     normalized_center = np.mean(normalized, axis=0)
-    extent = np.max(
-        np.linalg.norm(normalized - normalized_center[None, :], axis=-1)
-    )
+    extent = np.max(np.linalg.norm(normalized - normalized_center[None, :], axis=-1))
     return float(extent * 1.1)
 
 
@@ -131,13 +125,9 @@ def _training_scene_scale(
 ) -> float:
     """Return current-main's 1.1-margin extent in training coordinates."""
 
-    centers = transform.points(
-        scene.camtoworlds[:, :3, 3].astype(np.float64)
-    )
+    centers = transform.points(scene.camtoworlds[:, :3, 3].astype(np.float64))
     center = np.mean(centers, axis=0)
-    extent = np.max(
-        np.linalg.norm(centers - center[None, :], axis=-1)
-    )
+    extent = np.max(np.linalg.norm(centers - center[None, :], axis=-1))
     return float(extent * 1.1 * global_scale)
 
 

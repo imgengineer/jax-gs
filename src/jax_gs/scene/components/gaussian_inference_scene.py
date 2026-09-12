@@ -6,9 +6,9 @@ import math
 import warnings
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ..sh_compression import SH_COMPRESSION_MAP, SHCompressionMode
 from .base import Scene
@@ -100,12 +100,8 @@ class GaussianInferenceScene(Scene):
                 f"{self.sh_compression_mode}, component has "
                 f"{sh_compression_mode}"
             )
-        self.means_planar = jnp.concatenate(
-            (self.means_planar, means_planar), axis=1
-        )
-        self.qso_packed = jnp.concatenate(
-            (self.qso_packed, qso_packed), axis=0
-        )
+        self.means_planar = jnp.concatenate((self.means_planar, means_planar), axis=1)
+        self.qso_packed = jnp.concatenate((self.qso_packed, qso_packed), axis=0)
         self.colors_packed = jnp.concatenate(
             (self.colors_packed, colors_packed), axis=0
         )
@@ -158,8 +154,7 @@ class GaussianInferenceScene(Scene):
             )
         if means_planar.dtype != jnp.dtype(jnp.float32):
             raise TypeError(
-                "means_planar must have dtype float32; got "
-                f"{means_planar.dtype}"
+                f"means_planar must have dtype float32; got {means_planar.dtype}"
             )
         if qso_packed.dtype != jnp.dtype(jnp.float16):
             raise TypeError(
@@ -212,8 +207,7 @@ class GaussianInferenceScene(Scene):
     def get(self, component: str | int) -> dict[str, Any]:
         if self.is_empty():
             raise RuntimeError(
-                "GaussianInferenceScene has been released and contains no "
-                "packed arrays"
+                "GaussianInferenceScene has been released and contains no packed arrays"
             )
         if isinstance(component, int):
             if component < 0 or component >= len(self.component_names):
@@ -242,7 +236,7 @@ class GaussianInferenceScene(Scene):
         *,
         id: str,
         sh_compression: str = "none",
-    ) -> "GaussianInferenceScene":
+    ) -> GaussianInferenceScene:
         if hasattr(scene, "component_names") and len(scene.component_names) > 1:
             raise ValueError(
                 "from_gaussian_scene does not support multi-component scenes; "
@@ -274,8 +268,7 @@ class GaussianInferenceScene(Scene):
         ):
             if not _host_bool(jnp.all(jnp.isfinite(value))):
                 raise ValueError(
-                    f"from_gaussian_scene: {name} contains NaN or Inf after "
-                    "activation"
+                    f"from_gaussian_scene: {name} contains NaN or Inf after activation"
                 )
 
         colors_value = splats.get("colors", None)
@@ -330,7 +323,7 @@ class GaussianInferenceScene(Scene):
         sh_compression: str,
         *,
         id: str,
-    ) -> "GaussianInferenceScene":
+    ) -> GaussianInferenceScene:
         return cls._build(
             means=means,
             quats=quats,
@@ -356,7 +349,7 @@ class GaussianInferenceScene(Scene):
         sh_compression: str,
         id: str,
         skip_activation_checks: bool,
-    ) -> "GaussianInferenceScene":
+    ) -> GaussianInferenceScene:
         if sh_compression not in SH_COMPRESSION_MAP:
             raise ValueError(
                 "sh_compression must be one of {'none', '32b', '16b'}; "
@@ -464,8 +457,7 @@ def _check_activation_contract(
             indices, count = _mask_indices(bad)
             suffix = f"... ({count} total)" if count > 10 else ""
             raise ValueError(
-                f"tensor '{name}' contains NaN or Inf at indices "
-                f"{indices}{suffix}"
+                f"tensor '{name}' contains NaN or Inf at indices {indices}{suffix}"
             )
 
     bad_scales = scales <= 0
@@ -507,12 +499,8 @@ def _check_fp16_range(
         return
     finite_count = int(jax.device_get(jnp.count_nonzero(finite)))
     if finite_count:
-        minimum = float(
-            jax.device_get(jnp.min(jnp.where(finite, tensor, jnp.inf)))
-        )
-        maximum = float(
-            jax.device_get(jnp.max(jnp.where(finite, tensor, -jnp.inf)))
-        )
+        minimum = float(jax.device_get(jnp.min(jnp.where(finite, tensor, jnp.inf))))
+        maximum = float(jax.device_get(jnp.max(jnp.where(finite, tensor, -jnp.inf))))
     else:
         minimum = maximum = float("nan")
     nonfinite_count = int(jax.device_get(jnp.count_nonzero(~finite)))

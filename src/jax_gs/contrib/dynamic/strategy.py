@@ -5,9 +5,9 @@ from __future__ import annotations
 import operator
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ...model import GaussianModel
 from ...strategy import (
@@ -15,7 +15,7 @@ from ...strategy import (
     StrategyState,
     _default_growth_events,
 )
-from .deformation import DeformationTable
+from .deformation import DeformationTable as DeformationTable  # noqa: PLC0414
 
 
 class DynamicStrategyState(StrategyState):
@@ -109,7 +109,7 @@ class DynamicStrategy(DefaultStrategy):
         scene=None,
     ) -> dict[str, jax.Array]:
         if not isinstance(state, DynamicStrategyState):
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY004 - preserve the public state-contract error
                 "DynamicStrategy.refine called without a dynamic state; "
                 "create it with strategy.initialize_state(capacity=...)."
             )
@@ -141,9 +141,7 @@ class DynamicStrategy(DefaultStrategy):
         updated_mask = previous_mask & ~pruned
         surviving_new = valid_new & current_active[free_ids]
         inherited = surviving_new & parent_flags
-        target_flags = jnp.where(
-            valid_new, inherited, updated_mask[free_ids]
-        )
+        target_flags = jnp.where(valid_new, inherited, updated_mask[free_ids])
         refined_mask = updated_mask.at[free_ids].set(target_flags)
         state.dynamic_mask[...] = jnp.where(
             statistics["capacity_overflow"],

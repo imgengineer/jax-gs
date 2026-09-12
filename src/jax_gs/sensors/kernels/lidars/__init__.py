@@ -9,13 +9,12 @@ from .ops import (
     sensor_rays_to_sensor_angles,
 )
 from .types import (
-    REGISTERED_LIDAR_PROJECTIONS,
     REGISTERED_LIDAR_PROJECTION_NAMES,
+    REGISTERED_LIDAR_PROJECTIONS,
     RowOffsetStructuredSpinningLidarProjection,
     SpinningDirection,
     script_class_name,
 )
-
 
 __all__ = [
     "REGISTERED_LIDAR_PROJECTIONS",

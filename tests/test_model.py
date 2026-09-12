@@ -75,9 +75,7 @@ def test_point_cloud_scales_reduce_neighbor_count_for_small_inputs(
 
     model = GaussianModel.from_point_cloud(points, np.zeros_like(points), config)
 
-    expected = np.repeat(
-        (expected_rms * config.initial_scale)[:, None], 3, axis=1
-    )
+    expected = np.repeat((expected_rms * config.initial_scale)[:, None], 3, axis=1)
     np.testing.assert_allclose(
         np.asarray(model.scales[: points.shape[0]]), expected, rtol=1.0e-6
     )

@@ -7,9 +7,10 @@ result with explicit per-pixel counts and overflow metadata instead.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Iterator, NamedTuple
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -20,13 +21,13 @@ from .low_level import (
 )
 from .sparse import (
     PaddedSparseTileLayout,
-    _DecodedSparsePixels,
-    _SparseGaussianData,
-    _SparseIntersectionData,
     _decode_sparse_pixels,
+    _DecodedSparsePixels,
     _flatten_sparse_gaussians,
     _raise_sparse_rasterization_overflow,
     _sparse_sample_weights,
+    _SparseGaussianData,
+    _SparseIntersectionData,
     _static_int,
     _validate_sparse_intersections,
     build_sparse_tile_layout,
@@ -108,13 +109,8 @@ def _validate_query_geometry(
         raise ValueError("tile_height does not cover image_height")
     if not math.isfinite(alpha_threshold) or alpha_threshold <= 0.0:
         raise ValueError("alpha_threshold must be positive and finite")
-    if (
-        not math.isfinite(transmittance_threshold)
-        or transmittance_threshold <= 0.0
-    ):
-        raise ValueError(
-            "transmittance_threshold must be positive and finite"
-        )
+    if not math.isfinite(transmittance_threshold) or transmittance_threshold <= 0.0:
+        raise ValueError("transmittance_threshold must be positive and finite")
     return image_width, image_height, tile_size, tile_width, tile_height
 
 
@@ -182,17 +178,11 @@ def _evaluate_sparse_visibility(
     if gaussians.image_count is not None:
         dense_image_error = jnp.any(
             decoded.valid
-            & (
-                (decoded.image_ids < 0)
-                | (decoded.image_ids >= gaussians.image_count)
-            )
+            & ((decoded.image_ids < 0) | (decoded.image_ids >= gaussians.image_count))
         )
 
-    if (
-        gaussians.slot_count > 0
-        and intersection_capacity > 0
-        and pixel_count > 0
-    ):
+    if gaussians.slot_count > 0 and intersection_capacity > 0 and pixel_count > 0:
+
         def evaluate_pixel(pixel_index):
             return _sparse_sample_weights(
                 decoded.active_ranks[pixel_index],
@@ -211,15 +201,11 @@ def _evaluate_sparse_visibility(
             evaluate_pixel, jnp.arange(pixel_count, dtype=jnp.int32)
         )
     else:
-        selected_ids = jnp.zeros(
-            (pixel_count, intersection_capacity), dtype=jnp.int32
-        )
+        selected_ids = jnp.zeros((pixel_count, intersection_capacity), dtype=jnp.int32)
         weights = jnp.zeros(
             (pixel_count, intersection_capacity), dtype=gaussians.opacities.dtype
         )
-        accepted = jnp.zeros(
-            (pixel_count, intersection_capacity), dtype=jnp.bool_
-        )
+        accepted = jnp.zeros((pixel_count, intersection_capacity), dtype=jnp.bool_)
     if gaussians.dense_gaussians_per_image is None:
         local_ids = selected_ids
     else:
@@ -245,12 +231,10 @@ def _evaluate_sparse_visibility(
 def _scatter_sorted_rows(
     values: jax.Array,
     decoded: _DecodedSparsePixels,
-    fill_value: int | float,
+    fill_value: float,
 ) -> jax.Array:
     pixel_count = decoded.output_slots.shape[0]
-    safe_slots = jnp.clip(
-        decoded.output_slots, 0, max(pixel_count - 1, 0)
-    )
+    safe_slots = jnp.clip(decoded.output_slots, 0, max(pixel_count - 1, 0))
     valid_shape = (pixel_count,) + (1,) * (values.ndim - 1)
     valid = decoded.valid.reshape(valid_shape)
     initial = jnp.full(values.shape, fill_value, dtype=values.dtype)
@@ -398,39 +382,29 @@ def rasterize_contributing_gaussian_ids_sparse(
         if visibility.gaussians.dense_gaussians_per_image is None
         else visibility.gaussians.dense_gaussians_per_image
     )
-    complete_capacity = min(
-        per_pixel_gaussian_bound, intersection_capacity
-    )
+    complete_capacity = min(per_pixel_gaussian_bound, intersection_capacity)
     if max_contributors is None:
         contributor_capacity = complete_capacity
     else:
         contributor_capacity = _static_int(
             "max_contributors", max_contributors, minimum=0
         )
-    supplied_counts = jnp.asarray(
-        num_contributing_gaussians, dtype=jnp.int32
-    )
+    supplied_counts = jnp.asarray(num_contributing_gaussians, dtype=jnp.int32)
     if supplied_counts.shape != (pixel_count,):
         raise ValueError("num_contributing_gaussians must have shape [P]")
-    safe_slots = jnp.clip(
-        visibility.decoded.output_slots, 0, max(pixel_count - 1, 0)
-    )
+    safe_slots = jnp.clip(visibility.decoded.output_slots, 0, max(pixel_count - 1, 0))
     sorted_supplied_counts = supplied_counts[safe_slots]
-    sorted_counts = jnp.sum(
-        visibility.accepted, axis=-1, dtype=jnp.int32
-    )
+    sorted_counts = jnp.sum(visibility.accepted, axis=-1, dtype=jnp.int32)
     count_error = jnp.any(supplied_counts < 0) | jnp.any(
-        visibility.decoded.valid
-        & (sorted_supplied_counts != sorted_counts)
+        visibility.decoded.valid & (sorted_supplied_counts != sorted_counts)
     )
     required_count = (
         jnp.max(sorted_counts) if pixel_count else jnp.asarray(0, jnp.int32)
     )
-    valid_counts_sorted = jnp.minimum(
-        sorted_counts, jnp.int32(contributor_capacity)
-    )
+    valid_counts_sorted = jnp.minimum(sorted_counts, jnp.int32(contributor_capacity))
 
     if contributor_capacity and intersection_capacity:
+
         def select_pixel(pixel_index):
             positions = jnp.nonzero(
                 visibility.accepted[pixel_index],
@@ -452,26 +426,16 @@ def rasterize_contributing_gaussian_ids_sparse(
             select_pixel, jnp.arange(pixel_count, dtype=jnp.int32)
         )
     else:
-        sorted_ids = jnp.full(
-            (pixel_count, contributor_capacity), -1, dtype=jnp.int32
-        )
+        sorted_ids = jnp.full((pixel_count, contributor_capacity), -1, dtype=jnp.int32)
         sorted_weights = jnp.zeros(
             (pixel_count, contributor_capacity),
             dtype=visibility.gaussians.opacities.dtype,
         )
-    output_ids = _scatter_sorted_rows(
-        sorted_ids, visibility.decoded, -1
-    )
-    output_weights = _scatter_sorted_rows(
-        sorted_weights, visibility.decoded, 0.0
-    )
-    valid_counts = _scatter_sorted_rows(
-        valid_counts_sorted, visibility.decoded, 0
-    )
+    output_ids = _scatter_sorted_rows(sorted_ids, visibility.decoded, -1)
+    output_weights = _scatter_sorted_rows(sorted_weights, visibility.decoded, 0.0)
+    valid_counts = _scatter_sorted_rows(valid_counts_sorted, visibility.decoded, 0)
     result_overflow = (
-        visibility.overflow
-        | count_error
-        | (required_count > contributor_capacity)
+        visibility.overflow | count_error | (required_count > contributor_capacity)
     )
     return PaddedContributors(
         jax.lax.stop_gradient(output_ids.astype(jnp.int32)),
@@ -508,9 +472,7 @@ def rasterize_top_contributing_gaussian_ids_sparse(
 ):
     """Return the strongest contributors, restored to front-to-back order."""
 
-    num_depth_samples = _static_int(
-        "num_depth_samples", num_depth_samples, minimum=1
-    )
+    num_depth_samples = _static_int("num_depth_samples", num_depth_samples, minimum=1)
     visibility = _evaluate_sparse_visibility(
         means2d,
         conics,
@@ -540,15 +502,12 @@ def rasterize_top_contributing_gaussian_ids_sparse(
     candidate_positions = jnp.arange(selection_capacity, dtype=jnp.int32)
 
     def select_pixel(pixel_index):
-        weight_order = jnp.lexsort(
-            (candidate_positions, -padded_weights[pixel_index])
-        )
+        weight_order = jnp.lexsort((candidate_positions, -padded_weights[pixel_index]))
         selected_positions = weight_order[:num_depth_samples]
         selected_weights = padded_weights[pixel_index, selected_positions]
         selected_ids = padded_ids[pixel_index, selected_positions]
-        selected_valid = (
-            (selected_positions < intersection_capacity)
-            & (selected_weights > 0.0)
+        selected_valid = (selected_positions < intersection_capacity) & (
+            selected_weights > 0.0
         )
         depth_order = jnp.lexsort(
             (
@@ -568,12 +527,10 @@ def rasterize_top_contributing_gaussian_ids_sparse(
     sorted_ids, sorted_weights = jax.lax.map(
         select_pixel, jnp.arange(pixel_count, dtype=jnp.int32)
     )
-    output_ids = _scatter_sorted_rows(
-        sorted_ids, visibility.decoded, -1
-    ).astype(jnp.int32)
-    output_weights = _scatter_sorted_rows(
-        sorted_weights, visibility.decoded, 0.0
+    output_ids = _scatter_sorted_rows(sorted_ids, visibility.decoded, -1).astype(
+        jnp.int32
     )
+    output_weights = _scatter_sorted_rows(sorted_weights, visibility.decoded, 0.0)
     output_ids = jax.lax.stop_gradient(output_ids)
     output_weights = jax.lax.stop_gradient(output_weights)
     _report_query_overflow(visibility.overflow, return_info)
@@ -638,12 +595,8 @@ def _dense_layout_as_sparse(
         tile_width,
         tile_height,
     )
-    sparse_offsets = jnp.concatenate(
-        (tile_offsets.reshape(-1), normalized_count[None])
-    )
-    return _DenseSparseLayout(
-        layout, sparse_offsets, normalized_count, image_shape
-    )
+    sparse_offsets = jnp.concatenate((tile_offsets.reshape(-1), normalized_count[None]))
+    return _DenseSparseLayout(layout, sparse_offsets, normalized_count, image_shape)
 
 
 def rasterize_num_contributing_gaussians(
@@ -732,9 +685,7 @@ def rasterize_contributing_gaussian_ids(
     supplied_counts = jnp.asarray(num_contributing_gaussians, dtype=jnp.int32)
     expected_shape = dense.image_shape + (image_height, image_width)
     if supplied_counts.shape != expected_shape:
-        raise ValueError(
-            "num_contributing_gaussians shape must match the dense image"
-        )
+        raise ValueError("num_contributing_gaussians shape must match the dense image")
     result = rasterize_contributing_gaussian_ids_sparse(
         means2d,
         conics,

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Any, TypeAlias
 
-from flax import nnx
 import jax.numpy as jnp
+from flax import nnx
 
 from ...kernels.common.pose import DynamicPose, Pose
 
-
-FrameId: TypeAlias = str
+FrameId: TypeAlias = str  # noqa: UP040 - preserve runtime equality with str
 
 
 class Frame(nnx.Module):
@@ -39,7 +38,9 @@ class Frame(nnx.Module):
                 jnp.asarray(pose.start_pose.translation)
             )
             self.start_pose_rotation = nnx.Param(jnp.asarray(pose.start_pose.rotation))
-            self.end_pose_translation = nnx.Param(jnp.asarray(pose.end_pose.translation))
+            self.end_pose_translation = nnx.Param(
+                jnp.asarray(pose.end_pose.translation)
+            )
             self.end_pose_rotation = nnx.Param(jnp.asarray(pose.end_pose.rotation))
         else:
             raise TypeError("pose must be Pose or DynamicPose")

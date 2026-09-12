@@ -23,20 +23,20 @@ from jax_gs.rendering_types import resolve_tile_size
 
 
 def _minimal_rasterization_args():
-    return dict(
-        means=jnp.asarray([[0.0, 0.0, 2.0]], jnp.float32),
-        quats=jnp.asarray([[1.0, 0.0, 0.0, 0.0]], jnp.float32),
-        scales=jnp.asarray([[0.1, 0.1, 0.1]], jnp.float32),
-        opacities=jnp.asarray([0.8], jnp.float32),
-        colors=jnp.asarray([[1.0, 0.0, 0.0]], jnp.float32),
-        viewmats=jnp.eye(4, dtype=jnp.float32)[None],
-        Ks=jnp.asarray(
+    return {
+        "means": jnp.asarray([[0.0, 0.0, 2.0]], jnp.float32),
+        "quats": jnp.asarray([[1.0, 0.0, 0.0, 0.0]], jnp.float32),
+        "scales": jnp.asarray([[0.1, 0.1, 0.1]], jnp.float32),
+        "opacities": jnp.asarray([0.8], jnp.float32),
+        "colors": jnp.asarray([[1.0, 0.0, 0.0]], jnp.float32),
+        "viewmats": jnp.eye(4, dtype=jnp.float32)[None],
+        "Ks": jnp.asarray(
             [[[20.0, 0.0, 4.5], [0.0, 20.0, 4.5], [0.0, 0.0, 1.0]]],
             jnp.float32,
         ),
-        width=8,
-        height=8,
-    )
+        "width": 8,
+        "height": 8,
+    }
 
 
 def _minimal_2dgs_rasterization_args():
@@ -54,9 +54,7 @@ def test_renderer_config_public_api_and_default():
     assert isinstance(RendererConfig_MixedBatch(), RendererConfig)
     assert isinstance(RendererConfig_ParallelBatch(), RendererConfig)
     assert (
-        inspect.signature(jax_gs.rasterization)
-        .parameters["renderer_config"]
-        .default
+        inspect.signature(jax_gs.rasterization).parameters["renderer_config"].default
         is None
     )
 
@@ -163,9 +161,7 @@ def test_high_level_2dgs_sparse_gradient_adaptation_is_explicit():
 
 
 @pytest.mark.parametrize("leading_batch", [False, True])
-def test_high_level_2dgs_sparse_gradient_requires_unbatched_packed(
-    leading_batch
-):
+def test_high_level_2dgs_sparse_gradient_requires_unbatched_packed(leading_batch):
     kwargs = _minimal_2dgs_rasterization_args()
     packed = False
     match = "packed=True"
@@ -173,13 +169,9 @@ def test_high_level_2dgs_sparse_gradient_requires_unbatched_packed(
         packed = True
         match = "batch dimensions"
         for key in ("means", "quats", "scales", "opacities", "colors"):
-            kwargs[key] = jnp.broadcast_to(
-                kwargs[key], (2,) + kwargs[key].shape
-            )
+            kwargs[key] = jnp.broadcast_to(kwargs[key], (2,) + kwargs[key].shape)
         for key in ("viewmats", "Ks"):
-            kwargs[key] = jnp.broadcast_to(
-                kwargs[key], (2,) + kwargs[key].shape
-            )
+            kwargs[key] = jnp.broadcast_to(kwargs[key], (2,) + kwargs[key].shape)
     with pytest.raises(ValueError, match=match):
         jax_gs.rasterization_2dgs(
             **kwargs,
@@ -250,9 +242,7 @@ def test_distributed_flag_single_rank_matches_local_forward_metadata_and_gradien
         argnums=tuple(range(len(differentiable_values))),
         has_aux=True,
     )
-    (_, local_outputs), local_gradients = local_value_and_grad(
-        *differentiable_values
-    )
+    (_, local_outputs), local_gradients = local_value_and_grad(*differentiable_values)
     (_, distributed_outputs), distributed_gradients = distributed_value_and_grad(
         *differentiable_values
     )

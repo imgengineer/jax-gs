@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from io import BytesIO
-import math
 from pathlib import Path
 from typing import Any, Literal, overload
 
@@ -11,7 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from .model import GaussianModel
-
 
 ExportFormat = Literal["ply", "splat", "ply_compressed"]
 _SH_C0 = 0.28209479177387814
@@ -70,9 +69,11 @@ def part1by2_vec(x: Any) -> np.ndarray:
 def encode_morton3_vec(x: Any, y: Any, z: Any) -> np.ndarray:
     """Return 30-bit Morton codes for integer 3D coordinates."""
 
-    return (part1by2_vec(z) << np.uint32(2)) + (
-        part1by2_vec(y) << np.uint32(1)
-    ) + part1by2_vec(x)
+    return (
+        (part1by2_vec(z) << np.uint32(2))
+        + (part1by2_vec(y) << np.uint32(1))
+        + part1by2_vec(x)
+    )
 
 
 def sort_centers(centers: Any, indices: Any) -> np.ndarray:
@@ -86,9 +87,7 @@ def sort_centers(centers: Any, indices: Any) -> np.ndarray:
     lengths = centers.max(axis=0) - minimum
     lengths = np.where(lengths == 0, 1, lengths)
     coordinates = np.floor((centers - minimum) / lengths * 1024).astype(np.int32)
-    morton = encode_morton3_vec(
-        coordinates[:, 0], coordinates[:, 1], coordinates[:, 2]
-    )
+    morton = encode_morton3_vec(coordinates[:, 0], coordinates[:, 1], coordinates[:, 2])
     return indices[np.argsort(morton, kind="stable")]
 
 
@@ -187,9 +186,7 @@ def splat2ply_bytes(
     for index in range(quats.shape[1]):
         buffer.write(f"property float rot_{index}\n".encode())
     buffer.write(b"end_header\n")
-    data = np.concatenate(
-        [means, sh0, shN, opacities[:, None], scales, quats], axis=1
-    )
+    data = np.concatenate([means, sh0, shN, opacities[:, None], scales, quats], axis=1)
     buffer.write(data.astype("<f4", copy=False).tobytes())
     return buffer.getvalue()
 
@@ -214,13 +211,9 @@ def load_ply_to_splats(path: str | Path) -> dict[str, jax.Array]:
     vertex = ply.elements[0]
     count = len(vertex)
 
-    means = np.stack(
-        [np.asarray(vertex[name]) for name in ("x", "y", "z")], axis=1
-    )
+    means = np.stack([np.asarray(vertex[name]) for name in ("x", "y", "z")], axis=1)
     opacities = np.asarray(vertex["opacity"])
-    sh0 = np.stack(
-        [np.asarray(vertex[f"f_dc_{index}"]) for index in range(3)], axis=1
-    )
+    sh0 = np.stack([np.asarray(vertex[f"f_dc_{index}"]) for index in range(3)], axis=1)
 
     rest_names = sorted(
         (prop.name for prop in vertex.properties if prop.name.startswith("f_rest_")),
@@ -449,9 +442,7 @@ def _prepare_export_arrays(
     )
 
 
-def export_ply(
-    splats: GaussianModel | Mapping[str, Any], path: str | Path
-) -> Path:
+def export_ply(splats: GaussianModel | Mapping[str, Any], path: str | Path) -> Path:
     """Export active splats in the conventional 3DGS binary PLY layout."""
 
     arrays = _active_splats(splats)
@@ -459,9 +450,7 @@ def export_ply(
     sh0 = arrays["sh0"].reshape(len(means), 3).astype("<f4")
     # The reference 3DGS PLY layout stores all coefficients for channel R,
     # then G, then B (not basis-major as used by the model tensor).
-    sh_rest = (
-        arrays["sh_rest"].transpose(0, 2, 1).reshape(len(means), -1).astype("<f4")
-    )
+    sh_rest = arrays["sh_rest"].transpose(0, 2, 1).reshape(len(means), -1).astype("<f4")
     opacity = arrays["opacity_logits"].reshape(len(means), 1).astype("<f4")
     scales = arrays["log_scales"].astype("<f4")
     quats = arrays["quats"].astype("<f4")
@@ -496,9 +485,7 @@ def export_ply(
     return path
 
 
-def export_splat(
-    splats: GaussianModel | Mapping[str, Any], path: str | Path
-) -> Path:
+def export_splat(splats: GaussianModel | Mapping[str, Any], path: str | Path) -> Path:
     """Export active splats in gsplat's 32-byte web-viewer layout."""
 
     arrays = _active_splats(splats)
@@ -553,7 +540,7 @@ def export_splats(
     command-line interface.
     """
 
-    if isinstance(means, GaussianModel) or isinstance(means, Mapping):
+    if isinstance(means, (GaussianModel, Mapping)):
         if any(value is not None for value in (quats, opacities, sh0, shN)):
             raise TypeError("the model export form accepts only (model, path)")
         path = Path(scales)

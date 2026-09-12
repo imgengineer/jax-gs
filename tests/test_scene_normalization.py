@@ -18,9 +18,7 @@ def _normalization_api() -> ModuleType:
 
 def _cameras_at(centers: np.ndarray) -> np.ndarray:
     centers = np.asarray(centers, dtype=np.float64)
-    cameras = np.broadcast_to(
-        np.eye(4, dtype=np.float64), (len(centers), 4, 4)
-    ).copy()
+    cameras = np.broadcast_to(np.eye(4, dtype=np.float64), (len(centers), 4, 4)).copy()
     cameras[:, :3, 3] = centers
     return cameras
 
@@ -175,9 +173,7 @@ def test_similarity_aligns_rotated_camera_up_with_pose_strict_scaling():
     )
     np.testing.assert_allclose(actual, expected, rtol=1e-7, atol=1e-7)
 
-    aligned_up = actual[:3, :3] @ cameras[0, :3, :3] @ np.asarray(
-        [0.0, -1.0, 0.0]
-    )
+    aligned_up = actual[:3, :3] @ cameras[0, :3, :3] @ np.asarray([0.0, -1.0, 0.0])
     np.testing.assert_allclose(
         aligned_up / np.linalg.norm(aligned_up),
         np.asarray([0.0, -1.0, 0.0]),
@@ -252,9 +248,7 @@ def test_align_principal_axes_orders_unique_axes_and_is_right_handed():
     aligned = normalize.transform_points(matrix, points)
     rotation = matrix[:3, :3]
 
-    np.testing.assert_allclose(
-        rotation @ rotation.T, np.eye(3), rtol=1e-6, atol=1e-6
-    )
+    np.testing.assert_allclose(rotation @ rotation.T, np.eye(3), rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(np.linalg.det(rotation), 1.0, atol=1e-6)
     np.testing.assert_allclose(np.median(aligned, axis=0), 0.0, atol=1e-6)
     covariance = np.cov(aligned, rowvar=False)
@@ -275,18 +269,14 @@ def test_compute_scene_transform_composes_upside_down_fix():
     points_after_t1 = normalize.transform_points(t1, points)
     t2 = normalize.align_principal_axes(points_after_t1)
     points_before_fix = normalize.transform_points(t2, points_after_t1)
-    assert np.median(points_before_fix[:, 2]) > np.mean(
-        points_before_fix[:, 2]
-    )
+    assert np.median(points_before_fix[:, 2]) > np.mean(points_before_fix[:, 2])
     t3 = np.diag([1.0, -1.0, -1.0, 1.0])
     expected = t3 @ t2 @ t1
 
     transform = compute_scene_transform(scene, normalize_world_space=True)
 
     assert isinstance(transform, SceneTransform)
-    np.testing.assert_allclose(
-        transform.matrix, expected, rtol=1e-6, atol=1e-6
-    )
+    np.testing.assert_allclose(transform.matrix, expected, rtol=1e-6, atol=1e-6)
     normalized_points = transform.points(points)
     np.testing.assert_allclose(
         normalized_points,
@@ -294,9 +284,7 @@ def test_compute_scene_transform_composes_upside_down_fix():
         rtol=1e-6,
         atol=1e-6,
     )
-    assert np.median(normalized_points[:, 2]) <= np.mean(
-        normalized_points[:, 2]
-    )
+    assert np.median(normalized_points[:, 2]) <= np.mean(normalized_points[:, 2])
 
 
 def test_compute_scene_transform_disabled_is_identity():
@@ -326,9 +314,7 @@ def test_scene_transform_preserves_camera_projection_geometry():
     scene = _scene(cameras, _anisotropic_symmetric_points())
     transform = compute_scene_transform(scene, normalize_world_space=True)
 
-    camera_points = np.asarray(
-        [[0.25, -0.1, 2.0], [-0.4, 0.3, 4.0]], dtype=np.float64
-    )
+    camera_points = np.asarray([[0.25, -0.1, 2.0], [-0.4, 0.3, 4.0]], dtype=np.float64)
     probe_points = camera_points + cameras[0, :3, 3]
     normalized_points = transform.points(probe_points)
     world_to_cameras = np.linalg.inv(cameras)
@@ -351,9 +337,7 @@ def test_scene_transform_preserves_camera_projection_geometry():
     assert nested_cameras.shape == (1,) + cameras.shape
     np.testing.assert_allclose(nested_cameras[0], expected_cameras)
 
-    original_camera_points = _camera_coordinates(
-        world_to_cameras[0], probe_points
-    )
+    original_camera_points = _camera_coordinates(world_to_cameras[0], probe_points)
     transformed_camera_points = _camera_coordinates(
         normalized_world_to_cameras[0], normalized_points
     )
@@ -365,8 +349,7 @@ def test_scene_transform_preserves_camera_projection_geometry():
         atol=1e-6,
     )
     np.testing.assert_allclose(
-        transformed_camera_points[:, :2]
-        / transformed_camera_points[:, 2:3],
+        transformed_camera_points[:, :2] / transformed_camera_points[:, 2:3],
         original_camera_points[:, :2] / original_camera_points[:, 2:3],
         rtol=1e-6,
         atol=1e-6,

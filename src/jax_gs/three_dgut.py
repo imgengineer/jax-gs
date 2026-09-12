@@ -9,9 +9,9 @@ which bounds the peak size of the sigma-point intermediates.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import IntEnum
-import math
 from typing import Any
 
 import jax
@@ -22,12 +22,12 @@ from .external_distortion import (
     distort_camera_rays,
     validate_external_distortion,
 )
-from .math import quat_to_rotmat, safe_normalize
 from .lidar import (
-    generate_lidar_image_points,
     LegacyLidarModel,
     RowOffsetStructuredSpinningLidarModelParametersExt,
+    generate_lidar_image_points,
 )
+from .math import quat_to_rotmat, safe_normalize
 from .rendering_types import CameraModel, RendererConfig, resolve_renderer_config
 
 
@@ -61,9 +61,7 @@ class UnscentedTransformParameters:
     def __post_init__(self) -> None:
         scaled_dimension = self.alpha * self.alpha * (3.0 + self.kappa)
         if scaled_dimension <= 0.0:
-            raise ValueError(
-                "alpha**2 * (3 + kappa) must be positive for the UT"
-            )
+            raise ValueError("alpha**2 * (3 + kappa) must be positive for the UT")
         if self.in_image_margin_factor < 0.0:
             raise ValueError("in_image_margin_factor must be non-negative")
 
@@ -224,15 +222,13 @@ def _matrix_to_quaternion(matrix: jax.Array) -> jax.Array:
     denominator = 2.0 * jnp.maximum(q_abs, jnp.asarray(0.1, matrix.dtype))
     candidates = candidates / denominator[..., :, None]
     best = jnp.argmax(q_abs, axis=-1)
-    quaternion = jnp.take_along_axis(
-        candidates, best[..., None, None], axis=-2
-    )[..., 0, :]
+    quaternion = jnp.take_along_axis(candidates, best[..., None, None], axis=-2)[
+        ..., 0, :
+    ]
     return safe_normalize(quaternion)
 
 
-def _quaternion_slerp(
-    start: jax.Array, end: jax.Array, time: jax.Array
-) -> jax.Array:
+def _quaternion_slerp(start: jax.Array, end: jax.Array, time: jax.Array) -> jax.Array:
     start = safe_normalize(start)
     end = safe_normalize(end)
     dot = jnp.sum(start * end, axis=-1)
@@ -285,9 +281,7 @@ def shutter_relative_frame_time(
             else jnp.full_like(y, 0.5)
         )
     return (
-        (width - jnp.ceil(x)) / float(width - 1)
-        if width > 1
-        else jnp.full_like(x, 0.5)
+        (width - jnp.ceil(x)) / float(width - 1) if width > 1 else jnp.full_like(x, 0.5)
     )
 
 
@@ -371,9 +365,7 @@ def _prepare_camera_parameters(
         if lidar_coeffs is not None:
             raise ValueError("lidar_coeffs requires camera_model='lidar'")
         if tangential_coeffs is not None or thin_prism_coeffs is not None:
-            raise ValueError(
-                "fisheye cameras only support radial_coeffs distortion"
-            )
+            raise ValueError("fisheye cameras only support radial_coeffs distortion")
         if ftheta_coeffs is not None:
             raise ValueError("fisheye cameras do not accept ftheta_coeffs")
         return (
@@ -423,14 +415,10 @@ def _opencv_pinhole_project(
     u = x / z_safe
     v = y / z_safe
     r2 = u * u + v * v
-    k1, k2, k3, k4, k5, k6 = (
-        radial_coeffs[..., index, None] for index in range(6)
-    )
+    k1, k2, k3, k4, k5, k6 = (radial_coeffs[..., index, None] for index in range(6))
     p1 = tangential_coeffs[..., 0, None]
     p2 = tangential_coeffs[..., 1, None]
-    s1, s2, s3, s4 = (
-        thin_prism_coeffs[..., index, None] for index in range(4)
-    )
+    s1, s2, s3, s4 = (thin_prism_coeffs[..., index, None] for index in range(4))
     numerator = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3))
     denominator = 1.0 + r2 * (k4 + r2 * (k5 + r2 * k6))
     radial = numerator / _safe_denominator(denominator)
@@ -458,13 +446,9 @@ def _opencv_fisheye_project(
     radius = jnp.sqrt(r2 + eps * eps)
     theta = jnp.arctan2(radius, z)
     theta2 = theta * theta
-    k1, k2, k3, k4 = (
-        radial_coeffs[..., index, None] for index in range(4)
-    )
+    k1, k2, k3, k4 = (radial_coeffs[..., index, None] for index in range(4))
     theta_distorted = theta * (
-        1.0
-        + theta2
-        * (k1 + theta2 * (k2 + theta2 * (k3 + theta2 * k4)))
+        1.0 + theta2 * (k1 + theta2 * (k2 + theta2 * (k3 + theta2 * k4)))
     )
     scale = theta_distorted / radius
     normalized = jnp.stack((scale * x, scale * y), -1)
@@ -488,9 +472,7 @@ def _invert_polynomial(
     target: jax.Array,
     iterations: int = 3,
 ) -> jax.Array:
-    derivative = tuple(
-        index * reference[index] for index in range(1, len(reference))
-    )
+    derivative = tuple(index * reference[index] for index in range(1, len(reference)))
     estimate = _polyval_ascending(approximate_inverse, target)
     for _ in range(iterations):
         residual = _polyval_ascending(reference, estimate) - target
@@ -517,18 +499,14 @@ def _ftheta_project(
             theta,
         )
     else:
-        pixel_distance = _polyval_ascending(
-            parameters.angle_to_pixeldist_poly, theta
-        )
+        pixel_distance = _polyval_ascending(parameters.angle_to_pixeldist_poly, theta)
     base_x = pixel_distance * x / radius
     base_y = pixel_distance * y / radius
     c, d, e = (
         jnp.asarray(value, camera_points.dtype) for value in parameters.linear_cde
     )
     principal = Ks[..., :2, 2][..., None, :] + 0.5
-    image_points = jnp.stack(
-        (c * base_x + d * base_y, e * base_x + base_y), axis=-1
-    )
+    image_points = jnp.stack((c * base_x + d * base_y, e * base_x + base_y), axis=-1)
     image_points = image_points + principal
     valid = (z > 0.0) & (theta_full < max_angle)
     image_points = jnp.where((z > 0.0)[..., None], image_points, 0.0)
@@ -562,16 +540,13 @@ def _project_camera_points_prepared(
                 ),
                 axis=-1,
             )
-            distorted = distort_camera_rays(
-                proxy_rays, external_distortion_coeffs
+            distorted = distort_camera_rays(proxy_rays, external_distortion_coeffs)
+            external_valid = (distorted[..., 2] > 0.0) & jnp.all(
+                jnp.isfinite(distorted), axis=-1
             )
-            external_valid = (
-                (distorted[..., 2] > 0.0)
-                & jnp.all(jnp.isfinite(distorted), axis=-1)
+            distorted_xy = (
+                distorted[..., :2] / _safe_denominator(distorted[..., 2])[..., None]
             )
-            distorted_xy = distorted[..., :2] / _safe_denominator(
-                distorted[..., 2]
-            )[..., None]
             projection_points = jnp.concatenate(
                 (distorted_xy, camera_points[..., 2:3]), axis=-1
             )
@@ -604,18 +579,14 @@ def _project_camera_points_prepared(
         )
     elif camera_model == "ftheta":
         assert camera_model == "ftheta" and ftheta_coeffs is not None
-        image_points, valid = _ftheta_project(
-            projection_points, Ks, ftheta_coeffs
-        )
+        image_points, valid = _ftheta_project(projection_points, Ks, ftheta_coeffs)
     else:
         assert camera_model == "lidar" and lidar_coeffs is not None
-        image_points, valid = LegacyLidarModel(
-            lidar_coeffs
-        ).camera_ray_to_image_point(projection_points, margin_factor)
-    if camera_model != "lidar":
-        valid = valid & _check_image_bounds(
-            image_points, width, height, margin_factor
+        image_points, valid = LegacyLidarModel(lidar_coeffs).camera_ray_to_image_point(
+            projection_points, margin_factor
         )
+    if camera_model != "lidar":
+        valid = valid & _check_image_bounds(image_points, width, height, margin_factor)
     valid = valid & external_valid & jnp.all(jnp.isfinite(image_points), axis=-1)
     return image_points, valid
 
@@ -747,21 +718,18 @@ def _project_world_points_from_poses(
                 image, width, height, rolling_shutter
             )
         else:
-            relative_time = LegacyLidarModel(
-                lidar_coeffs
-            ).shutter_relative_frame_time(image)
-        translation = (
-            (1.0 - relative_time)[..., None] * start_translation[..., None, :]
-            + relative_time[..., None] * end_translation[..., None, :]
-        )
+            relative_time = LegacyLidarModel(lidar_coeffs).shutter_relative_frame_time(
+                image
+            )
+        translation = (1.0 - relative_time)[..., None] * start_translation[
+            ..., None, :
+        ] + relative_time[..., None] * end_translation[..., None, :]
         quaternion = _quaternion_slerp(
             start_quaternion[..., None, :],
             end_quaternion[..., None, :],
             relative_time,
         )
-        camera_points = _transform_world_points(
-            world_points, translation, quaternion
-        )
+        camera_points = _transform_world_points(world_points, translation, quaternion)
         image, iteration_valid = _project_camera_points_prepared(
             camera_points,
             Ks,
@@ -962,20 +930,14 @@ def _project_gaussian_chunk(
         rolling_shutter,
         rolling_shutter_iterations,
     )
-    points_2d = points_2d.reshape(
-        batch_shape + (camera_count, gaussian_count, 7, 2)
-    )
-    valid_points = valid_points.reshape(
-        batch_shape + (camera_count, gaussian_count, 7)
-    )
-    weights_mean, weights_cov = compute_ut_weights(
-        ut_params, dtype=means.dtype
-    )
+    points_2d = points_2d.reshape(batch_shape + (camera_count, gaussian_count, 7, 2))
+    valid_points = valid_points.reshape(batch_shape + (camera_count, gaussian_count, 7))
+    weights_mean, weights_cov = compute_ut_weights(ut_params, dtype=means.dtype)
     weight_shape = (1,) * (points_2d.ndim - 2) + (7, 1)
     if ut_params.require_all_sigma_points_valid:
-        cumulative_valid = jnp.cumprod(
-            valid_points.astype(jnp.int32), axis=-1
-        ).astype(jnp.bool_)
+        cumulative_valid = jnp.cumprod(valid_points.astype(jnp.int32), axis=-1).astype(
+            jnp.bool_
+        )
         valid_gaussian = cumulative_valid[..., -1]
         mean_weights = weights_mean.reshape(weight_shape) * cumulative_valid[..., None]
         covariance_weights = (
@@ -1045,10 +1007,7 @@ def _project_gaussian_chunk(
         valid_gaussian = valid_gaussian & (opacity >= alpha_threshold_array)
         extend = jnp.minimum(
             extend,
-            jnp.sqrt(
-                2.0
-                * jnp.log(jnp.maximum(opacity / alpha_threshold_array, 1.0))
-            ),
+            jnp.sqrt(2.0 * jnp.log(jnp.maximum(opacity / alpha_threshold_array, 1.0))),
         )
     half_trace = 0.5 * (covariance_xx + covariance_yy)
     largest_eigenvalue = half_trace + jnp.sqrt(
@@ -1058,9 +1017,7 @@ def _project_gaussian_chunk(
     radii = jnp.ceil(
         jnp.minimum(
             extend[..., None]
-            * jnp.sqrt(
-                jnp.maximum(jnp.stack((covariance_xx, covariance_yy), -1), 0.0)
-            ),
+            * jnp.sqrt(jnp.maximum(jnp.stack((covariance_xx, covariance_yy), -1), 0.0)),
             eigen_radius[..., None],
         )
     )
@@ -1299,9 +1256,7 @@ def fully_fused_projection_with_ut(
         arrays = [
             jnp.moveaxis(
                 array.reshape(
-                    batch_shape
-                    + (chunk_count, chunk_size)
-                    + array.shape[-1:]
+                    batch_shape + (chunk_count, chunk_size) + array.shape[-1:]
                 ),
                 len(batch_shape),
                 0,
@@ -1371,12 +1326,8 @@ def _opencv_pinhole_unproject(
     k1, k2, k3, k4, k5, k6 = (
         radial_coeffs[..., index][..., None] for index in range(6)
     )
-    p1, p2 = (
-        tangential_coeffs[..., index][..., None] for index in range(2)
-    )
-    s1, s2, s3, s4 = (
-        thin_prism_coeffs[..., index][..., None] for index in range(4)
-    )
+    p1, p2 = (tangential_coeffs[..., index][..., None] for index in range(2))
+    s1, s2, s3, s4 = (thin_prism_coeffs[..., index][..., None] for index in range(4))
     running = jnp.ones_like(x, dtype=jnp.bool_)
     converged = jnp.zeros_like(x, dtype=jnp.bool_)
     for _ in range(5):
@@ -1427,9 +1378,7 @@ def _opencv_pinhole_unproject(
         dy = (fy * fx_x - fx * fy_x) / _safe_denominator(determinant, 1.0e-6)
         x = jnp.where(step_valid, x + dx, x)
         y = jnp.where(step_valid, y + dy, y)
-        just_converged = step_valid & (jnp.abs(dx) < 1.0e-6) & (
-            jnp.abs(dy) < 1.0e-6
-        )
+        just_converged = step_valid & (jnp.abs(dx) < 1.0e-6) & (jnp.abs(dy) < 1.0e-6)
         converged = converged | just_converged
         running = step_valid & ~just_converged
     return jnp.stack((x, y), axis=-1), converged
@@ -1444,21 +1393,17 @@ def _opencv_fisheye_unproject(
     focal = jnp.stack((K[..., 0, 0], K[..., 1, 1]), axis=-1)[..., None, :]
     normalized = (pixel_coords - principal) / focal
     distance = jnp.linalg.norm(normalized, axis=-1)
-    k1, k2, k3, k4 = (
-        radial_coeffs[..., index][..., None] for index in range(4)
-    )
+    k1, k2, k3, k4 = (radial_coeffs[..., index][..., None] for index in range(4))
     theta = distance
     running = jnp.ones_like(distance, dtype=jnp.bool_)
     converged = jnp.zeros_like(distance, dtype=jnp.bool_)
     for _ in range(20):
         theta2 = theta * theta
         value = theta * (
-            1.0
-            + theta2 * (k1 + theta2 * (k2 + theta2 * (k3 + theta2 * k4)))
+            1.0 + theta2 * (k1 + theta2 * (k2 + theta2 * (k3 + theta2 * k4)))
         )
         derivative = 1.0 + theta2 * (
-            3.0 * k1
-            + theta2 * (5.0 * k2 + theta2 * (7.0 * k3 + theta2 * 9.0 * k4))
+            3.0 * k1 + theta2 * (5.0 * k2 + theta2 * (7.0 * k3 + theta2 * 9.0 * k4))
         )
         step_valid = running & (jnp.abs(derivative) >= 1.0e-8)
         step = (value - distance) / _safe_denominator(derivative)
@@ -1569,24 +1514,18 @@ def unproject_image_points(
         if camera_model == "lidar":
             raise ValueError("LiDAR cameras do not support external distortion")
 
-    camera_origins = jnp.zeros(
-        image_points.shape[:-1] + (3,), image_points.dtype
-    )
+    camera_origins = jnp.zeros(image_points.shape[:-1] + (3,), image_points.dtype)
     if camera_model == "pinhole":
         if has_opencv_distortion:
             assert (
-                radial is not None
-                and tangential is not None
-                and thin_prism is not None
+                radial is not None and tangential is not None and thin_prism is not None
             )
             normalized, valid = _opencv_pinhole_unproject(
                 image_points, Ks, radial, tangential, thin_prism
             )
         else:
             principal = Ks[..., :2, 2][..., None, :]
-            focal = jnp.stack(
-                (Ks[..., 0, 0], Ks[..., 1, 1]), axis=-1
-            )[..., None, :]
+            focal = jnp.stack((Ks[..., 0, 0], Ks[..., 1, 1]), axis=-1)[..., None, :]
             normalized = (image_points - principal) / focal
             valid = jnp.ones(image_points.shape[:-1], dtype=jnp.bool_)
         camera_directions = jnp.concatenate(
@@ -1598,9 +1537,7 @@ def unproject_image_points(
         )
     elif camera_model == "ortho":
         principal = Ks[..., :2, 2][..., None, :]
-        focal = jnp.stack(
-            (Ks[..., 0, 0], Ks[..., 1, 1]), axis=-1
-        )[..., None, :]
+        focal = jnp.stack((Ks[..., 0, 0], Ks[..., 1, 1]), axis=-1)[..., None, :]
         normalized = (image_points - principal) / focal
         valid = jnp.ones(image_points.shape[:-1], dtype=jnp.bool_)
         if external_distortion_coeffs is not None:
@@ -1614,13 +1551,12 @@ def unproject_image_points(
             undistorted = distort_camera_rays(
                 proxy, external_distortion_coeffs, inverse=True
             )
-            distortion_valid = (
-                (undistorted[..., 2] > 0.0)
-                & jnp.all(jnp.isfinite(undistorted), axis=-1)
+            distortion_valid = (undistorted[..., 2] > 0.0) & jnp.all(
+                jnp.isfinite(undistorted), axis=-1
             )
-            normalized = undistorted[..., :2] / _safe_denominator(
-                undistorted[..., 2]
-            )[..., None]
+            normalized = (
+                undistorted[..., :2] / _safe_denominator(undistorted[..., 2])[..., None]
+            )
             valid = valid & distortion_valid
         camera_origins = camera_origins.at[..., :2].set(normalized)
         camera_directions = jnp.broadcast_to(
@@ -1629,15 +1565,11 @@ def unproject_image_points(
         )
     elif camera_model == "fisheye":
         assert radial is not None
-        camera_directions, valid = _opencv_fisheye_unproject(
-            image_points, Ks, radial
-        )
+        camera_directions, valid = _opencv_fisheye_unproject(image_points, Ks, radial)
     elif camera_model == "ftheta":
         if ftheta_coeffs is None:
             raise ValueError("ftheta cameras require ftheta_coeffs")
-        camera_directions, valid = _ftheta_unproject(
-            image_points, Ks, ftheta_coeffs
-        )
+        camera_directions, valid = _ftheta_unproject(image_points, Ks, ftheta_coeffs)
     else:
         assert camera_model == "lidar" and lidar_coeffs is not None
         lidar_rays = LegacyLidarModel(lidar_coeffs).image_point_to_camera_ray(
@@ -1704,13 +1636,12 @@ def _world_rays_from_pixels(
             pixel_coords, width, height, shutter
         )
     else:
-        relative_time = LegacyLidarModel(
-            lidar_coeffs
-        ).shutter_relative_frame_time(pixel_coords)
-    translation = (
-        (1.0 - relative_time)[..., None] * start_translation[..., None, :]
-        + relative_time[..., None] * end_translation[..., None, :]
-    )
+        relative_time = LegacyLidarModel(lidar_coeffs).shutter_relative_frame_time(
+            pixel_coords
+        )
+    translation = (1.0 - relative_time)[..., None] * start_translation[
+        ..., None, :
+    ] + relative_time[..., None] * end_translation[..., None, :]
     quaternion = _quaternion_slerp(
         start_quaternion[..., None, :],
         end_quaternion[..., None, :],
@@ -1720,9 +1651,7 @@ def _world_rays_from_pixels(
     ray_origins = jnp.einsum(
         "...ji,...j->...i", rotation_cw, camera_origins - translation
     )
-    ray_directions = jnp.einsum(
-        "...ji,...j->...i", rotation_cw, camera_directions
-    )
+    ray_directions = jnp.einsum("...ji,...j->...i", rotation_cw, camera_directions)
     valid = (
         valid
         & jnp.all(jnp.isfinite(ray_origins), axis=-1)
@@ -1837,9 +1766,8 @@ def _rasterize_eval3d_camera(
             ray_origins = selected_rays[:, :3]
             raw_directions = selected_rays[:, 3:]
             direction_norm = jnp.linalg.norm(raw_directions, axis=-1)
-            ray_valid = (
-                jnp.all(jnp.isfinite(selected_rays), axis=-1)
-                & (direction_norm > 1.0e-8)
+            ray_valid = jnp.all(jnp.isfinite(selected_rays), axis=-1) & (
+                direction_norm > 1.0e-8
             )
             ray_directions = safe_normalize(raw_directions)
 
@@ -1848,14 +1776,10 @@ def _rasterize_eval3d_camera(
         rotations = quat_to_rotmat(quats[selected_ids])
         origin_delta = ray_origins[None, :, :] - selected_means[:, None, :]
         local_origins = jnp.einsum("kij,kpi->kpj", rotations, origin_delta)
-        local_directions = jnp.einsum(
-            "kij,pi->kpj", rotations, ray_directions
-        )
+        local_directions = jnp.einsum("kij,pi->kpj", rotations, ray_directions)
         safe_scales = _safe_denominator(selected_scales)
         local_origins = local_origins / safe_scales[:, None, :]
-        local_directions = safe_normalize(
-            local_directions / safe_scales[:, None, :]
-        )
+        local_directions = safe_normalize(local_directions / safe_scales[:, None, :])
         hit_t = jnp.sum(local_directions * -local_origins, axis=-1)
         distance_vector = jnp.cross(local_directions, local_origins, axis=-1)
         distance_squared = jnp.sum(distance_vector * distance_vector, axis=-1)
@@ -1891,9 +1815,7 @@ def _rasterize_eval3d_camera(
         weights = jnp.where(accepted, alpha * transmittance, 0.0)
         accumulated_alpha = jnp.sum(weights, axis=0)
         accumulated_samples = accepted & (alpha > 0.0)
-        sample_counts = jnp.sum(
-            accumulated_samples, axis=0, dtype=jnp.int32
-        )
+        sample_counts = jnp.sum(accumulated_samples, axis=0, dtype=jnp.int32)
         flatten_positions = (
             jnp.asarray(flatten_index_offset, dtype=jnp.int32) + positions
         )
@@ -1906,9 +1828,7 @@ def _rasterize_eval3d_camera(
             axis=0,
         )
         hit_distance = jnp.linalg.norm(
-            selected_scales[:, None, :]
-            * local_directions
-            * hit_t[..., None],
+            selected_scales[:, None, :] * local_directions * hit_t[..., None],
             axis=-1,
         )
         selected_colors = jnp.broadcast_to(
@@ -1927,9 +1847,7 @@ def _rasterize_eval3d_camera(
         rendered = jnp.where(pixel_valid[:, None], rendered, 0.0)
 
         gaussian_normals = rotations[:, :, 2]
-        normal_dot_ray = jnp.einsum(
-            "ki,pi->kp", gaussian_normals, ray_directions
-        )
+        normal_dot_ray = jnp.einsum("ki,pi->kp", gaussian_normals, ray_directions)
         oriented_normals = jnp.where(
             normal_dot_ray[..., None] > 0.0,
             -gaussian_normals[:, None, :],
@@ -2005,16 +1923,20 @@ def _rasterize_eval3d_camera(
         .transpose(0, 2, 1, 3)
         .reshape(tile_height * tile_size, tile_width * tile_size)
     )[:image_height, :image_width]
-    return rendered, alphas, {
-        "candidate_counts": candidate_counts.reshape(tile_height, tile_width),
-        "tile_overflow": tile_overflow.reshape(tile_height, tile_width),
-        "candidate_limit_exceeded": candidate_limit_exceeded.reshape(
-            tile_height, tile_width
-        ),
-        "normals": normals,
-        "last_ids": last_ids,
-        "sample_counts": sample_counts,
-    }
+    return (
+        rendered,
+        alphas,
+        {
+            "candidate_counts": candidate_counts.reshape(tile_height, tile_width),
+            "tile_overflow": tile_overflow.reshape(tile_height, tile_width),
+            "candidate_limit_exceeded": candidate_limit_exceeded.reshape(
+                tile_height, tile_width
+            ),
+            "normals": normals,
+            "last_ids": last_ids,
+            "sample_counts": sample_counts,
+        },
+    )
 
 
 def _rasterize_eval3d_lidar(
@@ -2066,31 +1988,28 @@ def _rasterize_eval3d_lidar(
 
     if rays is None:
         image_points = generate_lidar_image_points(lidar_coeffs).reshape(-1, 2)
-        all_ray_origins, all_ray_directions, all_ray_valid = (
-            _world_rays_from_pixels(
-                image_points,
-                viewmat,
-                K,
-                image_width,
-                image_height,
-                camera_model="lidar",
-                radial_coeffs=None,
-                tangential_coeffs=None,
-                thin_prism_coeffs=None,
-                ftheta_coeffs=None,
-                rolling_shutter=RollingShutterType.GLOBAL,
-                viewmat_rs=viewmat_rs,
-                lidar_coeffs=lidar_coeffs,
-            )
+        all_ray_origins, all_ray_directions, all_ray_valid = _world_rays_from_pixels(
+            image_points,
+            viewmat,
+            K,
+            image_width,
+            image_height,
+            camera_model="lidar",
+            radial_coeffs=None,
+            tangential_coeffs=None,
+            thin_prism_coeffs=None,
+            ftheta_coeffs=None,
+            rolling_shutter=RollingShutterType.GLOBAL,
+            viewmat_rs=viewmat_rs,
+            lidar_coeffs=lidar_coeffs,
         )
     else:
         supplied_rays = rays.reshape(image_size, 6)
         all_ray_origins = supplied_rays[:, :3]
         raw_directions = supplied_rays[:, 3:]
         direction_norm = jnp.linalg.norm(raw_directions, axis=-1)
-        all_ray_valid = (
-            jnp.all(jnp.isfinite(supplied_rays), axis=-1)
-            & (direction_norm > 1.0e-8)
+        all_ray_valid = jnp.all(jnp.isfinite(supplied_rays), axis=-1) & (
+            direction_norm > 1.0e-8
         )
         all_ray_directions = safe_normalize(raw_directions)
 
@@ -2120,9 +2039,7 @@ def _rasterize_eval3d_lidar(
             0,
             lidar_coeffs.tiling.tiles_to_elements_map.shape[0] - 1,
         )
-        elements = lidar_coeffs.tiling.tiles_to_elements_map[
-            safe_element_positions
-        ]
+        elements = lidar_coeffs.tiling.tiles_to_elements_map[safe_element_positions]
         columns = elements[:, 0]
         rows = elements[:, 1]
         element_valid = (
@@ -2142,14 +2059,10 @@ def _rasterize_eval3d_lidar(
         rotations = quat_to_rotmat(quats[selected_ids])
         origin_delta = ray_origins[None, :, :] - selected_means[:, None, :]
         local_origins = jnp.einsum("kij,kpi->kpj", rotations, origin_delta)
-        local_directions = jnp.einsum(
-            "kij,pi->kpj", rotations, ray_directions
-        )
+        local_directions = jnp.einsum("kij,pi->kpj", rotations, ray_directions)
         safe_scales = _safe_denominator(selected_scales)
         local_origins = local_origins / safe_scales[:, None, :]
-        local_directions = safe_normalize(
-            local_directions / safe_scales[:, None, :]
-        )
+        local_directions = safe_normalize(local_directions / safe_scales[:, None, :])
         hit_t = jnp.sum(local_directions * -local_origins, axis=-1)
         distance_vector = jnp.cross(local_directions, local_origins, axis=-1)
         distance_squared = jnp.sum(distance_vector * distance_vector, axis=-1)
@@ -2187,9 +2100,7 @@ def _rasterize_eval3d_lidar(
         weights = jnp.where(accepted, alpha * transmittance, 0.0)
         accumulated_alpha = jnp.sum(weights, axis=0)
         accumulated_samples = accepted & (alpha > 0.0)
-        sample_counts = jnp.sum(
-            accumulated_samples, axis=0, dtype=jnp.int32
-        )
+        sample_counts = jnp.sum(accumulated_samples, axis=0, dtype=jnp.int32)
         flatten_positions = (
             jnp.asarray(flatten_index_offset, dtype=jnp.int32) + positions
         )
@@ -2202,9 +2113,7 @@ def _rasterize_eval3d_lidar(
             axis=0,
         )
         hit_distance = jnp.linalg.norm(
-            selected_scales[:, None, :]
-            * local_directions
-            * hit_t[..., None],
+            selected_scales[:, None, :] * local_directions * hit_t[..., None],
             axis=-1,
         )
         selected_colors = jnp.broadcast_to(
@@ -2226,9 +2135,7 @@ def _rasterize_eval3d_lidar(
         sample_counts = jnp.where(element_valid, sample_counts, 0)
 
         gaussian_normals = rotations[:, :, 2]
-        normal_dot_ray = jnp.einsum(
-            "ki,pi->kp", gaussian_normals, ray_directions
-        )
+        normal_dot_ray = jnp.einsum("ki,pi->kp", gaussian_normals, ray_directions)
         oriented_normals = jnp.where(
             normal_dot_ray[..., None] > 0.0,
             -gaussian_normals[:, None, :],
@@ -2279,47 +2186,45 @@ def _rasterize_eval3d_lidar(
     )
     flat_pixel_ids = pixel_ids.reshape(-1)
     flat_element_valid = element_valid.reshape(-1)
-    rendered = jnp.zeros(
-        (image_size, colors.shape[-1]), dtype=colors.dtype
-    ).at[flat_pixel_ids].add(
-        jnp.where(
-            flat_element_valid[:, None],
-            rendered_elements.reshape(-1, colors.shape[-1]),
-            0.0,
+    rendered = (
+        jnp.zeros((image_size, colors.shape[-1]), dtype=colors.dtype)
+        .at[flat_pixel_ids]
+        .add(
+            jnp.where(
+                flat_element_valid[:, None],
+                rendered_elements.reshape(-1, colors.shape[-1]),
+                0.0,
+            )
         )
     )
-    alphas = jnp.zeros((image_size, 1), dtype=opacities.dtype).at[
-        flat_pixel_ids
-    ].add(
-        jnp.where(
-            flat_element_valid[:, None], alpha_elements.reshape(-1, 1), 0.0
+    alphas = (
+        jnp.zeros((image_size, 1), dtype=opacities.dtype)
+        .at[flat_pixel_ids]
+        .add(jnp.where(flat_element_valid[:, None], alpha_elements.reshape(-1, 1), 0.0))
+    )
+    normals = (
+        jnp.zeros((image_size, 3), dtype=means.dtype)
+        .at[flat_pixel_ids]
+        .add(
+            jnp.where(flat_element_valid[:, None], normal_elements.reshape(-1, 3), 0.0)
         )
     )
-    normals = jnp.zeros((image_size, 3), dtype=means.dtype).at[
-        flat_pixel_ids
-    ].add(
-        jnp.where(
-            flat_element_valid[:, None], normal_elements.reshape(-1, 3), 0.0
-        )
+    last_ids = (
+        jnp.full((image_size,), -1, dtype=jnp.int32)
+        .at[flat_pixel_ids]
+        .max(jnp.where(flat_element_valid, last_id_elements.reshape(-1), -1))
     )
-    last_ids = jnp.full((image_size,), -1, dtype=jnp.int32).at[
-        flat_pixel_ids
-    ].max(
-        jnp.where(flat_element_valid, last_id_elements.reshape(-1), -1)
-    )
-    sample_counts = jnp.zeros((image_size,), dtype=jnp.int32).at[
-        flat_pixel_ids
-    ].add(
-        jnp.where(flat_element_valid, sample_count_elements.reshape(-1), 0)
+    sample_counts = (
+        jnp.zeros((image_size,), dtype=jnp.int32)
+        .at[flat_pixel_ids]
+        .add(jnp.where(flat_element_valid, sample_count_elements.reshape(-1), 0))
     )
     output_shape = (image_height, image_width)
     return (
         rendered.reshape(output_shape + (colors.shape[-1],)),
         alphas.reshape(output_shape + (1,)),
         {
-            "candidate_counts": candidate_counts.reshape(
-                tile_height, tile_width
-            ),
+            "candidate_counts": candidate_counts.reshape(tile_height, tile_width),
             "tile_overflow": tile_overflow.reshape(tile_height, tile_width),
             "candidate_limit_exceeded": candidate_limit_exceeded.reshape(
                 tile_height, tile_width
@@ -2472,17 +2377,13 @@ def rasterize_to_pixels_eval3d(
         flat_active = jnp.ones((batch_count, gaussian_count), dtype=jnp.bool_)
 
     if backgrounds is None:
-        flat_backgrounds = jnp.zeros(
-            (image_count, colors.shape[-1]), colors.dtype
-        )
+        flat_backgrounds = jnp.zeros((image_count, colors.shape[-1]), colors.dtype)
     else:
         background_values = jnp.broadcast_to(
             jnp.asarray(backgrounds),
             batch_shape + (camera_count, colors.shape[-1]),
         )
-        flat_backgrounds = background_values.reshape(
-            image_count, colors.shape[-1]
-        )
+        flat_backgrounds = background_values.reshape(image_count, colors.shape[-1])
     flat_masks = None
     if masks is not None:
         mask_values = jnp.asarray(masks, dtype=jnp.bool_)
@@ -2509,14 +2410,10 @@ def rasterize_to_pixels_eval3d(
     def render_image(index: jax.Array):
         image_start = flat_offsets[index, 0]
         next_start = flat_offsets[jnp.minimum(index + 1, image_count - 1), 0]
-        image_end = jnp.where(
-            index + 1 < image_count, next_start, supplied_valid_count
-        )
+        image_end = jnp.where(index + 1 < image_count, next_start, supplied_valid_count)
         image_intersection_count = jnp.maximum(image_end - image_start, 0)
         source_positions = image_start + supplied_slots
-        safe_positions = jnp.clip(
-            source_positions, 0, supplied_ids.shape[0] - 1
-        )
+        safe_positions = jnp.clip(source_positions, 0, supplied_ids.shape[0] - 1)
         global_ids = supplied_ids[safe_positions]
         image_base = index * gaussian_count
         local_valid = (

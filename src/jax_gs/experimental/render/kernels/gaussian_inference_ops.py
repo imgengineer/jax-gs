@@ -11,7 +11,6 @@ from ....config import RasterizationConfig
 from ....rasterization import rasterization
 from ....scene.sh_compression import SHCompressionMode
 
-
 _SH_C0 = 0.28209479177387814
 _SH_BIAS = 0.5
 
@@ -62,9 +61,7 @@ def _ycocg_to_rgb(colors: jax.Array) -> jax.Array:
     )
 
 
-def _visible_percentile_scales(
-    values: jax.Array, opacities: jax.Array
-) -> jax.Array:
+def _visible_percentile_scales(values: jax.Array, opacities: jax.Array) -> jax.Array:
     """Compute upstream's per-basis p99.99 absolute scale without ragged arrays."""
 
     visible = opacities >= 0.005
@@ -107,9 +104,7 @@ def _simulate_sh_codec(
     higher_ycocg = _rgb_to_ycocg(colors[:, 1:])
     scales = _visible_percentile_scales(higher_ycocg, opacities)
     scales = scales.astype(jnp.float16).astype(jnp.float32)
-    decoded_y = _quantize_then_decode(
-        higher_ycocg[..., :1], scales[..., :1], 31.0
-    )
+    decoded_y = _quantize_then_decode(higher_ycocg[..., :1], scales[..., :1], 31.0)
     if mode is SHCompressionMode.PACKED_32B:
         decoded_chroma = _quantize_then_decode(
             higher_ycocg[..., 1:], scales[..., 1:], 7.0
@@ -135,9 +130,7 @@ def _unpack_scene(
     try:
         mode = SHCompressionMode(sh_compression_mode)
     except ValueError as exc:
-        raise ValueError(
-            f"invalid sh_compression_mode: {sh_compression_mode}"
-        ) from exc
+        raise ValueError(f"invalid sh_compression_mode: {sh_compression_mode}") from exc
 
     if means_planar.ndim != 2 or means_planar.shape[0] != 3:
         raise ValueError(
@@ -149,9 +142,7 @@ def _unpack_scene(
     if means_planar.dtype != jnp.float32:
         raise TypeError("means_planar must have dtype float32")
     if qso_packed.shape != (count, 8) or qso_packed.dtype != jnp.float16:
-        raise ValueError(
-            f"qso_packed must have shape ({count}, 8) and dtype float16"
-        )
+        raise ValueError(f"qso_packed must have shape ({count}, 8) and dtype float16")
     if sh_degree not in {-1, 0, 1, 2, 3}:
         raise ValueError(f"sh_degree must be one of [-1, 0, 1, 2, 3]; got {sh_degree}")
     if mode is not SHCompressionMode.NONE and sh_degree != 3:
@@ -220,7 +211,9 @@ def _render_unpacked(
     if not isinstance(height, int) or height <= 0:
         raise ValueError(f"height must be a positive integer, got {height!r}")
     if tile_size not in (8, 16):
-        raise TypeError(f"Inference branch supports tile_size in {{8, 16}}; got {tile_size}")
+        raise TypeError(
+            f"Inference branch supports tile_size in {{8, 16}}; got {tile_size}"
+        )
     if background is not None:
         if background.shape != (3,) or background.dtype != jnp.float32:
             raise ValueError("background must have shape (3,) and dtype float32")

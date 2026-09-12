@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 import itertools
+from collections.abc import Iterator
 from typing import Any
 
 import jax

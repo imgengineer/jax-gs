@@ -3,7 +3,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_gs._cutile_intersections import _sort_offsets_cutile
+import jax_gs._cutile_intersections as cutile_intersections
+from jax_gs._cutile_intersections import (
+    _prefix_counts_cutile,
+    _radix_pass_cutile,
+    _sort_offsets_cutile,
+)
 from jax_gs.intersections import intersect_tiles
 
 pytestmark = pytest.mark.gpu
@@ -15,8 +20,18 @@ def _require_cutile() -> None:
         pytest.skip("cuTile intersections require an NVIDIA CUDA GPU")
 
 
-@pytest.mark.parametrize("capacity", [17, 257, 4096])
-def test_cutile_complete_topology_matches_jax(capacity):
+@pytest.mark.parametrize(
+    "capacity,empty,tile_width,tile_height",
+    [
+        (17, False, 7, 5),
+        (257, False, 7, 5),
+        (4096, False, 7, 5),
+        (257, True, 7, 5),
+        (4096, False, 2, 13),
+        (4096, False, 13, 2),
+    ],
+)
+def test_cutile_complete_topology_matches_jax(capacity, empty, tile_width, tile_height):
     _require_cutile()
     count = 257
     key = jax.random.key(capacity)
@@ -45,6 +60,8 @@ def test_cutile_complete_topology_matches_jax(capacity):
         jax.random.fold_in(key, 5), (count,), dtype=jnp.float32
     )
     valid = jax.random.bernoulli(jax.random.fold_in(key, 6), 0.85, (count,))
+    if empty:
+        valid = jnp.zeros((count,), jnp.bool_)
 
     def run(backend):
         return intersect_tiles(
@@ -53,8 +70,8 @@ def test_cutile_complete_topology_matches_jax(capacity):
             depths,
             valid,
             tile_size=16,
-            tile_width=7,
-            tile_height=5,
+            tile_width=tile_width,
+            tile_height=tile_height,
             max_intersections=capacity,
             backend=backend,
             sort_backend=backend,
@@ -69,8 +86,16 @@ def test_cutile_complete_topology_matches_jax(capacity):
         np.testing.assert_array_equal(actual_value, expected_value)
 
 
-def test_cutile_radix_sort_is_stable_across_scan_chunks():
+@pytest.mark.parametrize(
+    "block_size,scan_chunk_size", [(256, 256), (512, 256), (512, 4)]
+)
+def test_cutile_radix_sort_is_stable_across_scan_chunks(
+    monkeypatch, block_size, scan_chunk_size
+):
     _require_cutile()
+    monkeypatch.setattr(cutile_intersections, "_RADIX_LARGE_CAPACITY", 0)
+    monkeypatch.setattr(cutile_intersections, "_RADIX_LARGE_BLOCK_SIZE", block_size)
+    monkeypatch.setattr(cutile_intersections, "_RADIX_SCAN_CHUNK_SIZE", scan_chunk_size)
     capacity = 70_013
     valid_count = capacity - 13
     tile_count = 97
@@ -114,6 +139,50 @@ def test_cutile_radix_sort_is_stable_across_scan_chunks():
         np.testing.assert_array_equal(actual_value, expected_value)
 
 
+@pytest.mark.parametrize("capacity", [50_000, 200_000])
+def test_cutile_hierarchical_prefix_matches_numpy(capacity):
+    _require_cutile()
+    generator = np.random.default_rng(capacity)
+    counts = generator.integers(0, 4, size=70_013, dtype=np.int32)
+    required_count = int(counts.astype(np.int64).sum())
+    expected_cumulative = np.minimum(
+        np.cumsum(counts, dtype=np.int64), capacity + 1
+    ).astype(np.int32)
+
+    actual = jax.jit(lambda values: _prefix_counts_cutile(values, capacity=capacity))(
+        jnp.asarray(counts)
+    )
+
+    np.testing.assert_array_equal(actual[0], expected_cumulative)
+    assert int(actual[1]) == min(required_count, capacity)
+    assert bool(actual[2]) is (required_count > capacity)
+    assert int(actual[3]) == required_count
+
+
+@pytest.mark.parametrize("count", [32, 33, 70])
+@pytest.mark.parametrize("capacity", [0, 17, 1000])
+def test_cutile_prefix_scans_every_top_level_chunk(monkeypatch, count, capacity):
+    _require_cutile()
+    # Scale down the hierarchy to exercise the 256**3 Gaussian boundary cheaply.
+    monkeypatch.setattr(cutile_intersections, "_PREFIX_BLOCK_SIZE", 2)
+    monkeypatch.setattr(cutile_intersections, "_PREFIX_SCAN_CHUNK_SIZE", 4)
+    counts = np.arange(count, dtype=np.int32) % 4
+    counts[-1] = 7
+    expected_cumulative = np.cumsum(counts, dtype=np.int64)
+    required = int(expected_cumulative[-1])
+
+    actual = jax.jit(lambda x: _prefix_counts_cutile(x, capacity=capacity))(
+        jnp.asarray(counts)
+    )
+
+    np.testing.assert_array_equal(
+        actual[0], np.minimum(expected_cumulative, capacity + 1)
+    )
+    assert int(actual[1]) == min(required, capacity)
+    assert bool(actual[2]) is (required > capacity)
+    assert int(actual[3]) == required
+
+
 def test_cutile_radix_sort_handles_an_empty_prefix():
     _require_cutile()
     capacity = 257
@@ -136,6 +205,33 @@ def test_cutile_radix_sort_handles_an_empty_prefix():
         np.testing.assert_array_equal(actual_value, expected_value)
 
 
+@pytest.mark.parametrize("block_size", [256, 512])
+def test_cutile_radix_sort_preserves_full_blocks_of_equal_keys(monkeypatch, block_size):
+    _require_cutile()
+    monkeypatch.setattr(cutile_intersections, "_RADIX_LARGE_CAPACITY", 0)
+    monkeypatch.setattr(cutile_intersections, "_RADIX_LARGE_BLOCK_SIZE", block_size)
+    capacity = 4097
+    valid_count = 1025
+    ids = np.arange(capacity, dtype=np.int32)[::-1].copy()
+    actual = jax.jit(
+        lambda ids_: _sort_offsets_cutile(
+            ids_,
+            jnp.full((capacity,), 2, jnp.int32),
+            jnp.ones((capacity,), jnp.float32),
+            jnp.asarray(valid_count, jnp.int32),
+            tile_count=4,
+        )
+    )(jnp.asarray(ids))
+    expected_ids = np.full(capacity, -1, np.int32)
+    expected_ids[:valid_count] = ids[:valid_count]
+    expected_tiles = np.full(capacity, -1, np.int32)
+    expected_tiles[:valid_count] = 2
+    np.testing.assert_array_equal(actual[0], expected_ids)
+    np.testing.assert_array_equal(actual[1], expected_tiles)
+    np.testing.assert_array_equal(actual[2], [0, 0, 0, valid_count])
+    assert int(actual[3]) == valid_count
+
+
 def test_cutile_radix_sort_drops_malformed_prefix_entries():
     _require_cutile()
     actual = jax.jit(
@@ -155,3 +251,36 @@ def test_cutile_radix_sort_drops_malformed_prefix_entries():
     )
     for actual_value, expected_value in zip(actual, expected, strict=True):
         np.testing.assert_array_equal(actual_value, expected_value)
+
+
+@pytest.mark.parametrize("block_size", [256, 512])
+@pytest.mark.parametrize("radix_size", [2, 4, 32, 64])
+def test_cutile_packed_radix_pass_matches_stable_sort(
+    monkeypatch, block_size, radix_size
+):
+    _require_cutile()
+    monkeypatch.setattr(cutile_intersections, "_RADIX_LARGE_CAPACITY", 0)
+    monkeypatch.setattr(cutile_intersections, "_RADIX_LARGE_BLOCK_SIZE", block_size)
+    capacity = 1537
+    shift = 11
+    generator = np.random.default_rng(29)
+    keys = generator.integers(0, 1 << 63, size=capacity, dtype=np.uint64)
+    # Exercise the largest count in a single packed field, including slot 3.
+    keys[:512] = (radix_size - 1) << shift
+    values = np.arange(capacity, dtype=np.int32)
+
+    with jax.enable_x64(True):
+        run = jax.jit(
+            lambda keys_, values_, count_: _radix_pass_cutile(
+                keys_, values_, count_, shift=shift, radix_size=radix_size
+            )
+        )
+        device_keys = jnp.asarray(keys)
+        device_values = jnp.asarray(values)
+        for count in (0, 1, 31, 32, 33, 511, 512, 513, 1031):
+            actual = run(device_keys, device_values, jnp.asarray(count, jnp.int32))
+            digits = (keys[:count] >> shift) & (radix_size - 1)
+            order = np.argsort(digits, kind="stable")
+            # The radix pass only defines the active prefix of its output.
+            np.testing.assert_array_equal(actual[0][:count], keys[:count][order])
+            np.testing.assert_array_equal(actual[1][:count], values[:count][order])

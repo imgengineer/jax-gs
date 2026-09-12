@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import pytest
 
 import jax_gs
-import jax_gs.losses as losses
+from jax_gs import losses
 from jax_gs.losses import (
     LinearLambdaScheduler,
     bce_clipped,
@@ -40,7 +40,6 @@ from jax_gs.losses import (
     scale_reg_loss,
     smooth_l1_loss,
     ssim_loss,
-    l1_loss,
     torch_ssim_loss,
     total_variation_temporal,
     weights_reg,
@@ -73,9 +72,7 @@ def test_ssim_reference_window_map_loss_and_gradient():
     ssim_map = torch_ssim_loss(image, image, window)
     assert ssim_map.shape == image.shape
     assert jnp.allclose(ssim_loss(image, image), 0.0, atol=1.0e-6)
-    gradient = jax.jit(jax.grad(lambda value: ssim_loss(value, image * 0.9)))(
-        image
-    )
+    gradient = jax.jit(jax.grad(lambda value: ssim_loss(value, image * 0.9)))(image)
     assert bool(jnp.all(jnp.isfinite(gradient)))
 
 
@@ -240,9 +237,7 @@ def test_gaussian_regularizers_values_visibility_and_gradients():
         gaussian_scale_reg(scales, visibility),
         jnp.asarray([[1.0, 2.0, 3.0], [0.0, 0.0, 0.0]]),
     )
-    assert jnp.array_equal(
-        gaussian_density_reg(jnp.ones(2), visibility), visibility
-    )
+    assert jnp.array_equal(gaussian_density_reg(jnp.ones(2), visibility), visibility)
     assert jnp.allclose(
         gaussian_z_scale_reg(jnp.asarray([0.3, 0.7]), 0.5),
         jnp.asarray([0.0, 0.2]),
@@ -283,12 +278,8 @@ def test_scalar_regularizers_average_only_active_gaussians():
         )
     )
 
-    assert jnp.allclose(
-        opacity_reg_loss(opacity_logits, mask=active_mask), 0.625
-    )
-    assert jnp.allclose(
-        scale_reg_loss(log_scales, mask=active_mask), 3.5
-    )
+    assert jnp.allclose(opacity_reg_loss(opacity_logits, mask=active_mask), 0.625)
+    assert jnp.allclose(scale_reg_loss(log_scales, mask=active_mask), 3.5)
 
 
 def test_optional_loss_contract_checks(monkeypatch):
@@ -296,4 +287,6 @@ def test_optional_loss_contract_checks(monkeypatch):
     with pytest.raises(AssertionError, match="post-activation"):
         gaussian_scale_reg(jnp.asarray([[-1.0, 1.0, 1.0]]))
     with pytest.raises(AssertionError, match="unit-normalized"):
-        normal_cosine_loss(jnp.asarray([[2.0, 0.0, 0.0]]), jnp.asarray([[1.0, 0.0, 0.0]]))
+        normal_cosine_loss(
+            jnp.asarray([[2.0, 0.0, 0.0]]), jnp.asarray([[1.0, 0.0, 0.0]])
+        )

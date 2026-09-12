@@ -7,7 +7,6 @@ import jax.numpy as jnp
 
 from .pose import DynamicPose
 
-
 SLERP_SMALL_ANGLE_DOT_THRESHOLD = 0.9995
 
 
@@ -32,9 +31,7 @@ def quaternion_slerp_wxyz(
     dot = jnp.sum(start * end, axis=-1, keepdims=True)
     close = dot > SLERP_SMALL_ANGLE_DOT_THRESHOLD
     safe_dot = jnp.minimum(dot, jnp.asarray(1.0 - 1.0e-6, start.dtype))
-    linear = _normalize_quaternion(
-        start * (1.0 - relative_time) + end * relative_time
-    )
+    linear = _normalize_quaternion(start * (1.0 - relative_time) + end * relative_time)
     theta = jnp.arccos(safe_dot)
     sin_theta = jnp.sin(theta)
     weight_start = jnp.sin((1.0 - relative_time) * theta) / sin_theta
@@ -52,7 +49,9 @@ def interpolate_dynamic_pose(
 ) -> tuple[jax.Array, jax.Array]:
     """LERP translations and SLERP rotations at ``relative_time`` values."""
 
-    relative_time = jnp.asarray(relative_time, dtype=jnp.asarray(start_translation).dtype)
+    relative_time = jnp.asarray(
+        relative_time, dtype=jnp.asarray(start_translation).dtype
+    )
     translation = (
         jnp.asarray(start_translation) * (1.0 - relative_time[..., None])
         + jnp.asarray(end_translation) * relative_time[..., None]

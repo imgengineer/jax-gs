@@ -12,7 +12,6 @@ from .types import (
     script_class_name,
 )
 
-
 DispatchKey = type[RowOffsetStructuredSpinningLidarProjection]
 
 _SENSOR_RAYS_TO_SENSOR_ANGLES_BACKENDS: dict[DispatchKey, Callable] = {

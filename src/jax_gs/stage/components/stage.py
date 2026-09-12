@@ -18,9 +18,7 @@ class Stage:
         """Register ``scene`` and its renderer under ``scene.id``."""
 
         if scene.id in self._scenes:
-            raise ValueError(
-                f"Scene {scene.id!r} already registered on this Stage"
-            )
+            raise ValueError(f"Scene {scene.id!r} already registered on this Stage")
         self._scenes[scene.id] = (scene, render_fn)
 
     def scene_ids(self) -> list[str]:

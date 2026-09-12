@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
-
+from flax import nnx
 
 _IDENTITY_ROTATION_6D = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
 
@@ -28,8 +27,7 @@ def rotation_6d_to_matrix(d6: jax.Array) -> jax.Array:
     d6 = jnp.asarray(d6)
     if d6.ndim < 1 or d6.shape[-1] != 6:
         raise ValueError(
-            "rotation_6d_to_matrix: expected shape (..., 6), "
-            f"got {d6.shape}."
+            f"rotation_6d_to_matrix: expected shape (..., 6), got {d6.shape}."
         )
     first, second = d6[..., :3], d6[..., 3:]
     row_1 = _normalize(first)
@@ -79,8 +77,7 @@ class CameraOptModule(nnx.Module):
 
         if std < 0.0:
             raise ValueError(
-                "CameraOptModule.random_init: std must be >= 0, "
-                f"got {std}."
+                f"CameraOptModule.random_init: std must be >= 0, got {std}."
             )
         rngs = self.rngs if rngs is None else rngs
         current = self.embeds.embedding[...]

@@ -7,7 +7,6 @@ from ...kernels.lidars import (
 from .lidar_frame import LidarFrame, LidarFrameSet
 from .lidar_model import LidarModel
 
-
 __all__ = [
     "LidarFrame",
     "LidarFrameSet",

@@ -1,8 +1,7 @@
-import numpy as np
-import pytest
-
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 
 from jax_gs.low_level import (
     accumulate,
@@ -42,9 +41,7 @@ def test_intersections_are_depth_sorted_padded_and_jittable():
     assert intersect._cache_size() == cache_size == 1
     np.testing.assert_array_equal(np.asarray(masked.flatten_ids), [0, -1, -1])
 
-    overflow = isect_tiles(
-        means2d, radii, depths, 2, 1, 1, max_intersections=1
-    )
+    overflow = isect_tiles(means2d, radii, depths, 2, 1, 1, max_intersections=1)
     assert int(overflow.valid_count) == 1
     assert bool(overflow.overflow)
 
@@ -72,9 +69,7 @@ def test_offsets_decode_multiple_images_and_non_power_of_two_tile_count():
     means2d = jnp.array([[[0.5, 0.5]], [[4.5, 0.5]]], dtype=jnp.float32)
     radii = jnp.full((2, 1, 2), 0.4, dtype=jnp.float32)
     depths = jnp.ones((2, 1), dtype=jnp.float32)
-    intersections = isect_tiles(
-        means2d, radii, depths, 2, 3, 1, max_intersections=2
-    )
+    intersections = isect_tiles(means2d, radii, depths, 2, 3, 1, max_intersections=2)
     offsets = isect_offset_encode(
         intersections.isect_ids,
         2,
@@ -98,9 +93,7 @@ def test_indices_accumulate_and_bounded_pixel_rasterization_agree():
     conics = jnp.zeros((1, 1, 3), dtype=jnp.float32)
     opacities = jnp.array([[0.5]], dtype=jnp.float32)
     colors = jnp.array([[[1.0, 0.0, 0.0]]], dtype=jnp.float32)
-    intersections = isect_tiles(
-        means2d, radii, depths, 2, 1, 1, max_intersections=1
-    )
+    intersections = isect_tiles(means2d, radii, depths, 2, 1, 1, max_intersections=1)
     offsets = isect_offset_encode(
         intersections.isect_ids,
         1,
@@ -261,14 +254,10 @@ def test_pixel_index_capacity_reports_overflow_without_large_allocation():
 
 
 def test_rasterize_to_pixels_composites_all_candidates_across_tile_chunks():
-    means2d = jnp.array(
-        [[[1.0, 1.0], [1.0, 1.0]]], dtype=jnp.float32
-    )
+    means2d = jnp.array([[[1.0, 1.0], [1.0, 1.0]]], dtype=jnp.float32)
     conics = jnp.zeros((1, 2, 3), dtype=jnp.float32)
     opacities = jnp.full((1, 2), 0.5, dtype=jnp.float32)
-    colors = jnp.array(
-        [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]], dtype=jnp.float32
-    )
+    colors = jnp.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]], dtype=jnp.float32)
     offsets = jnp.zeros((1, 1, 1), dtype=jnp.int32)
     flatten_ids = jnp.array([0, 1], dtype=jnp.int32)
 
@@ -347,9 +336,7 @@ def test_rasterize_absgrad_sums_absolute_per_pixel_contributions_before_cancella
     np.testing.assert_allclose(signed_gradient[..., 0], 0.0, atol=1.0e-7)
 
     probe = jnp.zeros_like(means2d)
-    compiled = jax.jit(
-        jax.value_and_grad(objective, argnums=(0, 1), has_aux=True)
-    )
+    compiled = jax.jit(jax.value_and_grad(objective, argnums=(0, 1), has_aux=True))
     (_, probed_outputs), (probed_signed_gradient, compiled_absgrad) = compiled(
         means2d, probe, color_cotangents
     )
@@ -367,9 +354,7 @@ def test_rasterize_absgrad_sums_absolute_per_pixel_contributions_before_cancella
         rtol=1.0e-6,
         atol=1.0e-7,
     )
-    assert float(compiled_absgrad[0, 0, 0]) > float(
-        jnp.abs(signed_gradient[0, 0, 0])
-    )
+    assert float(compiled_absgrad[0, 0, 0]) > float(jnp.abs(signed_gradient[0, 0, 0]))
 
     vmapped = jax.vmap(lambda cot: compiled(means2d, probe, cot)[1][1])(
         jnp.stack((color_cotangents, -color_cotangents))
@@ -377,24 +362,16 @@ def test_rasterize_absgrad_sums_absolute_per_pixel_contributions_before_cancella
     np.testing.assert_allclose(vmapped[0], vmapped[1], rtol=1.0e-6)
     second_order = jax.grad(
         lambda value: jax.grad(
-            lambda current_probe: objective(
-                value, current_probe, color_cotangents
-            )[0]
+            lambda current_probe: objective(value, current_probe, color_cotangents)[0]
         )(probe).sum()
     )(means2d)
     assert jnp.all(jnp.isfinite(second_order))
 
 
 def test_absgrad_probe_preserves_parameter_gradients_and_matches_pixel_vjps():
-    means2d = jnp.asarray(
-        [[[0.75, 0.8], [1.3, 1.2]]], jnp.float32
-    )
-    conics = jnp.asarray(
-        [[[1.0, 0.1, 0.8], [0.7, -0.05, 1.1]]], jnp.float32
-    )
-    colors = jnp.asarray(
-        [[[0.9, 0.2], [0.1, 0.8]]], jnp.float32
-    )
+    means2d = jnp.asarray([[[0.75, 0.8], [1.3, 1.2]]], jnp.float32)
+    conics = jnp.asarray([[[1.0, 0.1, 0.8], [0.7, -0.05, 1.1]]], jnp.float32)
+    colors = jnp.asarray([[[0.9, 0.2], [0.1, 0.8]]], jnp.float32)
     opacities = jnp.asarray([[0.45, 0.35]], jnp.float32)
     background = jnp.asarray([[0.2, -0.1]], jnp.float32)
     offsets = jnp.zeros((1, 1, 1), jnp.int32)
@@ -403,9 +380,7 @@ def test_absgrad_probe_preserves_parameter_gradients_and_matches_pixel_vjps():
         [[[[0.2, -0.3], [0.7, 0.1]], [[-0.4, 0.5], [0.3, -0.2]]]],
         jnp.float32,
     )
-    alpha_cotangents = jnp.asarray(
-        [[[[0.15], [-0.25]], [[0.4], [-0.1]]]], jnp.float32
-    )
+    alpha_cotangents = jnp.asarray([[[[0.15], [-0.25]], [[0.4], [-0.1]]]], jnp.float32)
 
     def render(
         current_means,
@@ -435,9 +410,7 @@ def test_absgrad_probe_preserves_parameter_gradients_and_matches_pixel_vjps():
 
     def objective(*parameters, probe=None):
         rendered, alpha = render(*parameters, probe=probe)
-        loss = jnp.sum(rendered * color_cotangents) + jnp.sum(
-            alpha * alpha_cotangents
-        )
+        loss = jnp.sum(rendered * color_cotangents) + jnp.sum(alpha * alpha_cotangents)
         return loss, (rendered, alpha)
 
     parameters = (means2d, conics, colors, opacities, background)
@@ -463,17 +436,19 @@ def test_absgrad_probe_preserves_parameter_gradients_and_matches_pixel_vjps():
             probed_gradient, baseline_gradient, rtol=2.0e-6, atol=2.0e-7
         )
 
-    _, pullback = jax.vjp(
-        lambda value: render(value, *parameters[1:]), means2d
-    )
+    _, pullback = jax.vjp(lambda value: render(value, *parameters[1:]), means2d)
     expected_absgrad = jnp.zeros_like(means2d)
     for y in range(2):
         for x in range(2):
-            isolated_color = jnp.zeros_like(color_cotangents).at[0, y, x].set(
-                color_cotangents[0, y, x]
+            isolated_color = (
+                jnp.zeros_like(color_cotangents)
+                .at[0, y, x]
+                .set(color_cotangents[0, y, x])
             )
-            isolated_alpha = jnp.zeros_like(alpha_cotangents).at[0, y, x].set(
-                alpha_cotangents[0, y, x]
+            isolated_alpha = (
+                jnp.zeros_like(alpha_cotangents)
+                .at[0, y, x]
+                .set(alpha_cotangents[0, y, x])
             )
             pixel_gradient = pullback((isolated_color, isolated_alpha))[0]
             expected_absgrad = expected_absgrad + jnp.abs(pixel_gradient)
@@ -516,21 +491,17 @@ def test_absgrad_probe_scatter_accumulates_repeated_gaussian_across_tiles(
             max_gaussians_per_tile=1,
             _means2d_absgrad_probe=probe,
         )
-        return jnp.sum(rendered * color_cotangents) + jnp.sum(
-            alpha * alpha_cotangents
-        )
+        return jnp.sum(rendered * color_cotangents) + jnp.sum(alpha * alpha_cotangents)
 
-    signed_gradient, absolute_gradient = jax.grad(
-        objective, argnums=(0, 1)
-    )(means2d, jnp.zeros_like(means2d))
+    signed_gradient, absolute_gradient = jax.grad(objective, argnums=(0, 1))(
+        means2d, jnp.zeros_like(means2d)
+    )
     np.testing.assert_allclose(signed_gradient[..., 0], 0.0, atol=1.0e-7)
     distances = np.asarray([-1.5, -0.5, 0.5, 1.5], np.float32)
     expected_x = np.sum(0.5 * np.exp(-0.5 * distances**2) * np.abs(distances))
     expected = np.zeros_like(np.asarray(means2d))
     expected[..., 0] = expected_x
-    np.testing.assert_allclose(
-        absolute_gradient, expected, rtol=2.0e-6, atol=2.0e-7
-    )
+    np.testing.assert_allclose(absolute_gradient, expected, rtol=2.0e-6, atol=2.0e-7)
 
 
 def test_absgrad_probe_contract_is_explicit_and_shape_dtype_checked():
@@ -574,9 +545,7 @@ def test_a_tile_claiming_more_candidates_than_slots_reports_overflow():
     # so instead of dropping the tail.
     slot_count = 2
     means2d = jnp.full((1, slot_count, 2), 0.5, jnp.float32)
-    conics = jnp.tile(
-        jnp.asarray([[[1.0, 0.0, 1.0]]], jnp.float32), (1, slot_count, 1)
-    )
+    conics = jnp.tile(jnp.asarray([[[1.0, 0.0, 1.0]]], jnp.float32), (1, slot_count, 1))
     colors = jnp.ones((1, slot_count, 3), jnp.float32)
     opacities = jnp.full((1, slot_count), 0.5, jnp.float32)
     offsets = jnp.zeros((1, 1, 1), jnp.int32)

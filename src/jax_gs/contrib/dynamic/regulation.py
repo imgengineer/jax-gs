@@ -62,7 +62,7 @@ def time_l1(planes: Sequence[jax.Array]) -> jax.Array:
 
 
 def hexplane_regularization(
-    field: "HexPlaneField",
+    field: HexPlaneField,
     lambda_plane_smooth: float = 1.0,
     lambda_time_smooth: float = 1.0,
     lambda_time_l1: float = 1.0,
@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     from .hexplane import HexPlaneField
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - preserve the public compatibility order
     "plane_smoothness",
     "time_smoothness",
     "time_l1",

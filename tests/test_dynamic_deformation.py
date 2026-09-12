@@ -1,9 +1,9 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import pytest
+from flax import nnx
 
-import jax_gs.contrib.dynamic as dynamic
+from jax_gs.contrib import dynamic
 from jax_gs.contrib.dynamic import DeformNetwork
 from jax_gs.contrib.dynamic.deformation import DeformationTable
 

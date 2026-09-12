@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
 import warnings
-
+from pathlib import Path
 
 _FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 
@@ -19,7 +18,7 @@ def _sync_loaded_jax(path: str) -> bool:
         return True
     try:
         jax_module.config.update("jax_compilation_cache_dir", path)
-    except Exception as error:  # pragma: no cover - backend initialization edge
+    except Exception as error:  # noqa: BLE001 - cache setup must not break imports
         warnings.warn(
             f"could not enable the JAX compilation cache at {path!r}: {error}",
             RuntimeWarning,

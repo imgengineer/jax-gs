@@ -4,22 +4,22 @@ from __future__ import annotations
 
 import argparse
 import ast
-from dataclasses import dataclass
-from functools import wraps
 import inspect
 import json
 import os
-from pathlib import Path
 import pickle
 import time
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import wraps
+from pathlib import Path
+from typing import Any, TypeVar
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from .trace import trace_range
-
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 _GRAD_PARAMS = {
@@ -120,7 +120,6 @@ class timeit:
         if self.enabled:
             jax.effects_barrier()
             self.start_time = time.perf_counter()
-        return None
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         del exc_type, exc_val, exc_tb
@@ -147,9 +146,7 @@ _pending_captures: set[int] = set()
 _next_capture_id = 0
 
 
-def _parse_capture_specs(
-    envvar: str, raw_specs: str
-) -> list[tuple[Path, range]]:
+def _parse_capture_specs(envvar: str, raw_specs: str) -> list[tuple[Path, range]]:
     capture_dir = os.environ.get("GSPLAT_INPUT_CAPTURE_DIR")
     specs: list[tuple[Path, range]] = []
     for raw_spec in raw_specs.split(","):
@@ -182,7 +179,9 @@ def _parse_capture_specs(
         try:
             capture_range = range(*range_values)
         except ValueError as exc:
-            raise ValueError(f"{envvar}: invalid capture range in {raw_spec!r}") from exc
+            raise ValueError(
+                f"{envvar}: invalid capture range in {raw_spec!r}"
+            ) from exc
         if not capture_range:
             raise ValueError(
                 f"{envvar}: empty range (nothing to capture), got {raw_spec!r}"
@@ -214,9 +213,7 @@ def _parse_capture_specs(
 
 
 def _capture_path(path: Path, worker_tag: str, index: int, digits: int) -> Path:
-    return path.with_name(
-        f"{path.stem}_{worker_tag}_{index:0{digits}d}{path.suffix}"
-    )
+    return path.with_name(f"{path.stem}_{worker_tag}_{index:0{digits}d}{path.suffix}")
 
 
 def capture_inputs(*, envvar: str) -> Callable[[_F], _F]:
@@ -249,11 +246,7 @@ def capture_inputs(*, envvar: str) -> Callable[[_F], _F]:
             nonlocal call_count, captures_done
 
             matching_path = next(
-                (
-                    path
-                    for path, capture_range in specs
-                    if call_count in capture_range
-                ),
+                (path for path, capture_range in specs if call_count in capture_range),
                 None,
             )
             if matching_path is not None:
@@ -262,9 +255,7 @@ def capture_inputs(*, envvar: str) -> Callable[[_F], _F]:
                 captured = jax.tree.map(_detach_for_capture, dict(bound.arguments))
                 rank = os.environ.get("RANK")
                 worker_tag = f"r{rank}" if rank is not None else f"p{os.getpid()}"
-                save_path = _capture_path(
-                    matching_path, worker_tag, call_count, digits
-                )
+                save_path = _capture_path(matching_path, worker_tag, call_count, digits)
                 with save_path.open("wb") as handle:
                     pickle.dump(captured, handle, protocol=pickle.HIGHEST_PROTOCOL)
                 captures_done += 1
@@ -277,9 +268,7 @@ def capture_inputs(*, envvar: str) -> Callable[[_F], _F]:
                 if captures_done >= total_captures:
                     _pending_captures.discard(capture_id)
                     if not _pending_captures:
-                        raise SystemExit(
-                            "[jax_gs.profile] all captures done, exiting"
-                        )
+                        raise SystemExit("[jax_gs.profile] all captures done, exiting")
             call_count += 1
             return function(*args, **kwargs)
 
@@ -296,9 +285,7 @@ def load_capture(path: str | Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise TypeError("captured payload must be a dictionary")
     return jax.tree.map(
-        lambda value: jax.device_put(value)
-        if isinstance(value, np.ndarray)
-        else value,
+        lambda value: jax.device_put(value) if isinstance(value, np.ndarray) else value,
         payload,
     )
 
@@ -315,9 +302,7 @@ def _resize_color_last_dim(value: jax.Array, target: int) -> jax.Array:
     return tiled[..., :target]
 
 
-def _apply_channel_override(
-    replay_inputs: dict[str, Any], channels: int
-) -> list[str]:
+def _apply_channel_override(replay_inputs: dict[str, Any], channels: int) -> list[str]:
     """Resize captured color/background channels for a replay specialization."""
 
     if channels < 1:
@@ -373,9 +358,7 @@ def _select_replay_inputs(
 
 def _block_tree(value: Any) -> Any:
     return jax.tree.map(
-        lambda leaf: leaf.block_until_ready()
-        if isinstance(leaf, jax.Array)
-        else leaf,
+        lambda leaf: leaf.block_until_ready() if isinstance(leaf, jax.Array) else leaf,
         value,
     )
 
@@ -410,25 +393,20 @@ def _make_replay(
 
     def loss(values: tuple[jax.Array, ...]) -> jax.Array:
         differentiable_values = tuple(
-            value
-            if index in grad_positions
-            else jax.lax.stop_gradient(value)
+            value if index in grad_positions else jax.lax.stop_gradient(value)
             for index, value in enumerate(values)
         )
         outputs = operator(**inputs_from(differentiable_values))
         leaves = [
             leaf
             for leaf in jax.tree.leaves(outputs)
-            if isinstance(leaf, jax.Array)
-            and jnp.issubdtype(leaf.dtype, jnp.inexact)
+            if isinstance(leaf, jax.Array) and jnp.issubdtype(leaf.dtype, jnp.inexact)
         ]
         if not leaves:
             raise ValueError("replay operator returned no floating-point arrays")
         return sum(jnp.sum(leaf) for leaf in leaves)
 
-    return jax.jit(
-        jax.value_and_grad(loss, argnums=0, allow_int=True)
-    ), array_values
+    return jax.jit(jax.value_and_grad(loss, argnums=0, allow_int=True)), array_values
 
 
 def main() -> None:

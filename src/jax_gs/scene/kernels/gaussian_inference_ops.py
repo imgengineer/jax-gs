@@ -7,7 +7,6 @@ import jax.numpy as jnp
 
 from ..sh_compression import SH_COMPRESSION_MODE_VALUES, SHCompressionMode
 
-
 _VALID_SH_DEGREES = frozenset({-1, 0, 1, 2, 3})
 _FP16_MAX = 65504.0
 
@@ -35,13 +34,10 @@ def pack_gaussian_inference_scene(
     """Pack activated Gaussian arrays into the inference-internal layout."""
 
     if not isinstance(sh_degree, int):
-        raise TypeError(
-            f"sh_degree must be an int; got {type(sh_degree).__name__}"
-        )
+        raise TypeError(f"sh_degree must be an int; got {type(sh_degree).__name__}")
     if sh_degree not in _VALID_SH_DEGREES:
         raise ValueError(
-            f"sh_degree must be one of {sorted(_VALID_SH_DEGREES)}; "
-            f"got {sh_degree}"
+            f"sh_degree must be one of {sorted(_VALID_SH_DEGREES)}; got {sh_degree}"
         )
     if not isinstance(sh_compression_mode, SHCompressionMode):
         raise TypeError(
@@ -74,9 +70,7 @@ def pack_gaussian_inference_scene(
     if scales.shape != (count, 3):
         raise ValueError(f"scales must have shape [{count}, 3]; got {scales.shape}")
     if opacities.shape != (count,):
-        raise ValueError(
-            f"opacities must have shape [{count}]; got {opacities.shape}"
-        )
+        raise ValueError(f"opacities must have shape [{count}]; got {opacities.shape}")
     if sh_degree >= 0:
         basis_count = (sh_degree + 1) ** 2
         if colors.shape != (count, basis_count, 3):
@@ -100,9 +94,7 @@ def pack_gaussian_inference_scene(
         axis=-1,
     )
     if sh_degree == 3:
-        colors_half = jnp.clip(colors, -_FP16_MAX, _FP16_MAX).astype(
-            jnp.float16
-        )
+        colors_half = jnp.clip(colors, -_FP16_MAX, _FP16_MAX).astype(jnp.float16)
         colors_packed = (
             colors_half
             if sh_compression_mode is SHCompressionMode.NONE
@@ -116,9 +108,7 @@ def pack_gaussian_inference_scene(
 
     # Upstream's C++ packer is explicitly no-grad. Preserve that inference
     # boundary even though the implementation consists of JAX primitives.
-    return jax.lax.stop_gradient(
-        (means_planar, qso_packed, colors_packed)
-    )
+    return jax.lax.stop_gradient((means_planar, qso_packed, colors_packed))
 
 
 __all__ = ["pack_gaussian_inference_scene"]

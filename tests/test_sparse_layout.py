@@ -17,9 +17,7 @@ def _reference_layout(pixels, image_ids, n_images, tile_size, tile_width, tile_h
         + columns // tile_size
     )
     in_tile = (rows % tile_size) * tile_size + columns % tile_size
-    pixel_map = np.lexsort((np.arange(len(pixels)), in_tile, tile_ids)).astype(
-        np.int32
-    )
+    pixel_map = np.lexsort((np.arange(len(pixels)), in_tile, tile_ids)).astype(np.int32)
     active_tiles, counts = np.unique(tile_ids, return_counts=True)
     active_tiles = active_tiles.astype(np.int32)
     active_mask = np.zeros(n_images * tiles_per_image, bool)
@@ -90,11 +88,12 @@ def _reference_sparse_intersections(
                 dense_id = int(
                     image_id * tiles_per_image + tile_y * tile_width + tile_x
                 )
-                if dense_id not in active_rank or not tile_mask[image_id, tile_y, tile_x]:
+                if (
+                    dense_id not in active_rank
+                    or not tile_mask[image_id, tile_y, tile_x]
+                ):
                     continue
-                records.append(
-                    (active_rank[dense_id], np.float32(depth), gaussian_id)
-                )
+                records.append((active_rank[dense_id], np.float32(depth), gaussian_id))
     records.sort(key=lambda item: (item[0], item[1], item[2]))
     flatten_ids = np.asarray([record[2] for record in records], np.int32)
     counts = np.bincount(
@@ -105,14 +104,12 @@ def _reference_sparse_intersections(
 
 
 def test_sparse_tile_layout_matches_raster_order_contract():
-    pixels = jnp.asarray(
-        [[7, 7], [0, 1], [4, 0], [3, 3], [0, 0]], dtype=jnp.int32
-    )
+    pixels = jnp.asarray([[7, 7], [0, 1], [4, 0], [3, 3], [0, 0]], dtype=jnp.int32)
     image_ids = jnp.asarray([0, 0, 0, 0, 1], dtype=jnp.int32)
 
-    layout = jax.jit(
-        lambda p, i: build_sparse_tile_layout(p, i, 2, 4, 2, 2)
-    )(pixels, image_ids)
+    layout = jax.jit(lambda p, i: build_sparse_tile_layout(p, i, 2, 4, 2, 2))(
+        pixels, image_ids
+    )
     active_tiles, active_mask, bitmask, cumsum, pixel_map = layout
 
     np.testing.assert_array_equal(active_tiles[: layout.valid_count], [0, 2, 3, 4])
@@ -185,9 +182,7 @@ def test_sparse_tile_layout_matches_random_reference(tile_size):
     np.testing.assert_array_equal(result.active_tiles[:valid_count], expected[0])
     np.testing.assert_array_equal(result.active_tile_mask, expected[1])
     np.testing.assert_array_equal(result.tile_pixel_mask[:valid_count], expected[2])
-    np.testing.assert_array_equal(
-        result.tile_pixel_cumsum[:valid_count], expected[3]
-    )
+    np.testing.assert_array_equal(result.tile_pixel_cumsum[:valid_count], expected[3])
     np.testing.assert_array_equal(result.pixel_map, expected[4])
 
 
@@ -232,9 +227,7 @@ def test_sparse_intersections_dense_order_offsets_and_jit():
     active_tiles = jnp.asarray([0, 1], dtype=jnp.int32)
 
     result = jax.jit(
-        lambda m, r, d: isect_tiles_sparse(
-            m, r, d, tile_mask, active_tiles, 1, 4, 2, 1
-        )
+        lambda m, r, d: isect_tiles_sparse(m, r, d, tile_mask, active_tiles, 1, 4, 2, 1)
     )(means2d, radii, depths)
     offsets, flatten_ids = result
 

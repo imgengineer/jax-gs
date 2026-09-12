@@ -2,10 +2,9 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import pytest
 
-import jax_gs.profile as profile
+from jax_gs import profile
 
 
 @pytest.fixture(autouse=True)
@@ -33,9 +32,7 @@ def test_capture_inputs_without_environment_returns_original(monkeypatch):
 def test_capture_inputs_routes_ranges_and_loads_jax_payload(monkeypatch, tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"
-    monkeypatch.setenv(
-        "TEST_CAPTURE", f"{first}:1,{second}:1:3"
-    )
+    monkeypatch.setenv("TEST_CAPTURE", f"{first}:1,{second}:1:3")
 
     def function(value, scale=2):
         return value * scale

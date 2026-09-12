@@ -14,7 +14,6 @@ from jax_gs.intersections import (
     intersect_tiles,
 )
 
-
 _GAUSSIAN_EXTEND = np.float32(3.33)
 
 
@@ -40,9 +39,7 @@ def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks(
         axis=-1,
     )
     radii = jnp.full((count, 2), 4.0, jnp.float32)
-    conics = jnp.tile(
-        jnp.asarray([[0.18, 0.03, 0.24]], jnp.float32), (count, 1)
-    )
+    conics = jnp.tile(jnp.asarray([[0.18, 0.03, 0.24]], jnp.float32), (count, 1))
     opacities = jnp.linspace(0.001, 0.9, count, dtype=jnp.float32)
     valid = jnp.arange(count) % 7 != 0
     state = _prepare_accutile_state_jax(
@@ -71,37 +68,35 @@ def test_cuda_tile_accutile_scan_matches_jax_with_partial_final_blocks(
     required_cumulative = jnp.cumsum(expected, dtype=jnp.int32)
     assert int(required_cumulative[-1]) <= 2000 - 128
     for capacity in (193, 1345, 2000):
-        cumulative = jnp.minimum(
-            required_cumulative, jnp.int32(capacity + 1)
-        )
-        valid_count = jnp.minimum(
-            required_cumulative[-1], jnp.int32(capacity)
-        )
+        cumulative = jnp.minimum(required_cumulative, jnp.int32(capacity + 1))
+        valid_count = jnp.minimum(required_cumulative[-1], jnp.int32(capacity))
         expected_ids = jax.jit(
-            lambda: _emit_accutile_intersections_jax(
-                state,
-                cumulative,
-                valid_count,
-                capacity=capacity,
-                tile_size=4,
-                tile_width=7,
-                tile_height=5,
+            lambda cumulative=cumulative, valid_count=valid_count, capacity=capacity: (
+                _emit_accutile_intersections_jax(
+                    state,
+                    cumulative,
+                    valid_count,
+                    capacity=capacity,
+                    tile_size=4,
+                    tile_width=7,
+                    tile_height=5,
+                )
             )
         )()
         actual_ids = jax.jit(
-            lambda: emit_accutile_intersections_cutile(
-                state,
-                cumulative,
-                valid_count,
-                capacity=capacity,
-                tile_size=4,
-                tile_width=7,
-                tile_height=5,
+            lambda cumulative=cumulative, valid_count=valid_count, capacity=capacity: (
+                emit_accutile_intersections_cutile(
+                    state,
+                    cumulative,
+                    valid_count,
+                    capacity=capacity,
+                    tile_size=4,
+                    tile_width=7,
+                    tile_height=5,
+                )
             )
         )()
-        for actual_id, expected_id in zip(
-            actual_ids, expected_ids, strict=True
-        ):
+        for actual_id, expected_id in zip(actual_ids, expected_ids, strict=True):
             np.testing.assert_array_equal(
                 np.asarray(actual_id), np.asarray(expected_id)
             )
@@ -125,9 +120,7 @@ def test_cuda_tile_intersect_tiles_matches_jax_direct_sort_and_overflow(
         axis=-1,
     )
     radii = jnp.full((count, 2), 4.0, jnp.float32)
-    conics = jnp.tile(
-        jnp.asarray([[0.18, 0.03, 0.24]], jnp.float32), (count, 1)
-    )
+    conics = jnp.tile(jnp.asarray([[0.18, 0.03, 0.24]], jnp.float32), (count, 1))
     opacities = jnp.linspace(0.001, 0.9, count, dtype=jnp.float32)
     depths = jnp.linspace(4.0, 0.5, count, dtype=jnp.float32)
     valid = jnp.arange(count) % 7 != 0
@@ -154,9 +147,7 @@ def test_cuda_tile_intersect_tiles_matches_jax_direct_sort_and_overflow(
     full_capacity = 65_536
     expected = run("jax", full_capacity)
     actual = run(backend, full_capacity)
-    for actual_value, expected_value in zip(
-        actual, expected, strict=True
-    ):
+    for actual_value, expected_value in zip(actual, expected, strict=True):
         np.testing.assert_array_equal(
             np.asarray(actual_value), np.asarray(expected_value)
         )
@@ -203,9 +194,7 @@ def _ellipse_intersection(
     p_u, p_v = (mean[1], mean[0]) if is_y else (mean[0], mean[1])
     coefficient = a if is_y else c
     h = np.float32(coord - p_u)
-    root = np.sqrt(np.float32(disc * h * h + t * coefficient)).astype(
-        np.float32
-    )
+    root = np.sqrt(np.float32(disc * h * h + t * coefficient)).astype(np.float32)
     return (
         np.float32((-b * h - root) / coefficient + p_v),
         np.float32((-b * h + root) / coefficient + p_v),
@@ -240,12 +229,8 @@ def _accutile_tiles(
     scale = np.float32(-t / disc)
     x_extent = np.sqrt(np.float32(scale * c)).astype(np.float32)
     y_extent = np.sqrt(np.float32(scale * a)).astype(np.float32)
-    bbox_min = np.array(
-        [mean[0] - x_extent, mean[1] - y_extent], dtype=np.float32
-    )
-    bbox_max = np.array(
-        [mean[0] + x_extent, mean[1] + y_extent], dtype=np.float32
-    )
+    bbox_min = np.array([mean[0] - x_extent, mean[1] - y_extent], dtype=np.float32)
+    bbox_max = np.array([mean[0] + x_extent, mean[1] + y_extent], dtype=np.float32)
     bbox_argmin = np.array(
         [mean[1] + b * x_extent / c, mean[0] + b * y_extent / a],
         dtype=np.float32,
@@ -294,9 +279,7 @@ def _accutile_tiles(
     for u in range(int(rect_min[0]), int(rect_max[0])):
         max_line = np.float32(min_line + block)
         if max_line <= bbox_max[0]:
-            intersect_max = _ellipse_intersection(
-                conic, disc, t, mean, is_y, max_line
-            )
+            intersect_max = _ellipse_intersection(conic, disc, t, mean, is_y, max_line)
 
         if min_line <= bbox_argmin[1] < max_line:
             ellipse_min = bbox_min[1]
@@ -319,9 +302,7 @@ def _accutile_tiles(
             ),
         )
         for v in range(min_v, max_v):
-            tile_ids.append(
-                u * tile_width + v if is_y else v * tile_width + u
-            )
+            tile_ids.append(u * tile_width + v if is_y else v * tile_width + u)
         intersect_min = intersect_max
         min_line = max_line
     return tile_ids
@@ -348,11 +329,7 @@ def _reference(
             and np.all(np.isfinite(radii[gaussian_id]))
             and np.isfinite(depths[gaussian_id])
         )
-        if (
-            not valid[gaussian_id]
-            or not finite
-            or np.any(radii[gaussian_id] <= 0)
-        ):
+        if not valid[gaussian_id] or not finite or np.any(radii[gaussian_id] <= 0):
             continue
         pairs.extend(
             (gaussian_id, tile_id)
@@ -399,9 +376,11 @@ def _covariance_case(
     cosine = np.float32(np.cos(angle))
     sine = np.float32(np.sin(angle))
     rotation = np.array([[cosine, -sine], [sine, cosine]], dtype=np.float32)
-    covariance = rotation @ np.diag(
-        np.square(np.array([std_major, std_minor], dtype=np.float32))
-    ) @ rotation.T
+    covariance = (
+        rotation
+        @ np.diag(np.square(np.array([std_major, std_minor], dtype=np.float32)))
+        @ rotation.T
+    )
     inverse = np.linalg.inv(covariance).astype(np.float32)
     return covariance, np.array(
         [inverse[0, 0], inverse[0, 1], inverse[1, 1]], dtype=np.float32
@@ -421,11 +400,7 @@ def _opacity_radii(
     )
     radii = np.ceil(
         extent[:, None]
-        * np.sqrt(
-            np.stack(
-                (covariances[:, 0, 0], covariances[:, 1, 1]), axis=-1
-            )
-        )
+        * np.sqrt(np.stack((covariances[:, 0, 0], covariances[:, 1, 1]), axis=-1))
     )
     return radii.astype(np.float32)
 
@@ -607,9 +582,7 @@ def test_accutile_applies_opacity_threshold_before_the_ellipse_walk():
 def test_accutile_overflow_keeps_gaussian_major_prefix_and_padding_is_minus_one():
     alpha_threshold = 1.0 / 255.0
     covariance, conic = _covariance_case(4.0, 1.2, -0.6)
-    means2d = np.array(
-        [[7.0, 7.0], [10.0, 8.0], [13.0, 10.0]], dtype=np.float32
-    )
+    means2d = np.array([[7.0, 7.0], [10.0, 8.0], [13.0, 10.0]], dtype=np.float32)
     covariances = np.repeat(covariance[None], 3, axis=0)
     conics = np.repeat(conic[None], 3, axis=0)
     opacities = np.array([0.8, 0.7, 0.6], dtype=np.float32)

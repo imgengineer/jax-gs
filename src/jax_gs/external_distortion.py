@@ -16,8 +16,9 @@ from typing import Literal, TypeAlias
 import jax
 import jax.numpy as jnp
 
-
-ExternalDistortionModelMeta: TypeAlias = Literal["bivariate-windshield"]
+ExternalDistortionModelMeta: TypeAlias = Literal[  # noqa: UP040 - runtime alias API
+    "bivariate-windshield"
+]
 
 
 class ExternalDistortionModelParameters(ABC):
@@ -37,9 +38,7 @@ _VALID_COEFFICIENT_COUNTS = (1, 3, 6, 10, 15, 21)
 def _coefficient_array(value, name: str) -> jax.Array:
     array = jnp.asarray(value)
     if array.ndim != 1 or array.shape[0] not in _VALID_COEFFICIENT_COUNTS:
-        raise ValueError(
-            f"{name} must have 1, 3, 6, 10, 15, or 21 coefficients"
-        )
+        raise ValueError(f"{name} must have 1, 3, 6, 10, 15, or 21 coefficients")
     if not jnp.issubdtype(array.dtype, jnp.floating):
         raise TypeError(f"{name} must have a floating-point dtype")
     return array
@@ -67,12 +66,16 @@ class BivariateWindshieldModelParameters(ExternalDistortionModelParameters):
     MAX_COEFFS = 21
 
     def __setattr__(self, name: str, value) -> None:
-        if name in {
-            "horizontal_poly",
-            "vertical_poly",
-            "horizontal_poly_inverse",
-            "vertical_poly_inverse",
-        } and value is not None:
+        if (
+            name
+            in {
+                "horizontal_poly",
+                "vertical_poly",
+                "horizontal_poly_inverse",
+                "vertical_poly_inverse",
+            }
+            and value is not None
+        ):
             value = _coefficient_array(value, name)
         elif name == "reference_poly":
             value = ExternalDistortionReferencePolynomial(value)
@@ -86,8 +89,7 @@ def validate_external_distortion(
 
     if not isinstance(parameters, BivariateWindshieldModelParameters):
         raise TypeError(
-            "external_distortion_coeffs must be "
-            "BivariateWindshieldModelParameters"
+            "external_distortion_coeffs must be BivariateWindshieldModelParameters"
         )
     names = (
         "horizontal_poly",
@@ -111,9 +113,7 @@ def coefficient_order(coefficient_count: int) -> int:
     try:
         return _VALID_COEFFICIENT_COUNTS.index(int(coefficient_count))
     except ValueError as error:
-        raise ValueError(
-            "coefficient_count must be 1, 3, 6, 10, 15, or 21"
-        ) from error
+        raise ValueError("coefficient_count must be 1, 3, 6, 10, 15, or 21") from error
 
 
 def eval_bivariate_polynomial(
@@ -158,15 +158,9 @@ def distort_camera_rays(
     if not jnp.issubdtype(rays.dtype, jnp.floating):
         raise TypeError("camera_rays must have a floating-point dtype")
     horizontal = (
-        parameters.horizontal_poly_inverse
-        if inverse
-        else parameters.horizontal_poly
+        parameters.horizontal_poly_inverse if inverse else parameters.horizontal_poly
     )
-    vertical = (
-        parameters.vertical_poly_inverse
-        if inverse
-        else parameters.vertical_poly
-    )
+    vertical = parameters.vertical_poly_inverse if inverse else parameters.vertical_poly
     assert horizontal is not None and vertical is not None
     horizontal = jnp.asarray(horizontal, dtype=rays.dtype)
     vertical = jnp.asarray(vertical, dtype=rays.dtype)

@@ -210,9 +210,7 @@ def make_render_step(
                 with_eval3d=config.with_eval3d,
                 config=config.rasterizer,
             )
-        return _render_step_output(
-            renders, alphas, info, return_info=_return_info
-        )
+        return _render_step_output(renders, alphas, info, return_info=_return_info)
 
     return render_step
 
@@ -296,9 +294,7 @@ def make_distributed_render_step(
                 render_mode="RGB",
                 config=config.rasterizer,
             )
-            return _render_step_output(
-                renders, alphas, info, return_info=_return_info
-            )
+            return _render_step_output(renders, alphas, info, return_info=_return_info)
 
         return render_step_2dgs
 
@@ -355,9 +351,7 @@ def make_distributed_render_step(
             distributed_axis_name=axis_name,
             config=config.rasterizer,
         )
-        return _render_step_output(
-            renders, alphas, info, return_info=_return_info
-        )
+        return _render_step_output(renders, alphas, info, return_info=_return_info)
 
     return render_step
 
@@ -644,7 +638,9 @@ def train(
         drop_remainder=True,
     )
     batches = _infinite_batches(
-        dataset, num_workers=config.data.num_workers, start_batch=start_step,
+        dataset,
+        num_workers=config.data.num_workers,
+        start_batch=start_step,
     )
     train_step = _training.make_train_step(runtime_config)
     train_step_prewarm_reason: str | None = "initial"
@@ -677,7 +673,9 @@ def train(
         evaluation_example = evaluation_source[0]
         eval_height, eval_width = evaluation_example["image"].shape[:2]
         evaluation_render_step = _EvaluationRenderer(
-            config, eval_width, eval_height,
+            config,
+            eval_width,
+            eval_height,
             lambda current: make_render_step(
                 current, eval_width, eval_height, _return_info=True
             ),
@@ -1247,10 +1245,12 @@ def train(
                 ),
             }
             if checkpoint_executor is not None:
-                pending_checkpoint_future = _training._save_compacted_training_checkpoint(
-                    *save_args,
-                    **save_kwargs,
-                    _executor=checkpoint_executor,
+                pending_checkpoint_future = (
+                    _training._save_compacted_training_checkpoint(
+                        *save_args,
+                        **save_kwargs,
+                        _executor=checkpoint_executor,
+                    )
                 )
             else:
                 last_checkpoint = _training._save_compacted_training_checkpoint(

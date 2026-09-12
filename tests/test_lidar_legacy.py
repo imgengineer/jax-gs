@@ -37,12 +37,8 @@ from jax_gs.three_dgut import (
 def _parameters():
     return RowOffsetStructuredSpinningLidarModelParameters(
         row_elevations_rad=jnp.array([0.2, 0.0, -0.2], dtype=jnp.float32),
-        column_azimuths_rad=jnp.array(
-            [1.5, 0.75, 0.0, -0.75, -1.5], dtype=jnp.float32
-        ),
-        row_azimuth_offsets_rad=jnp.array(
-            [0.01, 0.0, -0.01], dtype=jnp.float32
-        ),
+        column_azimuths_rad=jnp.array([1.5, 0.75, 0.0, -0.75, -1.5], dtype=jnp.float32),
+        row_azimuth_offsets_rad=jnp.array([0.01, 0.0, -0.01], dtype=jnp.float32),
         spinning_frequency_hz=10.0,
         spinning_direction=SpinningDirection.CLOCKWISE,
     )
@@ -78,8 +74,7 @@ def _full_fov_gaussians(lidar, depths):
     direction = -1.0 if lidar.spinning_direction == SpinningDirection.CLOCKWISE else 1.0
     center = jnp.array(
         [
-            lidar.fov_horiz_rad.start
-            + direction * lidar.fov_horiz_rad.span / 2.0,
+            lidar.fov_horiz_rad.start + direction * lidar.fov_horiz_rad.span / 2.0,
             lidar.fov_vert_rad.start - lidar.fov_vert_rad.span / 2.0,
         ],
         dtype=jnp.float32,
@@ -114,9 +109,7 @@ def test_root_api_and_parameter_layout_match_current_main():
     )
     np.testing.assert_array_equal(parameters.create_elements(), expected_elements)
     angles = parameters.elements_to_sensor_angles(parameters.create_elements())
-    np.testing.assert_allclose(
-        angles[:, 1], np.repeat([0.2, 0.0, -0.2], 5), atol=1e-6
-    )
+    np.testing.assert_allclose(angles[:, 1], np.repeat([0.2, 0.0, -0.2], 5), atol=1e-6)
 
     copied = _parameters()
     assert copied == parameters
@@ -162,7 +155,9 @@ def test_parameter_and_extended_state_are_jittable_pytrees(lidar):
     max_elements = jax.jit(
         lambda value: jnp.asarray(value.tiling.max_elements_per_tile)
     )(lidar)
-    assert int(max_elements) == int(np.asarray(lidar.tiling.tiles_pack_info[:, 1]).max())
+    assert int(max_elements) == int(
+        np.asarray(lidar.tiling.tiles_pack_info[:, 1]).max()
+    )
 
 
 def test_angle_helpers_and_ray_roundtrip(lidar):
@@ -189,9 +184,11 @@ def test_angle_helpers_and_ray_roundtrip(lidar):
 def test_structured_image_points_and_shutter_times(lidar):
     image_points = generate_lidar_image_points(lidar)
     assert image_points.shape == (lidar.n_rows, lidar.n_columns, 2)
-    times = jax.jit(lambda value: LegacyLidarModel(value).shutter_relative_frame_time(
-        generate_lidar_image_points(value)
-    ))(lidar)
+    times = jax.jit(
+        lambda value: LegacyLidarModel(value).shutter_relative_frame_time(
+            generate_lidar_image_points(value)
+        )
+    )(lidar)
     expected = np.broadcast_to(
         np.linspace(0.0, 1.0, lidar.n_columns, dtype=np.float32),
         (lidar.n_rows, lidar.n_columns),
@@ -280,9 +277,12 @@ def test_lidar_tile_sampling_uses_half_open_bounds(lidar):
     np.testing.assert_array_equal(zero.idx, [0, 0])
     np.testing.assert_array_equal(zero.idxdense, [0, 0])
 
-    span = jnp.array(
-        [lidar.fov_horiz_rad.span, lidar.fov_vert_rad.span], dtype=jnp.float32
-    ) * ANGLE_TO_PIXEL_SCALING_FACTOR
+    span = (
+        jnp.array(
+            [lidar.fov_horiz_rad.span, lidar.fov_vert_rad.span], dtype=jnp.float32
+        )
+        * ANGLE_TO_PIXEL_SCALING_FACTOR
+    )
     end = lidar_sample_tileid(lidar, span, jnp.ceil)
     np.testing.assert_array_equal(
         end.idx, [tiling.n_bins_azimuth, tiling.n_bins_elevation]
@@ -330,9 +330,7 @@ def test_lidar_intersections_are_complete_depth_sorted_and_jittable(lidar):
         masked.flatten_ids[: masked.valid_count], np.zeros(tile_count, dtype=np.int32)
     )
 
-    overflow = isect_tiles_lidar(
-        lidar, means, radii, depths, max_intersections=1
-    )
+    overflow = isect_tiles_lidar(lidar, means, radii, depths, max_intersections=1)
     assert int(overflow.valid_count) == 1
     assert bool(overflow.overflow)
 
@@ -362,7 +360,9 @@ def test_lidar_intersections_support_dense_leading_images_and_packed(lidar):
         gaussian_ids=jnp.array([4, 8], dtype=jnp.int32),
         max_intersections=tile_count * 2,
     )
-    np.testing.assert_array_equal(dense.tiles_per_gaussian, [[tile_count], [tile_count]])
+    np.testing.assert_array_equal(
+        dense.tiles_per_gaussian, [[tile_count], [tile_count]]
+    )
     np.testing.assert_array_equal(packed.tiles_per_gaussian, [tile_count, tile_count])
     np.testing.assert_array_equal(dense.isect_ids, packed.isect_ids)
     np.testing.assert_array_equal(dense.flatten_ids, packed.flatten_ids)
@@ -386,9 +386,7 @@ def test_lidar_intersections_reject_zero_extent_and_preserve_padding(lidar):
     means = point[None, None, :]
     radii = jnp.zeros((1, 1, 2), dtype=jnp.float32)
     depths = jnp.ones((1, 1), dtype=jnp.float32)
-    result = isect_tiles_lidar(
-        lidar, means, radii, depths, max_intersections=3
-    )
+    result = isect_tiles_lidar(lidar, means, radii, depths, max_intersections=3)
     np.testing.assert_array_equal(result.tiles_per_gaussian, [[0]])
     assert int(result.valid_count) == 0
     assert not bool(result.overflow)
@@ -399,9 +397,7 @@ def test_lidar_intersections_reject_zero_extent_and_preserve_padding(lidar):
 def test_periodic_lidar_intersection_merges_both_seam_regions():
     parameters = RowOffsetStructuredSpinningLidarModelParameters(
         row_elevations_rad=jnp.array([0.1, -0.1], dtype=jnp.float32),
-        column_azimuths_rad=jnp.array(
-            [3.0, 1.0, -1.0, -3.0], dtype=jnp.float32
-        ),
+        column_azimuths_rad=jnp.array([3.0, 1.0, -1.0, -3.0], dtype=jnp.float32),
         row_azimuth_offsets_rad=jnp.array([0.2, -0.2], dtype=jnp.float32),
         spinning_frequency_hz=10.0,
         spinning_direction=SpinningDirection.CLOCKWISE,
@@ -418,9 +414,10 @@ def test_periodic_lidar_intersection_merges_both_seam_regions():
             densification_factor_azimuth=2,
         ),
     )
-    mean = jnp.array(
-        [[[parameters.fov_horiz_rad.start, 0.0]]], dtype=jnp.float32
-    ) * ANGLE_TO_PIXEL_SCALING_FACTOR
+    mean = (
+        jnp.array([[[parameters.fov_horiz_rad.start, 0.0]]], dtype=jnp.float32)
+        * ANGLE_TO_PIXEL_SCALING_FACTOR
+    )
     radii = jnp.array([[[0.3, 0.2]]], dtype=jnp.float32) * ANGLE_TO_PIXEL_SCALING_FACTOR
     depths = jnp.ones((1, 1), dtype=jnp.float32)
     result = isect_tiles_lidar(extended, mean, radii, depths)
@@ -473,9 +470,7 @@ def test_lidar_ut_projection_is_jittable_differentiable_and_ignores_image_size(l
     assert np.all(np.isfinite(np.asarray(conics)))
     assert np.all(np.isfinite(np.asarray(compensations)))
 
-    gradient = jax.grad(
-        lambda points: jnp.sum(project(lidar, points)[1])
-    )(means)
+    gradient = jax.grad(lambda points: jnp.sum(project(lidar, points)[1]))(means)
     assert np.all(np.isfinite(np.asarray(gradient)))
     assert np.any(np.abs(np.asarray(gradient)) > 0.0)
 
@@ -506,9 +501,7 @@ def _element_gaussian(lidar, row=0, column=2):
 
 def test_low_level_lidar_eval3d_uses_angular_tile_elements(lidar):
     row, column = 0, 2
-    means, quats, scales, opacities, colors = _element_gaussian(
-        lidar, row, column
-    )
+    means, quats, scales, opacities, colors = _element_gaussian(lidar, row, column)
     tile_id = int(
         angles_to_tile_indices(
             lidar,
@@ -521,9 +514,7 @@ def test_low_level_lidar_eval3d_uses_angular_tile_elements(lidar):
         )[0]
     )
     tile_count = lidar.tiling.n_bins_azimuth * lidar.tiling.n_bins_elevation
-    offsets = (jnp.arange(tile_count, dtype=jnp.int32) > tile_id).astype(
-        jnp.int32
-    )
+    offsets = (jnp.arange(tile_count, dtype=jnp.int32) > tile_id).astype(jnp.int32)
     offsets = offsets.reshape(
         1, lidar.tiling.n_bins_elevation, lidar.tiling.n_bins_azimuth
     )
@@ -561,9 +552,7 @@ def test_low_level_lidar_eval3d_uses_angular_tile_elements(lidar):
 
 def test_high_level_lidar_rasterization_overrides_resolution_and_reports_tiles(lidar):
     row, column = 0, 2
-    means, quats, scales, opacities, colors = _element_gaussian(
-        lidar, row, column
-    )
+    means, quats, scales, opacities, colors = _element_gaussian(lidar, row, column)
     viewmats = jnp.eye(4, dtype=jnp.float32)[None, ...]
     Ks = jnp.eye(3, dtype=jnp.float32)[None, ...]
     config = RasterizationConfig(

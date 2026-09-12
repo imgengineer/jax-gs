@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from contextlib import suppress
+from types import TracebackType
+from typing import Any, Self
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
 from ....scene import GaussianInferenceScene
 from .._common import check_inference_grad_mode
@@ -14,7 +16,6 @@ from ..kernels.gaussian_inference_ops import (
     create_native_gaussian_inference_renderer,
 )
 from ..types import RenderReturn
-
 
 _RENDERER_UNSUPPORTED_KWARGS = frozenset(
     {
@@ -128,9 +129,7 @@ class GaussianInferenceRenderer(nnx.Module):
         viewmat_array = self._normalize_camera(
             viewmat, viewmats, singular="viewmat", plural="viewmats", shape=(4, 4)
         )
-        K_array = self._normalize_camera(
-            K, Ks, singular="K", plural="Ks", shape=(3, 3)
-        )
+        K_array = self._normalize_camera(K, Ks, singular="K", plural="Ks", shape=(3, 3))
         if not isinstance(width, int) or width <= 0:
             raise ValueError(f"width must be a positive integer, got {width!r}")
         if not isinstance(height, int) or height <= 0:
@@ -143,23 +142,15 @@ class GaussianInferenceRenderer(nnx.Module):
                     f"{name} must be a JAX array on {scene_device}; "
                     f"got device={value.device}"
                 )
-        if background is not None:
-            if (
-                not isinstance(background, jax.Array)
-                or background.device != scene_device
-            ):
-                raise ValueError(
-                    f"background must be a JAX array on {scene_device}"
-                )
+        if background is not None and (
+            not isinstance(background, jax.Array) or background.device != scene_device
+        ):
+            raise ValueError(f"background must be a JAX array on {scene_device}")
 
         effective_tile_size = self._tile_size if tile_size is None else tile_size
         if effective_tile_size not in (8, 16):
-            raise ValueError(
-                f"tile_size must be 8 or 16; got {effective_tile_size}"
-            )
-        effective_sh_degree = (
-            self._scene.sh_degree if sh_degree is None else sh_degree
-        )
+            raise ValueError(f"tile_size must be 8 or 16; got {effective_tile_size}")
+        effective_sh_degree = self._scene.sh_degree if sh_degree is None else sh_degree
         if not isinstance(effective_sh_degree, int):
             raise TypeError("sh_degree must be an int")
         if out is not None:
@@ -211,17 +202,20 @@ class GaussianInferenceRenderer(nnx.Module):
     def num_gaussians(self) -> int:
         return 0 if self.is_released else self._native.num_gaussians()
 
-    def __enter__(self) -> "GaussianInferenceRenderer":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.release()
 
     def __del__(self) -> None:
-        try:
+        with suppress(Exception):
             self.release()
-        except Exception:
-            pass
 
     @staticmethod
     def _normalize_camera(
@@ -233,9 +227,7 @@ class GaussianInferenceRenderer(nnx.Module):
         shape: tuple[int, int],
     ) -> jax.Array:
         if singular_value is not None and plural_value is not None:
-            raise RuntimeError(
-                f"pass exactly one of {singular} or {plural}, not both"
-            )
+            raise RuntimeError(f"pass exactly one of {singular} or {plural}, not both")
         if singular_value is None and plural_value is None:
             raise RuntimeError(f"pass exactly one of {singular} or {plural}")
         if plural_value is not None:

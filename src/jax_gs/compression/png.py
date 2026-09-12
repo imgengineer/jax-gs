@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import json
 import math
+import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-import warnings
 
 import jax
 import jax.numpy as jnp
@@ -14,7 +14,6 @@ from PIL import Image
 
 from ..model import GaussianModel
 from .sort import sort_splats
-
 
 _UPSTREAM_FIELDS = {"means", "scales", "quats", "opacities", "sh0", "shN"}
 
@@ -181,9 +180,7 @@ def _kmeans(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Run bounded-memory deterministic Lloyd iterations on host arrays."""
 
-    sample_indices = np.linspace(
-        0, values.shape[0] - 1, cluster_count, dtype=np.intp
-    )
+    sample_indices = np.linspace(0, values.shape[0] - 1, cluster_count, dtype=np.intp)
     centroids = values[sample_indices].astype(np.float32, copy=True)
     previous_labels: np.ndarray | None = None
     for _ in range(iterations):
@@ -220,9 +217,7 @@ def _compress_kmeans(
     minimum = centroids.min()
     maximum = centroids.max()
     normalized = _normalize_range(centroids, minimum, maximum)
-    quantized = np.rint(normalized * ((1 << quantization_bits) - 1)).astype(
-        np.uint8
-    )
+    quantized = np.rint(normalized * ((1 << quantization_bits) - 1)).astype(np.uint8)
     np.savez_compressed(
         directory / f"{name}.npz",
         centroids=quantized,
@@ -249,9 +244,7 @@ def _decompress_kmeans(
         quantized = archive["centroids"]
         labels = archive["labels"]
     normalized = quantized / ((1 << metadata["quantization"]) - 1)
-    centroids = normalized * (metadata["maxs"] - metadata["mins"]) + metadata[
-        "mins"
-    ]
+    centroids = normalized * (metadata["maxs"] - metadata["mins"]) + metadata["mins"]
     return centroids[labels].reshape(shape).astype(dtype)
 
 
@@ -297,10 +290,9 @@ class PngCompression:
 
         directory = Path(compress_dir)
         directory.mkdir(parents=True, exist_ok=True)
-        is_upstream_mapping = (
-            not isinstance(splats, GaussianModel)
-            and _UPSTREAM_FIELDS.issubset(splats.keys())
-        )
+        is_upstream_mapping = not isinstance(
+            splats, GaussianModel
+        ) and _UPSTREAM_FIELDS.issubset(splats.keys())
         if is_upstream_mapping and self.image_width is None:
             self._compress_upstream(directory, splats)
             (directory / "metadata.json").unlink(missing_ok=True)
@@ -326,9 +318,7 @@ class PngCompression:
             return {name: jnp.asarray(values) for name, values in result.items()}
         return result
 
-    def _compress_upstream(
-        self, directory: Path, splats: Mapping[str, Any]
-    ) -> None:
+    def _compress_upstream(self, directory: Path, splats: Mapping[str, Any]) -> None:
         host = {
             name: np.asarray(_host_array(value)).copy()
             for name, value in splats.items()
@@ -353,13 +343,9 @@ class PngCompression:
         metadata: dict[str, Any] = {}
         for name, values in host.items():
             if name == "means":
-                metadata[name] = _compress_png(
-                    directory, name, values, side, bits=16
-                )
+                metadata[name] = _compress_png(directory, name, values, side, bits=16)
             elif name in {"scales", "quats", "opacities", "sh0"}:
-                metadata[name] = _compress_png(
-                    directory, name, values, side, bits=8
-                )
+                metadata[name] = _compress_png(directory, name, values, side, bits=8)
             elif name == "shN":
                 metadata[name] = _compress_kmeans(
                     directory,
@@ -379,13 +365,9 @@ class PngCompression:
         result: dict[str, np.ndarray] = {}
         for name, specification in metadata.items():
             if name == "means":
-                values = _decompress_png(
-                    directory, name, specification, bits=16
-                )
+                values = _decompress_png(directory, name, specification, bits=16)
             elif name in {"scales", "quats", "opacities", "sh0"}:
-                values = _decompress_png(
-                    directory, name, specification, bits=8
-                )
+                values = _decompress_png(directory, name, specification, bits=8)
             elif name == "shN":
                 values = _decompress_kmeans(directory, name, specification)
             else:
@@ -422,9 +404,7 @@ class PngCompression:
 
     @staticmethod
     def _decompress_lossless(directory: Path) -> dict[str, np.ndarray]:
-        metadata = json.loads(
-            (directory / "metadata.json").read_text(encoding="utf-8")
-        )
+        metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
         result: dict[str, np.ndarray] = {}
         for name, specification in metadata["arrays"].items():
             with Image.open(directory / f"{name}.png") as image:

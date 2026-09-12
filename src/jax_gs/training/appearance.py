@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import math
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import optax
+from flax import nnx
 
 from ..config import TrainConfig
 from ..math import safe_normalize
 from ..model import rgb_to_sh
 from ..spherical_harmonics import MAX_SH_DEGREE, _all_sh_bases
-
 
 APPEARANCE_FEATURE_DIM = 32
 
@@ -75,9 +74,7 @@ class AppearanceOptModule(nnx.Module):
         if n < 1:
             raise ValueError(f"n must be positive, got {n}")
         if feature_dim < 1:
-            raise ValueError(
-                f"feature_dim must be positive, got {feature_dim}"
-            )
+            raise ValueError(f"feature_dim must be positive, got {feature_dim}")
         if embed_dim < 0:
             raise ValueError(f"embed_dim must be non-negative, got {embed_dim}")
         if not 0 <= sh_degree <= MAX_SH_DEGREE:
@@ -103,9 +100,7 @@ class AppearanceOptModule(nnx.Module):
         input_dim = embed_dim + feature_dim + (sh_degree + 1) ** 2
         layers = [_linear(input_dim, mlp_width, rngs=rngs), jax.nn.relu]
         for _ in range(mlp_depth - 1):
-            layers.extend(
-                (_linear(mlp_width, mlp_width, rngs=rngs), jax.nn.relu)
-            )
+            layers.extend((_linear(mlp_width, mlp_width, rngs=rngs), jax.nn.relu))
         layers.append(_linear(mlp_width, 3, rngs=rngs, zero_init=True))
         self.color_head = nnx.List(layers)
 
@@ -126,8 +121,7 @@ class AppearanceOptModule(nnx.Module):
         dirs = jnp.asarray(dirs)
         if features.ndim != 2 or features.shape[1] != self.feature_dim:
             raise ValueError(
-                "features must have shape [N, feature_dim], got "
-                f"{features.shape}"
+                f"features must have shape [N, feature_dim], got {features.shape}"
             )
         if dirs.ndim != 3 or dirs.shape[-1] != 3:
             raise ValueError(f"dirs must have shape [C, N, 3], got {dirs.shape}")
@@ -151,8 +145,7 @@ class AppearanceOptModule(nnx.Module):
             embed_ids = jnp.asarray(embed_ids)
             if embed_ids.shape != (camera_count,):
                 raise ValueError(
-                    f"embed_ids must have shape [{camera_count}], got "
-                    f"{embed_ids.shape}"
+                    f"embed_ids must have shape [{camera_count}], got {embed_ids.shape}"
                 )
             camera_embeddings = self.embeds(embed_ids)
 
@@ -169,9 +162,7 @@ class AppearanceOptModule(nnx.Module):
         normalized_dirs = safe_normalize(dirs, axis=-1, eps=1.0e-12)
         sh_bases = _all_sh_bases(normalized_dirs)[..., :basis_count]
         requested_basis_count = (jnp.asarray(sh_degree) + 1) ** 2
-        sh_bases = sh_bases * (
-            jnp.arange(basis_count) < requested_basis_count
-        )
+        sh_bases = sh_bases * (jnp.arange(basis_count) < requested_basis_count)
 
         if self.embed_dim > 0:
             hidden = jnp.concatenate(
@@ -237,8 +228,7 @@ def bake_appearance_sh(
     color_logits = jnp.asarray(color_logits)
     if color_logits.shape != (features.shape[0], 3):
         raise ValueError(
-            "color_logits must have shape [N, 3], got "
-            f"{color_logits.shape}"
+            f"color_logits must have shape [N, 3], got {color_logits.shape}"
         )
     directions = jnp.zeros((1, features.shape[0], 3), dtype=features.dtype)
     corrections = module(features, None, directions, sh_degree)[0]

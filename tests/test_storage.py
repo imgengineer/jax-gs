@@ -1,6 +1,6 @@
-from dataclasses import replace
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -59,12 +59,11 @@ def test_target_primitives_preserves_legacy_fingerprint_when_disabled():
     legacy_values["rasterizer"].pop("compositor_backend", None)
     legacy_values["rasterizer"].pop("projection_backend", None)
     legacy_values["strategy"].pop("target_primitives", None)
-    legacy_payload = json.dumps(
-        legacy_values, sort_keys=True, separators=(",", ":")
+    legacy_payload = json.dumps(legacy_values, sort_keys=True, separators=(",", ":"))
+    assert (
+        _config_fingerprint(config)
+        == hashlib.sha256(legacy_payload.encode("utf-8")).hexdigest()
     )
-    assert _config_fingerprint(config) == hashlib.sha256(
-        legacy_payload.encode("utf-8")
-    ).hexdigest()
 
 
 def test_target_primitives_changes_the_training_fingerprint():
@@ -123,9 +122,7 @@ def test_orbax_checkpoint_round_trip(tmp_path: Path):
 
 @pytest.mark.parametrize("scene_scale", [2.75, 0.0])
 def test_checkpoint_scene_metadata_round_trip(tmp_path: Path, scene_scale: float):
-    model_config = ModelConfig(
-        capacity=2, bucket_min_capacity=2, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0)
     model = GaussianModel.empty(model_config)
     matrix = np.asarray(
         [
@@ -178,9 +175,7 @@ def test_save_checkpoint_rejects_invalid_scene_metadata(
     scene_scale,
     match: str,
 ):
-    model_config = ModelConfig(
-        capacity=2, bucket_min_capacity=2, sh_degree=0
-    )
+    model_config = ModelConfig(capacity=2, bucket_min_capacity=2, sh_degree=0)
     model = GaussianModel.empty(model_config)
 
     with pytest.raises(ValueError, match=match):
@@ -200,9 +195,7 @@ def test_checkpoint_without_scene_component_returns_none(
     checkpoint = tmp_path / f"v{format_version}"
     checkpoint.mkdir()
     (checkpoint / "jax_gs_checkpoint.json").write_text(
-        json.dumps(
-            {"format_version": format_version, "components": ["model"]}
-        ),
+        json.dumps({"format_version": format_version, "components": ["model"]}),
         encoding="utf-8",
     )
 
@@ -422,31 +415,27 @@ def test_load_ply_to_splats_supports_degree_zero(tmp_path: Path):
 def test_load_ply_to_splats_rejects_incomplete_rgb_sh_properties(tmp_path: Path):
     path = tmp_path / "invalid_rest.ply"
     path.write_text(
-        "\n".join(
-            (
-                "ply",
-                "format ascii 1.0",
-                "element vertex 1",
-                "property float x",
-                "property float y",
-                "property float z",
-                "property float f_dc_0",
-                "property float f_dc_1",
-                "property float f_dc_2",
-                "property float f_rest_0",
-                "property float f_rest_1",
-                "property float opacity",
-                "property float scale_0",
-                "property float scale_1",
-                "property float scale_2",
-                "property float rot_0",
-                "property float rot_1",
-                "property float rot_2",
-                "property float rot_3",
-                "end_header",
-                "0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0",
-            )
-        )
+        """ply
+format ascii 1.0
+element vertex 1
+property float x
+property float y
+property float z
+property float f_dc_0
+property float f_dc_1
+property float f_dc_2
+property float f_rest_0
+property float f_rest_1
+property float opacity
+property float scale_0
+property float scale_1
+property float scale_2
+property float rot_0
+property float rot_1
+property float rot_2
+property float rot_3
+end_header
+0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0"""
     )
 
     with np.testing.assert_raises_regex(ValueError, "not a multiple of 3"):
@@ -508,9 +497,9 @@ def test_upstream_png_compression_schema_round_trip(tmp_path: Path):
     assert (directory / "means_u.png").is_file()
     assert (directory / "shN.npz").is_file()
     assert set(restored) == set(splats)
-    for name in splats:
-        assert restored[name].shape == splats[name].shape
-        assert restored[name].dtype == splats[name].dtype
+    for name, values in splats.items():
+        assert restored[name].shape == values.shape
+        assert restored[name].dtype == values.dtype
     np.testing.assert_allclose(restored["means"], splats["means"], atol=1e-4)
     np.testing.assert_allclose(restored["scales"], splats["scales"], atol=5e-3)
     expected_quats = splats["quats"] / np.linalg.norm(

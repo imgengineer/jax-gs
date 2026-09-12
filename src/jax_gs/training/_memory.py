@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import sys
+from collections.abc import Sequence
 
 # Tests drive the trainer by patching seams on the package, for example
 # monkeypatch.setattr(jax_gs.training, "rasterization", fake). Calls resolve
@@ -11,10 +11,10 @@ import sys
 # that the implementation lives in submodules.
 _training = sys.modules[__package__]
 
-from dataclasses import replace
-from typing import NamedTuple
 import math
 import operator
+from dataclasses import replace
+from typing import NamedTuple
 
 import jax
 import numpy as np
@@ -87,15 +87,11 @@ def _training_config_with_candidate_bound(
 ) -> TrainConfig:
     return replace(
         config,
-        rasterizer=replace(
-            config.rasterizer, max_candidates_per_tile=int(bound)
-        ),
+        rasterizer=replace(config.rasterizer, max_candidates_per_tile=int(bound)),
     )
 
 
-def _candidate_bound_for_occupancy(
-    required: int, max_gaussians_per_tile: int
-) -> int:
+def _candidate_bound_for_occupancy(required: int, max_gaussians_per_tile: int) -> int:
     """Return the bound covering ``required`` candidates in a tile.
 
     The compositor's loop length is ``ceil(bound / max_gaussians_per_tile)``,
@@ -116,9 +112,7 @@ def _mcmc_required_capacity(active_count: int, config: TrainConfig) -> int:
     """Return the scheduled MCMC population target from the active count."""
 
     active_count = int(active_count)
-    target_count = min(
-        config.strategy.cap_max, (active_count * 105) // 100
-    )
+    target_count = min(config.strategy.cap_max, (active_count * 105) // 100)
     births = min(
         max(target_count - active_count, 0),
         config.strategy.max_new_per_refine,
@@ -171,9 +165,7 @@ def _pending_overflow_suffix(
             for record in pending
         )
     )
-    for index, (overflow_tiles, intersection, required, busiest) in enumerate(
-        values
-    ):
+    for index, (overflow_tiles, intersection, required, busiest) in enumerate(values):
         # An overflowing intersection buffer is resolved first even when the
         # same step also truncated a tile: the candidate counts a tile bound
         # would be grown from are themselves drawn from that buffer, so they
@@ -226,12 +218,7 @@ def estimate_rasterization_memory_bytes(
         tile_scan = min(rasterizer.tile_batch_size, tile_count) * capacity * 16
     outputs = width * height * (channels + 1) * 4 * 3
     return int(
-        projection
-        + compositing
-        + intersections
-        + tile_scan
-        + outputs
-        + 256 * 2**20
+        projection + compositing + intersections + tile_scan + outputs + 256 * 2**20
     )
 
 
@@ -264,15 +251,11 @@ def _appearance_mlp_workspace_bytes(
     if not config.app_opt:
         return 0
     basis_count = (config.model.sh_degree + 1) ** 2
-    mlp_input_width = (
-        config.app_embed_dim + APPEARANCE_FEATURE_DIM + basis_count
-    )
+    mlp_input_width = config.app_embed_dim + APPEARANCE_FEATURE_DIM + basis_count
     # Directions and bases, concatenated input, two 64-wide hidden layers,
     # correction/corrected logits/direct RGB. Training reserves the same space
     # again for reverse-mode residuals and cotangents.
-    floats_per_camera_gaussian = (
-        3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
-    )
+    floats_per_camera_gaussian = 3 + basis_count + mlp_input_width + 2 * 64 + 3 * 3
     return (
         gaussian_capacity
         * camera_count
@@ -314,9 +297,7 @@ def estimate_training_memory_bytes(
     # Dense projection still visits the complete physical bucket before the
     # bounded visible set is packed. Include forward outputs, reverse-mode
     # residuals, and covariance temporaries explicitly for large buckets.
-    projection_working_set = (
-        render_capacity * 192 * config.data.batch_size
-    )
+    projection_working_set = render_capacity * 192 * config.data.batch_size
     strategy_bytes = physical_capacity * (3 * 4 + 1)
     tile_pixels = config.rasterizer.tile_size**2
     tile_width = math.ceil(render_width / config.rasterizer.tile_size)
@@ -347,8 +328,7 @@ def estimate_training_memory_bytes(
             intersection_capacity = max(
                 1,
                 min(
-                    render_tiles
-                    * (config.rasterizer.max_gaussians_per_tile + 1),
+                    render_tiles * (config.rasterizer.max_gaussians_per_tile + 1),
                     max(
                         config.rasterizer.max_gaussians_per_tile + 1,
                         physical_capacity * 8,
@@ -496,9 +476,7 @@ def _check_bucket_transition_memory_budget(
     # The optimized resize creates only the new persistent model, Adam moments,
     # mask, and strategy arrays. Include them on top of observed live buffers;
     # old buffers remain live until the replacement state is fully blocked.
-    resize_allocation = (
-        _training_state_bytes(config, new_capacity) + 256 * 2**20
-    )
+    resize_allocation = _training_state_bytes(config, new_capacity) + 256 * 2**20
     projected = max(estimate, bytes_in_use + resize_allocation)
     print(
         f"estimated_capacity_transition_peak={projected / 2**30:.2f}GiB "
@@ -541,14 +519,11 @@ def _check_distributed_bucket_transition_memory_budget(
     if devices is None:
         estimate = world_size * per_shard
         resize_allocation = (
-            world_size * _training_state_bytes(config, new_capacity)
-            + 256 * 2**20
+            world_size * _training_state_bytes(config, new_capacity) + 256 * 2**20
         )
     else:
         estimate = per_shard
-        resize_allocation = (
-            _training_state_bytes(config, new_capacity) + 256 * 2**20
-        )
+        resize_allocation = _training_state_bytes(config, new_capacity) + 256 * 2**20
     samples = _device_memory_samples(devices)
     projections = [
         (device, max(estimate, bytes_in_use + resize_allocation), limit)
@@ -609,8 +584,7 @@ def _device_memory_samples(
     if not selected:
         raise ValueError("devices must not be empty")
     return tuple(
-        (device, *_training._device_memory_usage(device))
-        for device in selected
+        (device, *_training._device_memory_usage(device)) for device in selected
     )
 
 

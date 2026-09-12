@@ -1,7 +1,6 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 # pyright: reportMissingImports=false, reportOptionalMemberAccess=false
 
-from dataclasses import replace
 import hashlib
 import json
 import os
@@ -9,14 +8,15 @@ import subprocess
 import sys
 import tempfile
 import warnings
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest import mock
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 import jax_gs.training as training_module
 from jax_gs.capacity import (
@@ -28,8 +28,8 @@ from jax_gs.checkpoints import (
     load_checkpoint_config,
     load_checkpoint_intersection_capacity,
     load_checkpoint_scene_transform,
-    load_distributed_inference_checkpoint,
     load_distributed_checkpoint_manifest,
+    load_distributed_inference_checkpoint,
     restore_checkpoint,
     restore_distributed_checkpoint,
     save_checkpoint,
@@ -68,32 +68,32 @@ from jax_gs.training.pose import CameraOptModule
 
 
 def _fixed_topology_config(**overrides) -> TrainConfig:
-    values = dict(
-        model=ModelConfig(
+    values = {
+        "model": ModelConfig(
             capacity=1,
             bucket_min_capacity=1,
             sh_degree=0,
             initial_scale=0.2,
         ),
-        optimizer=OptimizerConfig(max_steps=2),
-        strategy=StrategyConfig(
+        "optimizer": OptimizerConfig(max_steps=2),
+        "strategy": StrategyConfig(
             refine_start=3,
             refine_stop=4,
             reset_every=4,
             max_new_per_refine=1,
         ),
-        data=DataConfig(root="unused", patch_size=4, batch_size=1),
-        rasterizer=RasterizationConfig(
+        "data": DataConfig(root="unused", patch_size=4, batch_size=1),
+        "rasterizer": RasterizationConfig(
             backend="reference",
             tile_size=4,
             max_gaussians_per_tile=4,
             max_intersections=32,
         ),
-        ssim_lambda=0.0,
-        steps=2,
-        eval_every=0,
-        checkpoint_every=0,
-    )
+        "ssim_lambda": 0.0,
+        "steps": 2,
+        "eval_every": 0,
+        "checkpoint_every": 0,
+    }
     values.update(overrides)
     return TrainConfig(**values)
 
@@ -107,15 +107,15 @@ def _topology_plan_config(
 ) -> TrainConfig:
     """Config whose refinement schedule fires on the first training step."""
 
-    strategy = dict(
-        refine_start=0,
-        refine_stop=4,
-        refine_every=1,
-        reset_every=4,
-        max_new_per_refine=2,
-        grow_grad2d=0.5,
-        grow_scale3d=1.0,
-    )
+    strategy = {
+        "refine_start": 0,
+        "refine_stop": 4,
+        "refine_every": 1,
+        "reset_every": 4,
+        "max_new_per_refine": 2,
+        "grow_grad2d": 0.5,
+        "grow_scale3d": 1.0,
+    }
     strategy.update(strategy_overrides)
     return _fixed_topology_config(
         model=ModelConfig(
@@ -163,18 +163,12 @@ def _rank_bundle(
         np.asarray([[192, 128, 64]], np.uint8),
         config.model,
         appearance_feature_dim=(
-            training_module.APPEARANCE_FEATURE_DIM
-            if config.app_opt
-            else None
+            training_module.APPEARANCE_FEATURE_DIM if config.app_opt else None
         ),
-        feature_key=(
-            jax.random.key(17) if config.app_opt else None
-        ),
+        feature_key=(jax.random.key(17) if config.app_opt else None),
     )
     optimizer_factory = (
-        create_visible_adam_optimizer
-        if config.visible_adam
-        else create_optimizer
+        create_visible_adam_optimizer if config.visible_adam else create_optimizer
     )
     optimizer = optimizer_factory(
         model,
@@ -187,9 +181,7 @@ def _rank_bundle(
         world_size=optimizer_world_size,
         scene_scale=optimizer_scene_scale,
     )
-    strategy_state = DefaultStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = DefaultStrategy(config.strategy).initialize_state(model.capacity)
     return model, optimizer, strategy_state, TrainingSafetyState()
 
 
@@ -203,9 +195,7 @@ def _single_process_model_from_shards(config, stacked_model):
     world, capacity = stacked_model.active_mask[...].shape
     active = np.asarray(stacked_model.active_mask[...])
     means = np.asarray(stacked_model.means[...])
-    rows = np.concatenate(
-        [means[rank][active[rank]] for rank in range(world)], axis=0
-    )
+    rows = np.concatenate([means[rank][active[rank]] for rank in range(world)], axis=0)
     colors = np.tile(np.asarray([[192, 128, 64]], np.uint8), (rows.shape[0], 1))
     model_config = replace(config.model, capacity=world * capacity)
     model = GaussianModel.from_point_cloud(rows, colors, model_config)
@@ -244,9 +234,7 @@ def _replicated_pose_training_state(
         module = CameraOptModule(camera_count, rngs=nnx.Rngs(7))
         module.zero_init()
         optimizer = training_module._create_pose_optimizer(module, config)
-        gradients = jax.tree.map(
-            jnp.ones_like, nnx.state(module, nnx.Param)
-        )
+        gradients = jax.tree.map(jnp.ones_like, nnx.state(module, nnx.Param))
         for _ in range(steps):
             optimizer.update(module, gradients)
         modules.append(module)
@@ -271,12 +259,8 @@ def _replicated_appearance_training_state(
             config.model.sh_degree,
             rngs=nnx.Rngs(19),
         )
-        optimizer = training_module.create_appearance_optimizer(
-            module, config
-        )
-        gradients = jax.tree.map(
-            jnp.ones_like, nnx.state(module, nnx.Param)
-        )
+        optimizer = training_module.create_appearance_optimizer(module, config)
+        gradients = jax.tree.map(jnp.ones_like, nnx.state(module, nnx.Param))
         for _ in range(steps):
             optimizer.update(module, gradients)
         modules.append(module)
@@ -329,41 +313,21 @@ def _rank_zero_overflow_rasterization(
     assert kwargs["distributed"]
     assert kwargs["distributed_world_size"] > 1
     axis_name = kwargs["distributed_axis_name"]
-    gathered_means = jax.lax.all_gather(
-        means, axis_name, axis=0, tiled=True
-    )
+    gathered_means = jax.lax.all_gather(means, axis_name, axis=0, tiled=True)
     camera_count = viewmats.shape[0]
     global_capacity = gathered_means.shape[0]
-    signal = jnp.asarray(0.25, means.dtype) + 1.0e-3 * jnp.sum(
-        gathered_means
-    )
-    renders = jnp.broadcast_to(
-        signal, (camera_count, height, width, 3)
-    )
-    alphas = jnp.ones(
-        (camera_count, height, width, 1), dtype=means.dtype
-    )
+    signal = jnp.asarray(0.25, means.dtype) + 1.0e-3 * jnp.sum(gathered_means)
+    renders = jnp.broadcast_to(signal, (camera_count, height, width, 3))
+    alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
     rank_zero_overflow = jax.lax.axis_index(axis_name) == 0
     info = {
-        "radii": jnp.ones(
-            (camera_count, global_capacity, 2), dtype=means.dtype
-        ),
-        "valid": jnp.ones(
-            (camera_count, global_capacity), dtype=jnp.bool_
-        ),
-        "tile_overflow": jnp.zeros(
-            (camera_count, 1, 1), dtype=jnp.bool_
-        ),
-        "candidate_limit_exceeded": jnp.zeros(
-            (camera_count, 1, 1), dtype=jnp.bool_
-        ),
+        "radii": jnp.ones((camera_count, global_capacity, 2), dtype=means.dtype),
+        "valid": jnp.ones((camera_count, global_capacity), dtype=jnp.bool_),
+        "tile_overflow": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
+        "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
         "candidate_counts": jnp.zeros((camera_count, 1, 1), jnp.int32),
-        "intersection_overflow": jnp.broadcast_to(
-            rank_zero_overflow, (camera_count,)
-        ),
-        "intersection_count": jnp.ones(
-            (camera_count,), dtype=jnp.int32
-        ),
+        "intersection_overflow": jnp.broadcast_to(rank_zero_overflow, (camera_count,)),
+        "intersection_count": jnp.ones((camera_count,), dtype=jnp.int32),
         "intersection_required_count": jnp.full(
             (camera_count,),
             jnp.where(rank_zero_overflow, 7, 1),
@@ -374,18 +338,12 @@ def _rank_zero_overflow_rasterization(
 
 
 def _no_overflow_rasterization(*args, **kwargs):
-    renders, alphas, info = _rank_zero_overflow_rasterization(
-        *args, **kwargs
-    )
+    renders, alphas, info = _rank_zero_overflow_rasterization(*args, **kwargs)
     camera_count = info["intersection_overflow"].shape[0]
     info = {
         **info,
-        "intersection_overflow": jnp.zeros(
-            (camera_count,), dtype=jnp.bool_
-        ),
-        "intersection_required_count": jnp.ones(
-            (camera_count,), dtype=jnp.int32
-        ),
+        "intersection_overflow": jnp.zeros((camera_count,), dtype=jnp.bool_),
+        "intersection_required_count": jnp.ones((camera_count,), dtype=jnp.int32),
     }
     return renders, alphas, info
 
@@ -431,10 +389,14 @@ def _no_statistics_rasterization(*args, **kwargs):
     """
 
     renders, alphas, info = _no_overflow_rasterization(*args, **kwargs)
-    return renders, alphas, {
-        **info,
-        "valid": jnp.zeros_like(info["valid"]),
-    }
+    return (
+        renders,
+        alphas,
+        {
+            **info,
+            "valid": jnp.zeros_like(info["valid"]),
+        },
+    )
 
 
 def _host_loop_rasterization(
@@ -452,51 +414,33 @@ def _host_loop_rasterization(
     """Small differentiable distributed render for host-loop integration."""
 
     axis_name = kwargs["distributed_axis_name"]
-    gathered_means = jax.lax.all_gather(
-        means, axis_name, axis=0, tiled=True
-    )
+    gathered_means = jax.lax.all_gather(means, axis_name, axis=0, tiled=True)
     gathered_active = jax.lax.all_gather(
         kwargs["active_mask"], axis_name, axis=0, tiled=True
     )
     camera_count = viewmats.shape[0]
     global_capacity = gathered_means.shape[0]
-    signal = jnp.asarray(0.25, means.dtype) + 1.0e-3 * jnp.sum(
-        gathered_means
-    )
+    signal = jnp.asarray(0.25, means.dtype) + 1.0e-3 * jnp.sum(gathered_means)
     screen_probe = kwargs.get("_means2d_offset")
     if screen_probe is not None:
         assert screen_probe.shape == (camera_count, global_capacity, 2)
         signal = signal + 1.0e-2 * jnp.sum(screen_probe)
-    renders = jnp.broadcast_to(
-        signal, (camera_count, height, width, 3)
-    )
-    alphas = jnp.ones(
-        (camera_count, height, width, 1), dtype=means.dtype
-    )
+    renders = jnp.broadcast_to(signal, (camera_count, height, width, 3))
+    alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
     visible = jnp.broadcast_to(
         gathered_active[None, :], (camera_count, global_capacity)
     )
     active_count = jnp.count_nonzero(gathered_active).astype(jnp.int32)
     info = {
-        "radii": jnp.ones(
-            (camera_count, global_capacity, 2), dtype=means.dtype
-        ),
+        "radii": jnp.ones((camera_count, global_capacity, 2), dtype=means.dtype),
         "valid": visible,
-        "tile_overflow": jnp.zeros(
-            (camera_count, 1, 1), dtype=jnp.bool_
-        ),
-        "candidate_limit_exceeded": jnp.zeros(
-            (camera_count, 1, 1), dtype=jnp.bool_
-        ),
+        "tile_overflow": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
+        "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
         "candidate_counts": jnp.full(
             (camera_count, 1, 1), active_count, dtype=jnp.int32
         ),
-        "intersection_overflow": jnp.zeros(
-            (camera_count,), dtype=jnp.bool_
-        ),
-        "intersection_count": jnp.full(
-            (camera_count,), active_count, dtype=jnp.int32
-        ),
+        "intersection_overflow": jnp.zeros((camera_count,), dtype=jnp.bool_),
+        "intersection_count": jnp.full((camera_count,), active_count, dtype=jnp.int32),
         "intersection_required_count": jnp.full(
             (camera_count,), active_count, dtype=jnp.int32
         ),
@@ -513,21 +457,23 @@ def _host_loop_overflow_rasterization(*args, **kwargs):
     active_count = info["intersection_required_count"][0]
     intersection_overflow = config.max_intersections < 16
     candidate_overflow = config.max_candidates_per_tile < active_count
-    return renders, alphas, {
-        **info,
-        "tile_overflow": jnp.full(
-            (camera_count, 1, 1), candidate_overflow, jnp.bool_
-        ),
-        "candidate_limit_exceeded": jnp.full(
-            (camera_count, 1, 1), candidate_overflow, jnp.bool_
-        ),
-        "intersection_overflow": jnp.full(
-            (camera_count,), intersection_overflow, jnp.bool_
-        ),
-        "intersection_required_count": jnp.full(
-            (camera_count,), 16, jnp.int32
-        ),
-    }
+    return (
+        renders,
+        alphas,
+        {
+            **info,
+            "tile_overflow": jnp.full(
+                (camera_count, 1, 1), candidate_overflow, jnp.bool_
+            ),
+            "candidate_limit_exceeded": jnp.full(
+                (camera_count, 1, 1), candidate_overflow, jnp.bool_
+            ),
+            "intersection_overflow": jnp.full(
+                (camera_count,), intersection_overflow, jnp.bool_
+            ),
+            "intersection_required_count": jnp.full((camera_count,), 16, jnp.int32),
+        },
+    )
 
 
 def _cross_rank_visibility_rasterization(*args, **kwargs):
@@ -555,9 +501,7 @@ def _screen_stats_rasterization(
     **kwargs,
 ):
     axis_name = kwargs["distributed_axis_name"]
-    gathered_means = jax.lax.all_gather(
-        means, axis_name, axis=0, tiled=True
-    )
+    gathered_means = jax.lax.all_gather(means, axis_name, axis=0, tiled=True)
     global_capacity = gathered_means.shape[0]
     screen_probe = kwargs["_means2d_offset"]
     assert screen_probe.shape == (viewmats.shape[0], global_capacity, 2)
@@ -573,9 +517,7 @@ def _screen_stats_rasterization(
         + jnp.sum(screen_probe * screen_coefficients)
     )
     renders = jnp.broadcast_to(signal, (viewmats.shape[0], height, width, 3))
-    alphas = jnp.ones(
-        (viewmats.shape[0], height, width, 1), dtype=means.dtype
-    )
+    alphas = jnp.ones((viewmats.shape[0], height, width, 1), dtype=means.dtype)
     radii = jnp.where(
         rank == 0,
         jnp.asarray([[[4.0, 2.0], [7.0, 7.0]]]),
@@ -589,31 +531,21 @@ def _screen_stats_rasterization(
     info = {
         "radii": radii,
         "valid": valid,
-        "tile_overflow": jnp.zeros(
-            (viewmats.shape[0], 1, 1), dtype=jnp.bool_
-        ),
+        "tile_overflow": jnp.zeros((viewmats.shape[0], 1, 1), dtype=jnp.bool_),
         "candidate_limit_exceeded": jnp.zeros(
             (viewmats.shape[0], 1, 1), dtype=jnp.bool_
         ),
         "candidate_counts": jnp.zeros((viewmats.shape[0], 1, 1), jnp.int32),
-        "intersection_overflow": jnp.zeros(
-            (viewmats.shape[0],), dtype=jnp.bool_
-        ),
-        "intersection_count": jnp.ones(
-            (viewmats.shape[0],), dtype=jnp.int32
-        ),
-        "intersection_required_count": jnp.ones(
-            (viewmats.shape[0],), dtype=jnp.int32
-        ),
+        "intersection_overflow": jnp.zeros((viewmats.shape[0],), dtype=jnp.bool_),
+        "intersection_count": jnp.ones((viewmats.shape[0],), dtype=jnp.int32),
+        "intersection_required_count": jnp.ones((viewmats.shape[0],), dtype=jnp.int32),
     }
     return renders, alphas, info
 
 
 def test_distributed_train_step_rejects_unsupported_first_slice_modes():
     with pytest.raises(ValueError, match="world_size must be greater than one"):
-        make_distributed_train_step(
-            _fixed_topology_config(), world_size=1
-        )
+        make_distributed_train_step(_fixed_topology_config(), world_size=1)
     with pytest.raises(NotImplementedError, match="AbsGrad"):
         make_distributed_train_step(
             _fixed_topology_config(
@@ -629,9 +561,7 @@ def test_distributed_train_step_rejects_unsupported_first_slice_modes():
         )
     with pytest.raises(ValueError, match="optimizer.max_steps.*steps"):
         make_distributed_train_step(
-            _fixed_topology_config(
-                optimizer=OptimizerConfig(max_steps=3)
-            ),
+            _fixed_topology_config(optimizer=OptimizerConfig(max_steps=3)),
             world_size=2,
         )
 
@@ -734,9 +664,11 @@ def _run_two_rank_update(
         )[None, None],
         (2, 1, 3, 3),
     )
-    viewmats = jnp.broadcast_to(
-        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
-    ).at[1, 0, 0, 3].set(-0.1)
+    viewmats = (
+        jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4))
+        .at[1, 0, 0, 3]
+        .set(-0.1)
+    )
     means_before = np.asarray(model.means[...]).copy()
 
     metrics = mapped_step(
@@ -777,9 +709,7 @@ def test_distributed_train_step_reuses_renderer_active_mask():
             bool_gathers.append(array.shape)
         return all_gather(value, *args, **kwargs)
 
-    with mock.patch.object(
-        jax.lax, "all_gather", side_effect=tracked_all_gather
-    ):
+    with mock.patch.object(jax.lax, "all_gather", side_effect=tracked_all_gather):
         _run_two_rank_update(nnx.vmap)
 
     assert bool_gathers == [(1,)]
@@ -795,9 +725,7 @@ def test_distributed_train_step_packs_state_consistency_collective():
             state_gathers.append(array.shape)
         return all_gather(value, *args, **kwargs)
 
-    with mock.patch.object(
-        jax.lax, "all_gather", side_effect=tracked_all_gather
-    ):
+    with mock.patch.object(jax.lax, "all_gather", side_effect=tracked_all_gather):
         _run_two_rank_update(nnx.vmap)
 
     assert state_gathers == [(2,)]
@@ -810,9 +738,7 @@ def test_distributed_host_control_batches_device_transfers():
         )
     }
     log_metrics = {
-        "distributed_host_control": status_metrics[
-            "distributed_host_control"
-        ],
+        "distributed_host_control": status_metrics["distributed_host_control"],
         "loss": jnp.asarray([1.0, 3.0]),
         "active_count": jnp.asarray([2, 3]),
         "visible_count": jnp.asarray([1, 4]),
@@ -825,9 +751,7 @@ def test_distributed_host_control_batches_device_transfers():
         transfers.append(value)
         return device_get(value)
 
-    with mock.patch.object(
-        jax, "device_get", side_effect=tracked_device_get
-    ):
+    with mock.patch.object(jax, "device_get", side_effect=tracked_device_get):
         status = _mapped_step_status(status_metrics)
         summary = _distributed_metric_summary(log_metrics)
 
@@ -860,9 +784,7 @@ def _run_two_rank_screen_stats(map_transform):
         rtol=2.0e-6,
         atol=1.0e-6,
     )
-    np.testing.assert_array_equal(
-        strategy_state.visible_count[...], [[2.0], [1.0]]
-    )
+    np.testing.assert_array_equal(strategy_state.visible_count[...], [[2.0], [1.0]])
     np.testing.assert_allclose(strategy_state.max_radii[...], [[1.0], [0.5]])
 
 
@@ -893,36 +815,24 @@ def _duplicate_only_run(map_transform, *, config=None):
     with mock.patch.object(
         training_module, "rasterization", _no_statistics_rasterization
     ):
-        return _run_two_rank_update(
-            map_transform, config=config, prepare=prepare
-        )
+        return _run_two_rank_update(map_transform, config=config, prepare=prepare)
 
 
 def test_owner_local_duplicate_is_planned_and_committed():
-    model, optimizer, strategy_state, _, metrics = _duplicate_only_run(
-        nnx.vmap
-    )
+    model, optimizer, strategy_state, _, metrics = _duplicate_only_run(nnx.vmap)
 
     np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
     np.testing.assert_array_equal(metrics["reset_scheduled"], [False, False])
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
-    np.testing.assert_array_equal(
-        metrics["refine_planned_pruned_count"], [0, 0]
-    )
+    np.testing.assert_array_equal(metrics["refine_planned_pruned_count"], [0, 0])
     np.testing.assert_array_equal(metrics["refine_required_capacity"], [2, 2])
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [False, False])
     np.testing.assert_array_equal(metrics["refine_new_count"], [1, 1])
     np.testing.assert_array_equal(metrics["refine_pruned_count"], [0, 0])
-    np.testing.assert_array_equal(
-        metrics["refine_commit_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_commit_overflow"], [False, False])
     np.testing.assert_array_equal(metrics["opacity_reset"], [False, False])
     # Only the rank-0 owner grows, and its child is an exact copy.
-    np.testing.assert_array_equal(
-        model.active_mask[...], [[True, True], [True, False]]
-    )
+    np.testing.assert_array_equal(model.active_mask[...], [[True, True], [True, False]])
     np.testing.assert_array_equal(model.means[0, 1], model.means[0, 0])
     np.testing.assert_array_equal(model.sh0[0, 1], model.sh0[0, 0])
     np.testing.assert_array_equal(
@@ -960,26 +870,18 @@ def _run_two_rank_growth_commit(map_transform):
 
     np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [2, 2])
-    np.testing.assert_array_equal(
-        metrics["refine_planned_pruned_count"], [0, 0]
-    )
+    np.testing.assert_array_equal(metrics["refine_planned_pruned_count"], [0, 0])
     np.testing.assert_array_equal(metrics["refine_required_capacity"], [3, 3])
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [False, False])
     np.testing.assert_array_equal(metrics["refine_new_count"], [2, 2])
-    np.testing.assert_array_equal(
-        metrics["refine_commit_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_commit_overflow"], [False, False])
     np.testing.assert_array_equal(
         np.asarray(model.active_mask[...]).sum(axis=1), [3, 1]
     )
     # The split shrinks the parent and its own child by 1.6, while the
     # duplicate child keeps the parent's original scale.
     log_scales = np.asarray(model.log_scales[...])
-    np.testing.assert_allclose(
-        log_scales[0, 0], log_scales[0, 2], rtol=1e-6
-    )
+    np.testing.assert_allclose(log_scales[0, 0], log_scales[0, 2], rtol=1e-6)
     np.testing.assert_allclose(
         log_scales[0, 1] - log_scales[0, 0],
         np.full(3, np.log(1.6), np.float32),
@@ -1045,9 +947,7 @@ def test_owner_commit_matches_single_process_refine():
     np.testing.assert_array_equal(
         committed_model.active_mask[0], expected_model.active_mask[...]
     )
-    np.testing.assert_array_equal(
-        committed_model.means[0], expected_model.means[...]
-    )
+    np.testing.assert_array_equal(committed_model.means[0], expected_model.means[...])
     np.testing.assert_array_equal(
         committed_model.log_scales[0], expected_model.log_scales[...]
     )
@@ -1109,9 +1009,7 @@ def test_inactive_padding_rows_are_never_planned():
 
     np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [0, 0])
-    np.testing.assert_array_equal(
-        metrics["refine_planned_pruned_count"], [0, 0]
-    )
+    np.testing.assert_array_equal(metrics["refine_planned_pruned_count"], [0, 0])
     np.testing.assert_array_equal(metrics["refine_required_capacity"], [1, 1])
 
 
@@ -1124,12 +1022,8 @@ def test_owner_local_prune_is_planned_and_committed():
         model, _, _, _, metrics = _run_two_rank_update(nnx.vmap, config=config)
 
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [0, 0])
-    np.testing.assert_array_equal(
-        metrics["refine_planned_pruned_count"], [2, 2]
-    )
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_planned_pruned_count"], [2, 2])
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [False, False])
     np.testing.assert_array_equal(metrics["refine_pruned_count"], [2, 2])
     np.testing.assert_array_equal(metrics["refine_new_count"], [0, 0])
     np.testing.assert_array_equal(model.active_mask[...], False)
@@ -1141,9 +1035,7 @@ def test_scheduled_opacity_reset_is_committed():
     with mock.patch.object(
         training_module, "rasterization", _no_statistics_rasterization
     ):
-        model, _, _, _, metrics = _run_two_rank_update(
-            nnx.vmap, config=config
-        )
+        model, _, _, _, metrics = _run_two_rank_update(nnx.vmap, config=config)
 
     np.testing.assert_array_equal(metrics["reset_scheduled"], [True, True])
     np.testing.assert_array_equal(metrics["opacity_reset"], [True, True])
@@ -1172,9 +1064,7 @@ def test_scheduled_opacity_reset_stops_at_refine_stop():
     np.testing.assert_array_equal(metrics["refine_scheduled"], [False, False])
     np.testing.assert_array_equal(metrics["reset_scheduled"], [False, False])
     np.testing.assert_array_equal(metrics["opacity_reset"], [False, False])
-    np.testing.assert_array_equal(
-        model.opacity_logits[...], opacity_before["value"]
-    )
+    np.testing.assert_array_equal(model.opacity_logits[...], opacity_before["value"])
 
 
 def _assert_unscheduled_default_refinement_skips_planning(map_transform):
@@ -1192,9 +1082,7 @@ def _assert_unscheduled_default_refinement_skips_planning(map_transform):
             training_module, "rasterization", _no_statistics_rasterization
         ),
     ):
-        _, _, _, _, metrics = _run_two_rank_update(
-            map_transform, config=config
-        )
+        _, _, _, _, metrics = _run_two_rank_update(map_transform, config=config)
     jax.effects_barrier()
 
     np.testing.assert_array_equal(metrics["refine_scheduled"], [False, False])
@@ -1203,9 +1091,7 @@ def _assert_unscheduled_default_refinement_skips_planning(map_transform):
 
 
 def test_single_rank_plan_overflow_atomically_skips_every_rank():
-    config = _topology_plan_config(
-        refine_scale2d_stop_iter=100, grow_scale2d=0.05
-    )
+    config = _topology_plan_config(refine_scale2d_stop_iter=100, grow_scale2d=0.05)
     before = {}
 
     def prepare(model, optimizer, strategy_state):
@@ -1224,9 +1110,7 @@ def test_single_rank_plan_overflow_atomically_skips_every_rank():
         )
 
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [2, 2])
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [True, True]
-    )
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [True, True])
     np.testing.assert_array_equal(metrics["refine_new_count"], [0, 0])
     np.testing.assert_array_equal(metrics["refine_pruned_count"], [0, 0])
     np.testing.assert_array_equal(metrics["opacity_reset"], [False, False])
@@ -1235,9 +1119,7 @@ def test_single_rank_plan_overflow_atomically_skips_every_rank():
         (optimizer, "optimizer"),
         (strategy_state, "strategy_state"),
     ):
-        for old, new in zip(
-            before[name], _snapshot_graph_arrays(graph), strict=True
-        ):
+        for old, new in zip(before[name], _snapshot_graph_arrays(graph), strict=True):
             np.testing.assert_array_equal(new, old)
 
 
@@ -1267,23 +1149,13 @@ def test_owner_commit_overflow_keeps_that_owner_unchanged():
         )
 
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
-    )
-    np.testing.assert_array_equal(
-        metrics["refine_commit_overflow"], [True, True]
-    )
-    np.testing.assert_array_equal(
-        metrics["refine_commit_required_capacity"], [3, 3]
-    )
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [False, False])
+    np.testing.assert_array_equal(metrics["refine_commit_overflow"], [True, True])
+    np.testing.assert_array_equal(metrics["refine_commit_required_capacity"], [3, 3])
     np.testing.assert_array_equal(metrics["refine_new_count"], [1, 1])
     # Only the owner that fits grows, resets opacities, and clears statistics.
-    np.testing.assert_array_equal(
-        model.active_mask[...], [[True, False], [True, True]]
-    )
-    np.testing.assert_array_equal(
-        strategy_state.capacity_overflow[...], [True, False]
-    )
+    np.testing.assert_array_equal(model.active_mask[...], [[True, False], [True, True]])
+    np.testing.assert_array_equal(strategy_state.capacity_overflow[...], [True, False])
     np.testing.assert_array_equal(
         strategy_state.grad_accum[...], [[1.0, 0.0], [0.0, 0.0]]
     )
@@ -1345,9 +1217,7 @@ def test_rank_state_mismatch_atomically_skips_update(
     )
 
     del model, optimizer
-    np.testing.assert_array_equal(
-        metrics["distributed_state_mismatch"], [True, True]
-    )
+    np.testing.assert_array_equal(metrics["distributed_state_mismatch"], [True, True])
 
 
 def test_gaussian_adam_moments_use_sum_of_rank_local_losses(monkeypatch):
@@ -1391,27 +1261,25 @@ def test_visibility_is_reduced_before_selecting_the_owner_shard(monkeypatch):
 
 
 def test_two_virtual_cpu_nnx_pmap_smoke():
-    script = "\n".join(
-        (
-            "import jax",
-            "from flax import nnx",
-            "from tests.test_training_distributed import _run_two_rank_update",
-            "assert jax.local_device_count() == 2",
-            "_run_two_rank_update(nnx.pmap)",
-            "from tests.test_training_distributed import "
-            "_run_two_rank_screen_stats, _run_two_rank_growth_commit, "
-            "_run_two_rank_pose_update",
-            "_run_two_rank_screen_stats(nnx.pmap)",
-            "_run_two_rank_growth_commit(nnx.pmap)",
-            "_run_two_rank_pose_update(nnx.pmap)",
-            "from tests.test_training_distributed import "
-            "_run_two_rank_pmap_resize_lifecycle, "
-            "_assert_unscheduled_default_refinement_skips_planning, "
-            "_assert_unscheduled_mcmc_refinement_skips_planning",
-            "_run_two_rank_pmap_resize_lifecycle()",
-            "_assert_unscheduled_default_refinement_skips_planning(nnx.pmap)",
-            "_assert_unscheduled_mcmc_refinement_skips_planning(nnx.pmap)",
-        )
+    script = (
+        "import jax\n"
+        "from flax import nnx\n"
+        "from tests.test_training_distributed import _run_two_rank_update\n"
+        "assert jax.local_device_count() == 2\n"
+        "_run_two_rank_update(nnx.pmap)\n"
+        "from tests.test_training_distributed import "
+        "_run_two_rank_screen_stats, _run_two_rank_growth_commit, "
+        "_run_two_rank_pose_update\n"
+        "_run_two_rank_screen_stats(nnx.pmap)\n"
+        "_run_two_rank_growth_commit(nnx.pmap)\n"
+        "_run_two_rank_pose_update(nnx.pmap)\n"
+        "from tests.test_training_distributed import "
+        "_run_two_rank_pmap_resize_lifecycle, "
+        "_assert_unscheduled_default_refinement_skips_planning, "
+        "_assert_unscheduled_mcmc_refinement_skips_planning\n"
+        "_run_two_rank_pmap_resize_lifecycle()\n"
+        "_assert_unscheduled_default_refinement_skips_planning(nnx.pmap)\n"
+        "_assert_unscheduled_mcmc_refinement_skips_planning(nnx.pmap)"
     )
     environment = os.environ.copy()
     environment["JAX_PLATFORMS"] = "cpu"
@@ -1458,9 +1326,7 @@ def _run_two_rank_pmap_resize_lifecycle():
         )[None, None],
         (2, 1, 3, 3),
     )
-    viewmats = jnp.broadcast_to(
-        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
-    )
+    viewmats = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4))
     keys = jax.random.split(jax.random.key(0), 2)
     sh_degrees = jnp.zeros((2,), jnp.int32)
 
@@ -1476,9 +1342,7 @@ def _run_two_rank_pmap_resize_lifecycle():
         sh_degrees,
     )
     resize_step = make_distributed_resize_step(config)
-    model, optimizer, strategy_state = resize_step(
-        model, optimizer, strategy_state, 4
-    )
+    model, optimizer, strategy_state = resize_step(model, optimizer, strategy_state, 4)
     assert model.means[...].shape == (2, 4, 3)
     assert "P('rank'" in str(model.means[...].sharding)
 
@@ -1493,9 +1357,7 @@ def _run_two_rank_pmap_resize_lifecycle():
         keys,
         sh_degrees,
     )
-    np.testing.assert_array_equal(
-        metrics["distributed_state_mismatch"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["distributed_state_mismatch"], [False, False])
     np.testing.assert_array_equal(optimizer.step[...], [2, 2])
 
 
@@ -1514,9 +1376,7 @@ def _run_local_device_distributed_host_loop(async_checkpoint=False):
         ],
         np.float32,
     )
-    camtoworlds = np.stack(
-        (np.eye(4, dtype=np.float32), np.eye(4, dtype=np.float32))
-    )
+    camtoworlds = np.stack((np.eye(4, dtype=np.float32), np.eye(4, dtype=np.float32)))
     camtoworlds[:, 0, 3] = np.asarray([-1.0, 1.0], np.float32)
     scene = SimpleNamespace(
         points=points,
@@ -1573,9 +1433,7 @@ def _run_local_device_distributed_host_loop(async_checkpoint=False):
                 prune_scale3d=100.0,
                 prune_scale2d=100.0,
             ),
-            data=DataConfig(
-                root="unused", patch_size=4, batch_size=1, num_workers=1
-            ),
+            data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
             rasterizer=RasterizationConfig(
                 backend="reference",
                 tile_size=4,
@@ -1591,9 +1449,7 @@ def _run_local_device_distributed_host_loop(async_checkpoint=False):
             async_checkpoint=async_checkpoint,
         )
         with (
-            mock.patch.object(
-                training_module, "load_colmap_scene", return_value=scene
-            ),
+            mock.patch.object(training_module, "load_colmap_scene", return_value=scene),
             mock.patch.object(
                 training_module,
                 "create_grain_dataset",
@@ -1606,11 +1462,7 @@ def _run_local_device_distributed_host_loop(async_checkpoint=False):
             ),
         ):
             uninterrupted = training_module.train(config, distributed=True)
-            step_one = (
-                uninterrupted.output_dir
-                / "checkpoints"
-                / "step_00000001"
-            )
+            step_one = uninterrupted.output_dir / "checkpoints" / "step_00000001"
             step_one_manifest = load_distributed_checkpoint_manifest(step_one)
             assert step_one_manifest["local_capacity"] == 4
             assert step_one_manifest["intersection_capacity"] == 8
@@ -1633,13 +1485,9 @@ def _run_local_device_distributed_host_loop(async_checkpoint=False):
             strict=True,
         ):
             np.testing.assert_allclose(actual, expected, rtol=0.0, atol=0.0)
-        assert (
-            resumed.output_dir / "renders" / "step_00000003.png"
-        ).is_file()
+        assert (resumed.output_dir / "renders" / "step_00000003.png").is_file()
         assert resumed.checkpoint is not None
-        final_manifest = load_distributed_checkpoint_manifest(
-            resumed.checkpoint
-        )
+        final_manifest = load_distributed_checkpoint_manifest(resumed.checkpoint)
         assert final_manifest["local_capacity"] == 8
         assert final_manifest["active_counts"] == [5, 4]
 
@@ -1655,9 +1503,7 @@ def _run_local_device_raster_overflow_replay():
         ],
         np.float32,
     )
-    camtoworlds = np.stack(
-        (np.eye(4, dtype=np.float32), np.eye(4, dtype=np.float32))
-    )
+    camtoworlds = np.stack((np.eye(4, dtype=np.float32), np.eye(4, dtype=np.float32)))
     camtoworlds[:, 0, 3] = np.asarray([-1.0, 1.0], np.float32)
     scene = SimpleNamespace(
         points=points,
@@ -1688,16 +1534,10 @@ def _run_local_device_raster_overflow_replay():
     with tempfile.TemporaryDirectory() as directory:
         config = TrainConfig(
             normalize_world_space=False,
-            model=ModelConfig(
-                capacity=4, bucket_min_capacity=4, sh_degree=0
-            ),
+            model=ModelConfig(capacity=4, bucket_min_capacity=4, sh_degree=0),
             optimizer=OptimizerConfig(max_steps=1),
-            strategy=StrategyConfig(
-                refine_start=100, max_new_per_refine=1
-            ),
-            data=DataConfig(
-                root="unused", patch_size=4, batch_size=1, num_workers=1
-            ),
+            strategy=StrategyConfig(refine_start=100, max_new_per_refine=1),
+            data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
             rasterizer=RasterizationConfig(
                 backend="reference",
                 tile_size=4,
@@ -1713,9 +1553,7 @@ def _run_local_device_raster_overflow_replay():
             ssim_lambda=0.0,
         )
         with (
-            mock.patch.object(
-                training_module, "load_colmap_scene", return_value=scene
-            ),
+            mock.patch.object(training_module, "load_colmap_scene", return_value=scene),
             mock.patch.object(
                 training_module,
                 "create_grain_dataset",
@@ -1745,9 +1583,7 @@ def _run_local_device_raster_overflow_replay():
 
 
 def _run_local_device_distributed_pose_host_loop(async_checkpoint=False):
-    points = np.asarray(
-        [[-0.1, 0.0, 3.0], [0.1, 0.0, 3.0]], np.float32
-    )
+    points = np.asarray([[-0.1, 0.0, 3.0], [0.1, 0.0, 3.0]], np.float32)
     scene = SimpleNamespace(
         points=points,
         points_rgb=np.full((2, 3), 128, np.uint8),
@@ -1814,9 +1650,7 @@ def _run_local_device_distributed_pose_host_loop(async_checkpoint=False):
                 refine_stop=101,
                 max_new_per_refine=1,
             ),
-            data=DataConfig(
-                root="unused", patch_size=4, batch_size=1, num_workers=1
-            ),
+            data=DataConfig(root="unused", patch_size=4, batch_size=1, num_workers=1),
             rasterizer=RasterizationConfig(
                 backend="reference",
                 tile_size=4,
@@ -1831,9 +1665,7 @@ def _run_local_device_distributed_pose_host_loop(async_checkpoint=False):
             async_checkpoint=async_checkpoint,
         )
         with (
-            mock.patch.object(
-                training_module, "load_colmap_scene", return_value=scene
-            ),
+            mock.patch.object(training_module, "load_colmap_scene", return_value=scene),
             mock.patch.object(
                 training_module,
                 "create_grain_dataset",
@@ -1846,21 +1678,13 @@ def _run_local_device_distributed_pose_host_loop(async_checkpoint=False):
             ),
         ):
             uninterrupted = training_module.train(config, distributed=True)
-            step_one = (
-                uninterrupted.output_dir
-                / "checkpoints"
-                / "step_00000001"
-            )
-            uninterrupted_model = _snapshot_graph_arrays(
-                uninterrupted.model
-            )
+            step_one = uninterrupted.output_dir / "checkpoints" / "step_00000001"
+            uninterrupted_model = _snapshot_graph_arrays(uninterrupted.model)
             assert uninterrupted.pose_adjust is not None
             uninterrupted_pose = np.asarray(
                 uninterrupted.pose_adjust.embeds.embedding[...]
             ).copy()
-            uninterrupted_appearance = _snapshot_graph_arrays(
-                uninterrupted.appearance
-            )
+            uninterrupted_appearance = _snapshot_graph_arrays(uninterrupted.appearance)
             resumed = training_module.train(
                 config, resume_from=step_one, distributed=True
             )
@@ -1905,21 +1729,15 @@ def _run_local_device_distributed_pose_host_loop(async_checkpoint=False):
         assert appearance_only.pose_adjust is None
         assert appearance_only.appearance is not None
         assert uninterrupted_pose.shape == (2, 3, 9)
-        np.testing.assert_array_equal(
-            uninterrupted_pose[0], uninterrupted_pose[1]
-        )
+        np.testing.assert_array_equal(uninterrupted_pose[0], uninterrupted_pose[1])
         assert np.any(uninterrupted_pose[0, 0] != 0.0)
         assert np.any(uninterrupted_pose[0, 1] != 0.0)
         assert np.any(uninterrupted_pose[0, 2] != 0.0)
-        assert "P('rank'" in str(
-            resumed.pose_adjust.embeds.embedding[...].sharding
-        )
+        assert "P('rank'" in str(resumed.pose_adjust.embeds.embedding[...].sharding)
         np.testing.assert_array_equal(
             resumed.pose_adjust.embeds.embedding[...], uninterrupted_pose
         )
-        assert "P('rank'" in str(
-            resumed.appearance.embeds.embedding[...].sharding
-        )
+        assert "P('rank'" in str(resumed.appearance.embeds.embedding[...].sharding)
         for expected, actual in zip(
             uninterrupted_appearance,
             _snapshot_graph_arrays(resumed.appearance),
@@ -1942,26 +1760,22 @@ def _run_local_device_distributed_pose_host_loop(async_checkpoint=False):
             "second.png",
             "third.png",
         ]
-        assert manifest["appearance_image_names"] == (
-            manifest["pose_image_names"]
-        )
+        assert manifest["appearance_image_names"] == (manifest["pose_image_names"])
         assert (resumed.output_dir / "renders" / "step_00000002.png").is_file()
 
 
 @pytest.mark.parametrize("async_checkpoint", [False, True])
 def test_two_virtual_cpu_distributed_host_loop_smoke(async_checkpoint):
-    script = "\n".join(
-        (
-            "import jax",
-            "from tests.test_training_distributed import "
-            "_run_local_device_distributed_host_loop, "
-            "_run_local_device_distributed_pose_host_loop, "
-            "_run_local_device_raster_overflow_replay",
-            "assert jax.local_device_count() == 2",
-            f"_run_local_device_distributed_host_loop({async_checkpoint})",
-            f"_run_local_device_distributed_pose_host_loop({async_checkpoint})",
-            "_run_local_device_raster_overflow_replay()",
-        )
+    script = (
+        "import jax\n"
+        "from tests.test_training_distributed import "
+        "_run_local_device_distributed_host_loop, "
+        "_run_local_device_distributed_pose_host_loop, "
+        "_run_local_device_raster_overflow_replay\n"
+        "assert jax.local_device_count() == 2\n"
+        f"_run_local_device_distributed_host_loop({async_checkpoint})\n"
+        f"_run_local_device_distributed_pose_host_loop({async_checkpoint})\n"
+        "_run_local_device_raster_overflow_replay()"
     )
     environment = os.environ.copy()
     environment["JAX_PLATFORMS"] = "cpu"
@@ -1992,9 +1806,7 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
     strategy_state.grad_accum[...] = jnp.asarray([[5.0], [7.0]])
     strategy_state.visible_count[...] = jnp.asarray([[11.0], [13.0]])
     strategy_state.max_radii[...] = jnp.asarray([[0.25], [0.75]])
-    train_step = make_distributed_train_step(
-        config, world_size=2, axis_name="rank"
-    )
+    train_step = make_distributed_train_step(config, world_size=2, axis_name="rank")
 
     @nnx.vmap(
         in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -2054,22 +1866,14 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
     strategy_before = _snapshot_graph_arrays(strategy_state)
     metrics = mapped_step(*call_args)
 
-    np.testing.assert_array_equal(
-        metrics["intersection_overflow"], [True, True]
-    )
-    np.testing.assert_array_equal(
-        metrics["intersection_required_count"], [7, 7]
-    )
+    np.testing.assert_array_equal(metrics["intersection_overflow"], [True, True])
+    np.testing.assert_array_equal(metrics["intersection_required_count"], [7, 7])
     np.testing.assert_array_equal(optimizer.step[...], [0, 0])
-    np.testing.assert_array_equal(
-        safety_state.max_overflow_tiles[...], [0, 0]
-    )
+    np.testing.assert_array_equal(safety_state.max_overflow_tiles[...], [0, 0])
     np.testing.assert_array_equal(
         safety_state.intersection_overflow_seen[...], [True, True]
     )
-    for before, after in zip(
-        model_before, _snapshot_graph_arrays(model), strict=True
-    ):
+    for before, after in zip(model_before, _snapshot_graph_arrays(model), strict=True):
         np.testing.assert_array_equal(after, before)
     for before, after in zip(
         optimizer_before, _snapshot_graph_arrays(optimizer), strict=True
@@ -2080,9 +1884,7 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
     ):
         np.testing.assert_array_equal(after, before)
 
-    safety_state.intersection_overflow_seen[...] = jnp.asarray(
-        [True, False]
-    )
+    safety_state.intersection_overflow_seen[...] = jnp.asarray([True, False])
     safety_state.max_overflow_tiles[...] = jnp.asarray([3, 0])
     monkeypatch.setattr(
         training_module,
@@ -2109,9 +1911,7 @@ def test_one_rank_overflow_atomically_skips_both_ranks(monkeypatch):
     np.testing.assert_array_equal(
         safety_state.intersection_overflow_seen[...], [True, True]
     )
-    np.testing.assert_array_equal(
-        safety_state.max_overflow_tiles[...], [3, 3]
-    )
+    np.testing.assert_array_equal(safety_state.max_overflow_tiles[...], [3, 3])
     np.testing.assert_array_equal(optimizer.step[...], [0, 0])
     for before, after in zip(
         strategy_before, _snapshot_graph_arrays(strategy_state), strict=True
@@ -2193,9 +1993,7 @@ def test_distributed_inference_checkpoint_compacts_active_rows(tmp_path):
     config = _topology_plan_config(capacity=3, bucket=3)
     saved = _two_rank_bundles(config)
     model = saved[0]
-    model.active_mask[...] = jnp.asarray(
-        [[False, True, True], [True, False, True]]
-    )
+    model.active_mask[...] = jnp.asarray([[False, True, True], [True, False, True]])
     model.means[...] = jnp.asarray(
         [
             [[0.0, 0.0, 0.0], [1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
@@ -2205,9 +2003,7 @@ def test_distributed_inference_checkpoint_compacts_active_rows(tmp_path):
     )
     model.opacity_logits[...] = jnp.arange(6, dtype=jnp.float32).reshape(2, 3)
     model.sh0[...] = jnp.arange(18, dtype=jnp.float32).reshape(2, 3, 1, 3)
-    path = save_distributed_checkpoint(
-        tmp_path, *saved, step=0, config=config
-    )
+    path = save_distributed_checkpoint(tmp_path, *saved, step=0, config=config)
 
     assert is_distributed_checkpoint(path)
     merged, step = load_distributed_inference_checkpoint(path, config)
@@ -2228,9 +2024,7 @@ def test_distributed_inference_checkpoint_compacts_active_rows(tmp_path):
         np.testing.assert_array_equal(np.asarray(merged.state_dict()[name]), expected)
 
     with pytest.raises(ValueError, match="different training config"):
-        load_distributed_inference_checkpoint(
-            path, replace(config, ssim_lambda=0.25)
-        )
+        load_distributed_inference_checkpoint(path, replace(config, ssim_lambda=0.25))
 
     metadata_path = path / "jax_gs_checkpoint.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -2255,9 +2049,7 @@ def test_distributed_inference_checkpoint_keeps_one_inactive_empty_slot(
     saved[0].log_scales[...] = jnp.full((2, 2, 3), jnp.inf)
     saved[0].opacity_logits[...] = jnp.full((2, 2), jnp.nan)
     saved[0].sh0[...] = jnp.full((2, 2, 1, 3), jnp.nan)
-    path = save_distributed_checkpoint(
-        tmp_path, *saved, step=0, config=config
-    )
+    path = save_distributed_checkpoint(tmp_path, *saved, step=0, config=config)
 
     merged, step = load_distributed_inference_checkpoint(path, config)
 
@@ -2280,17 +2072,13 @@ def test_distributed_inference_checkpoint_restores_canonical_appearance(
         train={"app_opt": True, "app_embed_dim": 0},
     )
     saved = _two_rank_bundles(config)
-    saved[0].active_mask[...] = jnp.asarray(
-        [[True, False, True], [False, True, False]]
-    )
+    saved[0].active_mask[...] = jnp.asarray([[True, False, True], [False, True, False]])
     saved[0].features[...] = jnp.arange(
         2 * 3 * training_module.APPEARANCE_FEATURE_DIM,
         dtype=jnp.float32,
     ).reshape(2, 3, training_module.APPEARANCE_FEATURE_DIM)
     saved[0].colors[...] = jnp.arange(18, dtype=jnp.float32).reshape(2, 3, 3)
-    appearance, appearance_optimizer = _replicated_appearance_training_state(
-        config
-    )
+    appearance, appearance_optimizer = _replicated_appearance_training_state(config)
     names = ("first.png", "second.png", "third.png")
     path = save_distributed_checkpoint(
         tmp_path,
@@ -2322,9 +2110,7 @@ def test_distributed_inference_checkpoint_restores_canonical_appearance(
     assert step == 0
     assert merged.has_appearance
     assert merged.capacity == 3
-    expected_appearance = _snapshot_graph_arrays(
-        _unstack_graph(appearance, 0)
-    )
+    expected_appearance = _snapshot_graph_arrays(_unstack_graph(appearance, 0))
     for actual, expected in zip(
         _snapshot_graph_arrays(target), expected_appearance, strict=True
     ):
@@ -2398,10 +2184,7 @@ def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
     core_only = _two_rank_bundles(config)
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        assert (
-            restore_distributed_checkpoint(path, *core_only, config=config)
-            == 1
-        )
+        assert restore_distributed_checkpoint(path, *core_only, config=config) == 1
 
     restored = _two_rank_bundles(config)
     restored_pose = _replicated_pose_training_state(config, steps=0)
@@ -2439,9 +2222,7 @@ def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
         )
 
     wrong_pose_config = replace(config, pose_opt_lr=config.pose_opt_lr * 2.0)
-    wrong_pose_optimizer = _replicated_pose_training_state(
-        wrong_pose_config, steps=0
-    )
+    wrong_pose_optimizer = _replicated_pose_training_state(wrong_pose_config, steps=0)
     with pytest.raises(ValueError, match="pose optimizer contract"):
         restore_distributed_checkpoint(
             path,
@@ -2453,14 +2234,9 @@ def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
         )
 
     # Canonical pose state is independent of the Gaussian owner count.
-    four_rank_pose = _replicated_pose_training_state(
-        config, world_size=4, steps=0
-    )
+    four_rank_pose = _replicated_pose_training_state(config, world_size=4, steps=0)
     four_rank_core = _stack_graphs(
-        *[
-            _rank_bundle(config, 0.0, optimizer_world_size=4)
-            for _ in range(4)
-        ]
+        *[_rank_bundle(config, 0.0, optimizer_world_size=4) for _ in range(4)]
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
@@ -2493,16 +2269,10 @@ def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
     )
 
     # A failed Gaussian redistribution must not partially restore pose state.
-    one_rank_core = _stack_graphs(
-        _rank_bundle(config, 0.0, optimizer_world_size=1)
-    )
-    one_rank_pose = _replicated_pose_training_state(
-        config, world_size=1, steps=0
-    )
+    one_rank_core = _stack_graphs(_rank_bundle(config, 0.0, optimizer_world_size=1))
+    one_rank_pose = _replicated_pose_training_state(config, world_size=1, steps=0)
     targets = (*one_rank_core, *one_rank_pose)
-    before_failure = tuple(
-        _snapshot_graph_arrays(node) for node in targets
-    )
+    before_failure = tuple(_snapshot_graph_arrays(node) for node in targets)
     with pytest.raises(ValueError, match="cannot hold the busiest"):
         restore_distributed_checkpoint(
             path,
@@ -2525,14 +2295,12 @@ def test_distributed_checkpoint_round_trips_canonical_pose_state(tmp_path):
 def test_distributed_checkpoint_round_trips_canonical_appearance_state(
     tmp_path,
 ):
-    config = _topology_plan_config(
-        train={"app_opt": True, "app_embed_dim": 0}
-    )
+    config = _topology_plan_config(train={"app_opt": True, "app_embed_dim": 0})
     saved = _two_rank_bundles(config)
     saved[0].active_mask[...] = jnp.ones_like(saved[0].active_mask[...])
     saved[1].step[...] = jnp.asarray([1, 1], saved[1].step[...].dtype)
-    appearance, appearance_optimizer = (
-        _replicated_appearance_training_state(config, steps=1)
+    appearance, appearance_optimizer = _replicated_appearance_training_state(
+        config, steps=1
     )
     names = ("first.png", "second.png", "third.png")
     with pytest.raises(ValueError, match="color representation"):
@@ -2556,18 +2324,12 @@ def test_distributed_checkpoint_round_trips_canonical_appearance_state(
     assert "appearance" in manifest["components"]
     assert manifest["appearance_camera_count"] == 3
     assert manifest["appearance_image_names"] == list(names)
-    assert (
-        manifest["appearance_feature_dim"]
-        == training_module.APPEARANCE_FEATURE_DIM
-    )
+    assert manifest["appearance_feature_dim"] == training_module.APPEARANCE_FEATURE_DIM
 
     core_only = _two_rank_bundles(config)
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        assert (
-            restore_distributed_checkpoint(path, *core_only, config=config)
-            == 1
-        )
+        assert restore_distributed_checkpoint(path, *core_only, config=config) == 1
 
     restored = _two_rank_bundles(config)
     restored_appearance = _replicated_appearance_training_state(config)
@@ -2604,14 +2366,9 @@ def test_distributed_checkpoint_round_trips_canonical_appearance_state(
         )
 
     four_rank_core = _stack_graphs(
-        *[
-            _rank_bundle(config, 0.0, optimizer_world_size=4)
-            for _ in range(4)
-        ]
+        *[_rank_bundle(config, 0.0, optimizer_world_size=4) for _ in range(4)]
     )
-    four_rank_appearance = _replicated_appearance_training_state(
-        config, world_size=4
-    )
+    four_rank_appearance = _replicated_appearance_training_state(config, world_size=4)
     restore_distributed_checkpoint(
         path,
         *four_rank_core,
@@ -2630,18 +2387,12 @@ def test_distributed_checkpoint_round_trips_canonical_appearance_state(
         expected = _snapshot_graph_arrays(_unstack_graph(source, 0))
         for rank in range(4):
             actual = _snapshot_graph_arrays(_unstack_graph(target, rank))
-            for actual_leaf, expected_leaf in zip(
-                actual, expected, strict=True
-            ):
+            for actual_leaf, expected_leaf in zip(actual, expected, strict=True):
                 np.testing.assert_array_equal(actual_leaf, expected_leaf)
 
-    divergent_appearance = _replicated_appearance_training_state(
-        config, steps=1
-    )
+    divergent_appearance = _replicated_appearance_training_state(config, steps=1)
     divergent_appearance[0].color_head[-1].bias[1, 0] += 1.0
-    with pytest.raises(
-        ValueError, match="appearance module replicas disagree"
-    ):
+    with pytest.raises(ValueError, match="appearance module replicas disagree"):
         save_distributed_checkpoint(
             tmp_path / "divergent",
             *saved,
@@ -2652,13 +2403,9 @@ def test_distributed_checkpoint_round_trips_canonical_appearance_state(
             appearance_image_names=names,
         )
 
-    divergent_appearance = _replicated_appearance_training_state(
-        config, steps=1
-    )
+    divergent_appearance = _replicated_appearance_training_state(config, steps=1)
     divergent_appearance[1].step[1] = 0
-    with pytest.raises(
-        ValueError, match="appearance optimizer replicas disagree"
-    ):
+    with pytest.raises(ValueError, match="appearance optimizer replicas disagree"):
         save_distributed_checkpoint(
             tmp_path / "divergent_optimizer",
             *saved,
@@ -2684,16 +2431,10 @@ def test_distributed_checkpoint_round_trips_canonical_appearance_state(
         )
 
     # A failed Gaussian redistribution must not partially restore appearance.
-    one_rank_core = _stack_graphs(
-        _rank_bundle(config, 0.0, optimizer_world_size=1)
-    )
-    one_rank_appearance = _replicated_appearance_training_state(
-        config, world_size=1
-    )
+    one_rank_core = _stack_graphs(_rank_bundle(config, 0.0, optimizer_world_size=1))
+    one_rank_appearance = _replicated_appearance_training_state(config, world_size=1)
     targets = (*one_rank_core, *one_rank_appearance)
-    before_failure = tuple(
-        _snapshot_graph_arrays(node) for node in targets
-    )
+    before_failure = tuple(_snapshot_graph_arrays(node) for node in targets)
     with pytest.raises(ValueError, match="cannot hold the busiest"):
         restore_distributed_checkpoint(
             path,
@@ -2735,9 +2476,7 @@ def test_distributed_pose_checkpoint_validates_replicas_and_noise_names(
         )
 
     pose_module, pose_optimizer = _replicated_pose_training_state(config)
-    pose_optimizer.step[...] = jnp.asarray(
-        [1, 0], pose_optimizer.step[...].dtype
-    )
+    pose_optimizer.step[...] = jnp.asarray([1, 0], pose_optimizer.step[...].dtype)
     with pytest.raises(ValueError, match="pose optimizer replicas disagree"):
         save_distributed_checkpoint(
             tmp_path / "optimizer",
@@ -2780,9 +2519,7 @@ def test_distributed_pose_checkpoint_validates_replicas_and_noise_names(
 
 def test_distributed_restore_rejects_resharding(tmp_path):
     config = _topology_plan_config()
-    path = save_distributed_checkpoint(
-        tmp_path, *_two_rank_bundles(config), step=0
-    )
+    path = save_distributed_checkpoint(tmp_path, *_two_rank_bundles(config), step=0)
     three_ranks = _stack_graphs(
         _rank_bundle(config, -0.08),
         _rank_bundle(config, 0.0),
@@ -2794,9 +2531,7 @@ def test_distributed_restore_rejects_resharding(tmp_path):
     with pytest.raises(ValueError, match="pass allow_reshard=True"):
         restore_distributed_checkpoint(path, *three_ranks)
     with pytest.raises(ValueError, match="requires model_config"):
-        restore_distributed_checkpoint(
-            path, *three_ranks, allow_reshard=True
-        )
+        restore_distributed_checkpoint(path, *three_ranks, allow_reshard=True)
 
 
 def test_distributed_restore_rejects_a_different_shard_capacity(tmp_path):
@@ -2893,13 +2628,9 @@ def test_distributed_restore_validates_saved_optimizer_contract(tmp_path):
         step=0,
         config=config,
     )
-    wrong_scene_scale = _two_rank_bundles(
-        config, optimizer_scene_scale=2.0
-    )
+    wrong_scene_scale = _two_rank_bundles(config, optimizer_scene_scale=2.0)
     with pytest.raises(ValueError, match="optimizer scene_scale"):
-        restore_distributed_checkpoint(
-            path, *wrong_scene_scale, config=config
-        )
+        restore_distributed_checkpoint(path, *wrong_scene_scale, config=config)
 
 
 def test_legacy_distributed_optimizer_contract_requires_config(tmp_path):
@@ -2915,17 +2646,13 @@ def test_legacy_distributed_optimizer_contract_requires_config(tmp_path):
     with pytest.raises(ValueError, match="legacy.*requires config"):
         restore_distributed_checkpoint(path, *_two_rank_bundles(config))
     assert (
-        restore_distributed_checkpoint(
-            path, *_two_rank_bundles(config), config=config
-        )
+        restore_distributed_checkpoint(path, *_two_rank_bundles(config), config=config)
         == 0
     )
     metadata["config_fingerprint"] = None
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     assert (
-        restore_distributed_checkpoint(
-            path, *_two_rank_bundles(config), config=config
-        )
+        restore_distributed_checkpoint(path, *_two_rank_bundles(config), config=config)
         == 0
     )
 
@@ -2955,9 +2682,7 @@ def test_distributed_and_single_checkpoints_reject_each_other(tmp_path):
     )
     assert not is_distributed_checkpoint(single_path)
     with pytest.raises(ValueError, match="not a distributed shard set"):
-        restore_distributed_checkpoint(
-            single_path, *_two_rank_bundles(config)
-        )
+        restore_distributed_checkpoint(single_path, *_two_rank_bundles(config))
 
     metadata_path = single_path / "jax_gs_checkpoint.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -2971,9 +2696,7 @@ def test_distributed_save_rejects_unsharded_state(tmp_path):
     config = _topology_plan_config()
 
     with pytest.raises(ValueError, match="unsharded leaf"):
-        save_distributed_checkpoint(
-            tmp_path, *_rank_bundle(config, 0.0), step=0
-        )
+        save_distributed_checkpoint(tmp_path, *_rank_bundle(config, 0.0), step=0)
 
 
 def test_distributed_save_rejects_shards_at_different_steps(tmp_path):
@@ -2985,17 +2708,13 @@ def test_distributed_save_rejects_shards_at_different_steps(tmp_path):
         save_distributed_checkpoint(tmp_path, *bundles, step=1)
 
     with pytest.raises(ValueError, match="step argument"):
-        save_distributed_checkpoint(
-            tmp_path, *_two_rank_bundles(config), step=1
-        )
+        save_distributed_checkpoint(tmp_path, *_two_rank_bundles(config), step=1)
 
 
 def test_restored_shards_continue_distributed_training(tmp_path):
     config = _topology_plan_config()
     trained = _duplicate_only_run(nnx.vmap)[:4]
-    path = save_distributed_checkpoint(
-        tmp_path, *trained, step=1, config=config
-    )
+    path = save_distributed_checkpoint(tmp_path, *trained, step=1, config=config)
 
     restored = _two_rank_bundles(config)
     assert restore_distributed_checkpoint(path, *restored, config=config) == 1
@@ -3010,14 +2729,10 @@ def test_restored_shards_continue_distributed_training(tmp_path):
             initial_optimizer_steps=(1, 1),
         )
 
-    np.testing.assert_array_equal(
-        metrics["distributed_state_mismatch"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["distributed_state_mismatch"], [False, False])
     np.testing.assert_array_equal(optimizer.step[...], [2, 2])
     # The restored duplicate keeps training as an ordinary owner-local row.
-    np.testing.assert_array_equal(
-        model.active_mask[...], [[True, True], [True, False]]
-    )
+    np.testing.assert_array_equal(model.active_mask[...], [[True, True], [True, False]])
 
 
 def _resize_world(config, bundles, new_capacity):
@@ -3044,9 +2759,7 @@ def test_growing_shards_preserves_every_owner():
     means_before = np.asarray(model.means[...]).copy()
     log_scales_before = np.asarray(model.log_scales[...]).copy()
 
-    grown, grown_optimizer, grown_state, _ = _resize_world(
-        config, bundles, 4
-    )
+    grown, grown_optimizer, grown_state, _ = _resize_world(config, bundles, 4)
 
     assert grown.means[...].shape == (2, 4, 3)
     assert grown.max_capacity == 4
@@ -3073,8 +2786,8 @@ def test_growing_shards_preserves_every_owner():
     # The schedule and the optimizer contract survive the transition.
     np.testing.assert_array_equal(grown_optimizer.step[...], [5, 5])
     assert _adam_means_moments(grown_optimizer).shape == (2, 4, 3)
-    assert getattr(grown_optimizer, "_jax_gs_world_size") == 2
-    assert getattr(grown_optimizer, "_jax_gs_scene_scale") == 1.0
+    assert grown_optimizer._jax_gs_world_size == 2
+    assert grown_optimizer._jax_gs_scene_scale == 1.0
 
 
 def test_growing_shards_rejects_bad_targets():
@@ -3106,47 +2819,35 @@ def test_growing_all_shards_lets_the_skipped_step_replay():
     )
     train_step = make_distributed_train_step(config, world_size=2)
 
-    @nnx.vmap(
-        in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank"
-    )
+    @nnx.vmap(in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank")
     def mapped_step(*args):
         return train_step(*args)
 
     images = jnp.zeros((2, 1, 4, 4, 3), jnp.float32)
     intrinsics = jnp.broadcast_to(
-        jnp.asarray(
-            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
-        )[None, None],
+        jnp.asarray([[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32)[
+            None, None
+        ],
         (2, 1, 3, 3),
     )
-    viewmats = jnp.broadcast_to(
-        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
-    )
+    viewmats = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4))
     keys = jax.random.split(jax.random.key(0), 2)
     sh_degrees = jnp.zeros((2,), jnp.int32)
 
     with mock.patch.object(
         training_module, "rasterization", _no_statistics_rasterization
     ):
-        skipped = mapped_step(
-            *bundles, images, intrinsics, viewmats, keys, sh_degrees
-        )
+        skipped = mapped_step(*bundles, images, intrinsics, viewmats, keys, sh_degrees)
 
-        np.testing.assert_array_equal(
-            skipped["refine_capacity_overflow"], [True, True]
-        )
+        np.testing.assert_array_equal(skipped["refine_capacity_overflow"], [True, True])
         np.testing.assert_array_equal(skipped["refine_new_count"], [0, 0])
         np.testing.assert_array_equal(bundles[1].step[...], [0, 0])
 
         grown = _resize_world(config, bundles, 4)
-        replayed = mapped_step(
-            *grown, images, intrinsics, viewmats, keys, sh_degrees
-        )
+        replayed = mapped_step(*grown, images, intrinsics, viewmats, keys, sh_degrees)
 
     # The replay sees the same schedule and now fits both planned events.
-    np.testing.assert_array_equal(
-        replayed["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(replayed["refine_capacity_overflow"], [False, False])
     np.testing.assert_array_equal(replayed["refine_planned_new_count"], [2, 2])
     np.testing.assert_array_equal(replayed["refine_new_count"], [2, 2])
     np.testing.assert_array_equal(grown[1].step[...], [1, 1])
@@ -3197,44 +2898,26 @@ def _appearance_sensitive_rasterization(
         signal[:, None, None, :],
         (camera_count, height, width, 3),
     )
-    alphas = jnp.ones(
-        (camera_count, height, width, 1), dtype=means.dtype
-    )
+    alphas = jnp.ones((camera_count, height, width, 1), dtype=means.dtype)
     visible = jnp.broadcast_to(
         kwargs["active_mask"][None, :],
         (camera_count, global_capacity),
     )
     info = {
-        "radii": jnp.ones(
-            (camera_count, global_capacity, 2), dtype=means.dtype
-        ),
+        "radii": jnp.ones((camera_count, global_capacity, 2), dtype=means.dtype),
         "valid": visible,
-        "tile_overflow": jnp.zeros(
-            (camera_count, 1, 1), dtype=jnp.bool_
-        ),
-        "candidate_limit_exceeded": jnp.zeros(
-            (camera_count, 1, 1), dtype=jnp.bool_
-        ),
-        "candidate_counts": jnp.zeros(
-            (camera_count, 1, 1), dtype=jnp.int32
-        ),
-        "intersection_overflow": jnp.zeros(
-            (camera_count,), dtype=jnp.bool_
-        ),
-        "intersection_count": jnp.ones(
-            (camera_count,), dtype=jnp.int32
-        ),
-        "intersection_required_count": jnp.ones(
-            (camera_count,), dtype=jnp.int32
-        ),
+        "tile_overflow": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
+        "candidate_limit_exceeded": jnp.zeros((camera_count, 1, 1), dtype=jnp.bool_),
+        "candidate_counts": jnp.zeros((camera_count, 1, 1), dtype=jnp.int32),
+        "intersection_overflow": jnp.zeros((camera_count,), dtype=jnp.bool_),
+        "intersection_count": jnp.ones((camera_count,), dtype=jnp.int32),
+        "intersection_required_count": jnp.ones((camera_count,), dtype=jnp.int32),
     }
     return renders, alphas, info
 
 
 def _pose_and_appearance_sensitive_rasterization(*args, **kwargs):
-    renders, alphas, info = _appearance_sensitive_rasterization(
-        *args, **kwargs
-    )
+    renders, alphas, info = _appearance_sensitive_rasterization(*args, **kwargs)
     viewmats = args[5]
     pose_signal = jax.nn.sigmoid(viewmats[:, 0, 3])
     return (
@@ -3250,9 +2933,7 @@ def _camera_module_sensitive_rasterization(*args, **kwargs):
     return _pose_and_appearance_sensitive_rasterization(*args, **kwargs)
 
 
-@pytest.mark.parametrize(
-    "initial_appearance_steps", [(0, 0), (0, 1)]
-)
+@pytest.mark.parametrize("initial_appearance_steps", [(0, 0), (0, 1)])
 def test_named_two_rank_appearance_uses_global_gaussians_and_ddp_gradients(
     initial_appearance_steps,
 ):
@@ -3266,9 +2947,7 @@ def test_named_two_rank_appearance_uses_global_gaussians_and_ddp_gradients(
         },
     )
     bundles = _two_rank_bundles(config)
-    appearance, appearance_optimizer = (
-        _replicated_appearance_training_state(config)
-    )
+    appearance, appearance_optimizer = _replicated_appearance_training_state(config)
     appearance_optimizer.step[...] = jnp.asarray(
         initial_appearance_steps, appearance_optimizer.step[...].dtype
     )
@@ -3280,9 +2959,7 @@ def test_named_two_rank_appearance_uses_global_gaussians_and_ddp_gradients(
         appearance.color_head[index].kernel[...] = 0.0
         appearance.color_head[index].bias[...] = 0.0
         appearance.color_head[index].kernel[:, 0, 0] = 1.0
-    before_embedding = np.asarray(
-        appearance.embeds.embedding[...]
-    ).copy()
+    before_embedding = np.asarray(appearance.embeds.embedding[...]).copy()
     before_colors = np.asarray(bundles[0].colors[...]).copy()
     train_step = make_distributed_train_step(config, world_size=2)
 
@@ -3358,36 +3035,27 @@ def test_named_two_rank_appearance_uses_global_gaussians_and_ddp_gradients(
         )
         np.testing.assert_array_equal(bundles[0].colors[...], before_colors)
         np.testing.assert_array_equal(bundles[1].step[...], [0, 0])
-        np.testing.assert_array_equal(
-            appearance_optimizer.step[...], [0, 1]
-        )
+        np.testing.assert_array_equal(appearance_optimizer.step[...], [0, 1])
         return
     np.testing.assert_array_equal(
         appearance.embeds.embedding[0], appearance.embeds.embedding[1]
     )
     assert np.any(
-        np.asarray(appearance.embeds.embedding[0, :2])
-        != before_embedding[0, :2]
+        np.asarray(appearance.embeds.embedding[0, :2]) != before_embedding[0, :2]
     )
     np.testing.assert_array_equal(
         appearance.embeds.embedding[0, 2], before_embedding[0, 2]
     )
-    np.testing.assert_array_equal(
-        appearance_optimizer.step[...], [1, 1]
-    )
+    np.testing.assert_array_equal(appearance_optimizer.step[...], [1, 1])
     assert np.any(np.asarray(bundles[0].colors[...]) != before_colors)
 
 
-def _run_two_rank_pose_update(
-    map_transform, *, initial_pose_steps=(0, 0)
-):
+def _run_two_rank_pose_update(map_transform, *, initial_pose_steps=(0, 0)):
     """Two ranks optimize one replicated camera-pose module."""
 
     config = _topology_plan_config(refine_start=4, train={"pose_opt": True})
     bundles = _two_rank_bundles(config)
-    pose_adjust = _stack_graphs(
-        *[_zero_initialized_pose_module() for _ in range(2)]
-    )
+    pose_adjust = _stack_graphs(*[_zero_initialized_pose_module() for _ in range(2)])
     pose_optimizer = _stack_graphs(
         *[
             training_module._create_pose_optimizer(
@@ -3435,9 +3103,9 @@ def _run_two_rank_pose_update(
 
     images = jnp.zeros((2, 1, 4, 4, 3), jnp.float32)
     intrinsics = jnp.broadcast_to(
-        jnp.asarray(
-            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
-        )[None, None],
+        jnp.asarray([[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32)[
+            None, None
+        ],
         (2, 1, 3, 3),
     )
     camtoworlds = jnp.broadcast_to(
@@ -3487,20 +3155,14 @@ def test_distributed_pose_step_mismatch_atomically_skips_update():
         nnx.vmap, initial_pose_steps=(0, 1)
     )
 
-    np.testing.assert_array_equal(
-        metrics["distributed_state_mismatch"], [True, True]
-    )
+    np.testing.assert_array_equal(metrics["distributed_state_mismatch"], [True, True])
     np.testing.assert_array_equal(embedding, 0.0)
     np.testing.assert_array_equal(pose_steps, [0, 1])
 
 
 def test_distributed_train_step_supports_2dgs():
-    config = _topology_plan_config(
-        refine_start=4, train={"model_type": "2dgs"}
-    )
-    _, optimizer, _, _, metrics = _run_two_rank_update(
-        nnx.vmap, config=config
-    )
+    config = _topology_plan_config(refine_start=4, train={"model_type": "2dgs"})
+    _, optimizer, _, _, metrics = _run_two_rank_update(nnx.vmap, config=config)
 
     np.testing.assert_array_equal(optimizer.step[...], [1, 1])
     assert np.all(np.isfinite(metrics["loss"]))
@@ -3564,20 +3226,14 @@ def _packed_rasterization(
 
 
 def test_packed_metadata_unpacks_against_the_gathered_scene(monkeypatch):
-    monkeypatch.setattr(
-        training_module, "rasterization", _packed_rasterization
-    )
+    monkeypatch.setattr(training_module, "rasterization", _packed_rasterization)
     config = _fixed_topology_config(packed=True)
 
-    _, _, strategy_state, _, metrics = _run_two_rank_update(
-        nnx.vmap, config=config
-    )
+    _, _, strategy_state, _, metrics = _run_two_rank_update(nnx.vmap, config=config)
 
     np.testing.assert_array_equal(metrics["visible_count"], [1, 1])
     # Both ranks' cameras see every owner, so each owner counts two views.
-    np.testing.assert_array_equal(
-        strategy_state.visible_count[...], [[2.0], [2.0]]
-    )
+    np.testing.assert_array_equal(strategy_state.visible_count[...], [[2.0], [2.0]])
     assert np.all(np.asarray(strategy_state.grad_accum[...]) > 0.0)
 
 
@@ -3623,9 +3279,7 @@ def _mcmc_rank_bundle(config: TrainConfig, point_count: int):
         world_size=2,
         scene_scale=1.0,
     )
-    strategy_state = MCMCStrategy(config.strategy).initialize_state(
-        model.capacity
-    )
+    strategy_state = MCMCStrategy(config.strategy).initialize_state(model.capacity)
     return model, optimizer, strategy_state, TrainingSafetyState()
 
 
@@ -3647,9 +3301,7 @@ def _assert_unscheduled_mcmc_refinement_skips_planning(map_transform):
     )
     with (
         mock.patch.object(MCMCStrategy, "plan_refine", tracked_plan),
-        mock.patch.object(
-            training_module, "rasterization", _no_overflow_rasterization
-        ),
+        mock.patch.object(training_module, "rasterization", _no_overflow_rasterization),
     ):
         _, _, _, _, metrics = _run_two_rank_update(
             map_transform, config=config, bundles=bundles
@@ -3662,9 +3314,7 @@ def _assert_unscheduled_mcmc_refinement_skips_planning(map_transform):
 
 
 def test_mcmc_capacity_overflow_is_reduced_across_ranks(monkeypatch):
-    monkeypatch.setattr(
-        training_module, "rasterization", _no_overflow_rasterization
-    )
+    monkeypatch.setattr(training_module, "rasterization", _no_overflow_rasterization)
     config = _mcmc_config(20)
     # A full rank-0 shard cannot allocate its planned birth; the half-filled
     # rank-1 shard plans nothing and would otherwise advance alone.
@@ -3677,17 +3327,13 @@ def test_mcmc_capacity_overflow_is_reduced_across_ranks(monkeypatch):
     )
 
     np.testing.assert_array_equal(metrics["refine_scheduled"], [True, True])
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [True, True]
-    )
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [True, True])
     np.testing.assert_array_equal(metrics["refine_planned_new_count"], [1, 1])
     np.testing.assert_array_equal(optimizer.step[...], [0, 0])
 
 
 def test_mcmc_shards_train_and_grow_owner_locally(monkeypatch):
-    monkeypatch.setattr(
-        training_module, "rasterization", _no_overflow_rasterization
-    )
+    monkeypatch.setattr(training_module, "rasterization", _no_overflow_rasterization)
     config = _mcmc_config(24)
     bundles = _stack_graphs(
         _mcmc_rank_bundle(config, 20), _mcmc_rank_bundle(config, 20)
@@ -3697,9 +3343,7 @@ def test_mcmc_shards_train_and_grow_owner_locally(monkeypatch):
         nnx.vmap, config=config, bundles=bundles
     )
 
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [False, False])
     np.testing.assert_array_equal(optimizer.step[...], [1, 1])
     # Every shard applies its own five-percent birth budget, as an independent
     # upstream rank does.
@@ -3711,9 +3355,7 @@ def test_mcmc_shards_train_and_grow_owner_locally(monkeypatch):
 def test_mcmc_post_update_overflow_reports_capacity_for_host_growth(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        training_module, "rasterization", _opacity_growth_rasterization
-    )
+    monkeypatch.setattr(training_module, "rasterization", _opacity_growth_rasterization)
     config = _mcmc_config(40, bucket=20)
     bundles = _stack_graphs(
         _mcmc_rank_bundle(config, 20), _mcmc_rank_bundle(config, 20)
@@ -3724,20 +3366,12 @@ def test_mcmc_post_update_overflow_reports_capacity_for_host_growth(
         nnx.vmap, config=config, bundles=bundles
     )
 
-    np.testing.assert_array_equal(
-        metrics["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(metrics["refine_capacity_overflow"], [False, False])
     np.testing.assert_array_equal(metrics["refine_required_capacity"], [20, 20])
-    np.testing.assert_array_equal(
-        metrics["refine_commit_overflow"], [True, True]
-    )
-    np.testing.assert_array_equal(
-        metrics["refine_commit_required_capacity"], [21, 21]
-    )
+    np.testing.assert_array_equal(metrics["refine_commit_overflow"], [True, True])
+    np.testing.assert_array_equal(metrics["refine_commit_required_capacity"], [21, 21])
     np.testing.assert_array_equal(optimizer.step[...], [1, 1])
-    np.testing.assert_array_equal(
-        strategy_state.capacity_overflow[...], [True, True]
-    )
+    np.testing.assert_array_equal(strategy_state.capacity_overflow[...], [True, True])
 
     grown_model, _, _, decision = synchronize_distributed_capacity(
         config, model, optimizer, strategy_state, metrics
@@ -3763,35 +3397,27 @@ def test_host_capacity_synchronizer_grows_and_replays_the_frozen_step():
     )
     train_step = make_distributed_train_step(config, world_size=2)
 
-    @nnx.vmap(
-        in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank"
-    )
+    @nnx.vmap(in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank")
     def mapped_step(*args):
         return train_step(*args)
 
     images = jnp.zeros((2, 1, 4, 4, 3), jnp.float32)
     intrinsics = jnp.broadcast_to(
-        jnp.asarray(
-            [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
-        )[None, None],
+        jnp.asarray([[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32)[
+            None, None
+        ],
         (2, 1, 3, 3),
     )
-    viewmats = jnp.broadcast_to(
-        jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4)
-    )
+    viewmats = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32)[None, None], (2, 1, 4, 4))
     keys = jax.random.split(jax.random.key(0), 2)
     sh_degrees = jnp.zeros((2,), jnp.int32)
 
     with mock.patch.object(
         training_module, "rasterization", _no_statistics_rasterization
     ):
-        metrics = mapped_step(
-            *bundles, images, intrinsics, viewmats, keys, sh_degrees
-        )
-        model, optimizer, strategy_state, decision = (
-            synchronize_distributed_capacity(
-                config, bundles[0], bundles[1], bundles[2], metrics
-            )
+        metrics = mapped_step(*bundles, images, intrinsics, viewmats, keys, sh_degrees)
+        model, optimizer, strategy_state, decision = synchronize_distributed_capacity(
+            config, bundles[0], bundles[1], bundles[2], metrics
         )
         assert decision.grew and decision.replay_required
         assert (decision.old_capacity, decision.new_capacity) == (2, 4)
@@ -3809,9 +3435,7 @@ def test_host_capacity_synchronizer_grows_and_replays_the_frozen_step():
             sh_degrees,
         )
 
-    np.testing.assert_array_equal(
-        replayed["refine_capacity_overflow"], [False, False]
-    )
+    np.testing.assert_array_equal(replayed["refine_capacity_overflow"], [False, False])
     np.testing.assert_array_equal(replayed["refine_new_count"], [2, 2])
     np.testing.assert_array_equal(optimizer.step[...], [1, 1])
 
@@ -3845,10 +3469,8 @@ def test_host_capacity_synchronizer_grows_without_replay_after_commit_overflow()
         "refine_commit_overflow": jnp.asarray([True, False]),
         "refine_required_capacity": jnp.asarray([4, 4]),
     }
-    model, optimizer, strategy_state, decision = (
-        synchronize_distributed_capacity(
-            config, bundles[0], bundles[1], bundles[2], metrics
-        )
+    model, optimizer, strategy_state, decision = synchronize_distributed_capacity(
+        config, bundles[0], bundles[1], bundles[2], metrics
     )
     assert decision == (True, False, 2, 4)
     assert model.means[...].shape == (2, 4, 3)
@@ -3883,25 +3505,23 @@ def test_host_capacity_synchronizer_checks_devices_and_blocks_resize(
         "refine_required_capacity": jnp.asarray([4, 4]),
     }
 
-    model, optimizer, strategy_state, decision = (
-        synchronize_distributed_capacity(
-            config,
-            bundles[0],
-            bundles[1],
-            bundles[2],
-            metrics,
-            devices=devices,
-            resize_step=lambda model, optimizer, strategy_state, capacity: (
-                resize_distributed_training_state(
-                    model,
-                    optimizer,
-                    strategy_state,
-                    capacity,
-                    config.model,
-                    config.optimizer,
-                )
-            ),
-        )
+    model, optimizer, strategy_state, decision = synchronize_distributed_capacity(
+        config,
+        bundles[0],
+        bundles[1],
+        bundles[2],
+        metrics,
+        devices=devices,
+        resize_step=lambda model, optimizer, strategy_state, capacity: (
+            resize_distributed_training_state(
+                model,
+                optimizer,
+                strategy_state,
+                capacity,
+                config.model,
+                config.optimizer,
+            )
+        ),
     )
 
     assert decision == (True, False, 2, 4)
@@ -3934,26 +3554,22 @@ def test_distributed_memory_preflight_preserves_host_stacked_world_cost(
         image_width=4,
     )
 
-    mapped = (
-        training_module._check_distributed_bucket_transition_memory_budget(
-            config,
-            2,
-            2,
-            4,
-            devices=(object(), object()),
-            image_height=4,
-            image_width=4,
-        )
+    mapped = training_module._check_distributed_bucket_transition_memory_budget(
+        config,
+        2,
+        2,
+        4,
+        devices=(object(), object()),
+        image_height=4,
+        image_width=4,
     )
-    host_stacked = (
-        training_module._check_distributed_bucket_transition_memory_budget(
-            config,
-            2,
-            2,
-            4,
-            image_height=4,
-            image_width=4,
-        )
+    host_stacked = training_module._check_distributed_bucket_transition_memory_budget(
+        config,
+        2,
+        2,
+        4,
+        image_height=4,
+        image_width=4,
     )
 
     assert mapped == per_device
@@ -3971,16 +3587,12 @@ def test_shard_camera_batch_deals_cameras_to_ranks_in_order():
     assert sharded["image"].shape == (2, 2, 2, 2, 3)
     np.testing.assert_array_equal(sharded["image_id"], [[10, 11], [12, 13]])
     assert sharded["image_name"].tolist() == [["a", "b"], ["c", "d"]]
-    np.testing.assert_array_equal(
-        sharded["image"][1, 0], batch["image"][2]
-    )
+    np.testing.assert_array_equal(sharded["image"][1, 0], batch["image"][2])
 
     with pytest.raises(ValueError, match="does not split"):
         shard_camera_batch({"image": np.zeros((3, 2, 2, 3))}, 2)
     with pytest.raises(ValueError, match="while other fields carry"):
-        shard_camera_batch(
-            {"image": np.zeros((4, 2)), "K": np.zeros((2, 3))}, 2
-        )
+        shard_camera_batch({"image": np.zeros((4, 2)), "K": np.zeros((2, 3))}, 2)
 
 
 def test_distributed_initialization_uses_global_knn_before_owner_deal():
@@ -4022,9 +3634,7 @@ def test_sharded_camera_batch_drives_the_mapped_step_per_rank():
     bundles = _two_rank_bundles(config)
     train_step = make_distributed_train_step(config, world_size=2)
 
-    @nnx.vmap(
-        in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank"
-    )
+    @nnx.vmap(in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0), out_axes=0, axis_name="rank")
     def mapped_step(*args):
         return train_step(*args)
 
@@ -4086,9 +3696,7 @@ def test_distributed_render_matches_the_single_process_render():
         return render_step(shard, viewmat, K, sh_degree)
 
     viewmat = jnp.eye(4, dtype=jnp.float32)
-    K = jnp.asarray(
-        [[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32
-    )
+    K = jnp.asarray([[4.0, 0.0, 2.0], [0.0, 4.0, 2.0], [0.0, 0.0, 1.0]], jnp.float32)
     sh_degree = jnp.asarray(0, jnp.int32)
 
     rendered, _, _, _ = mapped_render(model, viewmat, K, sh_degree)
@@ -4135,9 +3743,7 @@ def test_distributed_render_step_rejects_the_unsupported_combinations():
     with pytest.raises(ValueError, match="world_size must be greater"):
         make_distributed_render_step(config, 4, 4, world_size=1)
     with pytest.raises(NotImplementedError, match="pinhole"):
-        make_distributed_render_step(
-            replace(config, with_ut=True), 4, 4, world_size=2
-        )
+        make_distributed_render_step(replace(config, with_ut=True), 4, 4, world_size=2)
 
 
 def test_distributed_appearance_render_uses_the_global_scene(monkeypatch):
@@ -4272,12 +3878,7 @@ def test_resharding_preserves_every_gaussian_and_its_state():
     assert before.shape == (4, 3)
 
     grad_before = np.asarray(strategy_state.grad_accum[...])
-    owned = {
-        float(before[i, 0]): float(
-            grad_before[i // 2, i % 2]
-        )
-        for i in range(4)
-    }
+    owned = {float(before[i, 0]): float(grad_before[i // 2, i % 2]) for i in range(4)}
 
     wide = _reshard(config, bundles, 4)
     assert wide[0].means[...].shape[0] == 4
@@ -4339,15 +3940,11 @@ def test_resharded_optimizer_uses_target_world_contract_and_can_train(
         )[None, None],
         (4, 1, 3, 3),
     )
-    viewmats = jnp.broadcast_to(
-        jnp.eye(4, dtype=jnp.float32)[None, None], (4, 1, 4, 4)
-    )
+    viewmats = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float32)[None, None], (4, 1, 4, 4))
     keys = jax.random.split(jax.random.key(0), 4)
     sh_degrees = jnp.zeros((4,), jnp.int32)
 
-    monkeypatch.setattr(
-        training_module, "rasterization", _no_overflow_rasterization
-    )
+    monkeypatch.setattr(training_module, "rasterization", _no_overflow_rasterization)
     actual_metrics = mapped_step(
         *actual, images, intrinsics, viewmats, keys, sh_degrees
     )
@@ -4355,14 +3952,12 @@ def test_resharded_optimizer_uses_target_world_contract_and_can_train(
         *expected, images, intrinsics, viewmats, keys, sh_degrees
     )
 
-    assert getattr(actual[1], "_jax_gs_world_size") == 4
+    assert actual[1]._jax_gs_world_size == 4
     np.testing.assert_array_equal(actual[1].step[...], [1, 1, 1, 1])
     np.testing.assert_allclose(
         actual_metrics["loss"], expected_metrics["loss"], rtol=1e-6
     )
-    np.testing.assert_allclose(
-        actual[0].means[...], expected[0].means[...], rtol=1e-6
-    )
+    np.testing.assert_allclose(actual[0].means[...], expected[0].means[...], rtol=1e-6)
     np.testing.assert_allclose(
         _adam_means_moments(actual[1]),
         _adam_means_moments(expected[1]),
@@ -4414,9 +4009,7 @@ def test_resharding_reduces_sticky_overflow_rather_than_dropping_it():
     np.testing.assert_array_equal(
         resharded[3].intersection_overflow_seen[...], [True] * 4
     )
-    np.testing.assert_array_equal(
-        resharded[3].max_overflow_tiles[...], [7] * 4
-    )
+    np.testing.assert_array_equal(resharded[3].max_overflow_tiles[...], [7] * 4)
 
 
 def test_resharding_rejects_a_capacity_that_cannot_hold_a_shard():
@@ -4450,9 +4043,7 @@ def test_resharding_spreads_an_uneven_split_across_the_lowest_ranks():
     assert before.shape[0] == 5
 
     resharded = _reshard(config, bundles, 3, local_capacity=4)
-    counts = np.asarray(
-        jnp.count_nonzero(resharded[0].active_mask[...], axis=1)
-    )
+    counts = np.asarray(jnp.count_nonzero(resharded[0].active_mask[...], axis=1))
     # Five across three ranks: sizes differ by at most one, remainder low.
     np.testing.assert_array_equal(counts, [2, 2, 1])
     np.testing.assert_array_equal(_global_rows(resharded[0]), before)
@@ -4490,9 +4081,7 @@ def test_distributed_restore_reshards_when_asked(tmp_path):
 
     # A four-rank target must already own the target optimizer graph/tx;
     # checkpoint state updates cannot replace static NNX graph attributes.
-    wrong_target = _stack_graphs(
-        *[_rank_bundle(config, 0.0) for _ in range(4)]
-    )
+    wrong_target = _stack_graphs(*[_rank_bundle(config, 0.0) for _ in range(4)])
     with pytest.raises(ValueError, match="target optimizer.*world_size=4"):
         restore_distributed_checkpoint(
             path,
@@ -4553,10 +4142,7 @@ def test_distributed_restore_reshards_when_asked(tmp_path):
 
     # A correctly constructed four-rank world reads a two-rank checkpoint.
     target = _stack_graphs(
-        *[
-            _rank_bundle(config, 0.0, optimizer_world_size=4)
-            for _ in range(4)
-        ]
+        *[_rank_bundle(config, 0.0, optimizer_world_size=4) for _ in range(4)]
     )
     step = restore_distributed_checkpoint(
         path,
@@ -4598,9 +4184,7 @@ def test_distributed_restore_refuses_a_target_that_cannot_hold_the_scene(
     path = save_distributed_checkpoint(tmp_path, *saved, step=0, config=config)
 
     # Eight Gaussians cannot fit one shard of capacity four.
-    target = _stack_graphs(
-        _rank_bundle(config, 0.0, optimizer_world_size=1)
-    )
+    target = _stack_graphs(_rank_bundle(config, 0.0, optimizer_world_size=1))
     with pytest.raises(ValueError, match="cannot hold the busiest"):
         restore_distributed_checkpoint(
             path,

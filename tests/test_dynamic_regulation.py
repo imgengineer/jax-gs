@@ -1,7 +1,7 @@
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import pytest
+from flax import nnx
 
 from jax_gs.contrib.dynamic import HexPlaneField
 from jax_gs.contrib.dynamic.regulation import (
@@ -48,6 +48,7 @@ def test_time_smoothness_uses_same_math_and_jits():
     expected = plane_smoothness([plane])
     actual = jax.jit(time_smoothness)([plane])
     assert jnp.allclose(actual, expected)
+
 
 def test_time_l1_values_sum_and_empty_sequence_contract():
     first = jnp.full((1, 1, 2, 2), 0.5)

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import nnx
 
 from jax_gs.experimental import (
     GaussianInferenceRenderer,
@@ -82,7 +82,7 @@ def _request(width: int = 8, height: int = 8) -> dict[str, object]:
 
 
 def test_experimental_public_imports_match_current_main_hierarchy():
-    import jax_gs.experimental as experimental
+    from jax_gs import experimental
     from jax_gs.experimental.render import (
         GaussianInferenceRenderer as RenderRenderer,
     )
@@ -144,7 +144,10 @@ def test_stateless_render_normalizes_single_camera_batches():
         ({"camera_model": "ortho"}, "camera_model='pinhole' only"),
         ({"tile_size": 32}, "tile_size in {8, 16}"),
         ({"sh_degree": 0}, "sh_degree/sh_compression_mode"),
-        ({"backgrounds": jnp.zeros((1, 3))}, "unexpected keyword argument 'backgrounds'"),
+        (
+            {"backgrounds": jnp.zeros((1, 3))},
+            "unexpected keyword argument 'backgrounds'",
+        ),
         ({"unknown": True}, "unexpected keyword argument 'unknown'"),
     ],
 )
@@ -240,12 +243,8 @@ def test_sh_codecs_preserve_or_drop_higher_order_chroma():
     colors = colors.at[:, 1:, 2].set(-0.25)
     opacities = jnp.ones((4,), jnp.float32)
 
-    decoded_32b = _simulate_sh_codec(
-        colors, opacities, SHCompressionMode.PACKED_32B
-    )
-    decoded_16b = _simulate_sh_codec(
-        colors, opacities, SHCompressionMode.PACKED_16B
-    )
+    decoded_32b = _simulate_sh_codec(colors, opacities, SHCompressionMode.PACKED_32B)
+    decoded_16b = _simulate_sh_codec(colors, opacities, SHCompressionMode.PACKED_16B)
 
     assert float(jnp.max(jnp.abs(decoded_32b[:, 1:, 0]))) > 0.2
     np.testing.assert_allclose(decoded_32b[:, 1:, 0], -decoded_32b[:, 1:, 2])

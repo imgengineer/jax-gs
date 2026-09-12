@@ -1,18 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from concurrent.futures import Executor, Future
 from dataclasses import asdict
-import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
+from flax import nnx
 
 from .capacity import (
     _distributed_local_capacity,
@@ -25,7 +25,6 @@ from .config import MAX_MODEL_CAPACITY, OptimizerConfig, TrainConfig
 from .data.normalize import _as_similarity_matrix
 from .model import GaussianModel
 from .strategy import StrategyState
-
 
 _CHECKPOINT_METADATA = "jax_gs_checkpoint.json"
 _DISTRIBUTED_KIND = "distributed"
@@ -110,9 +109,7 @@ def _validate_pose_arguments(
     has_module = pose_module is not None
     has_optimizer = pose_optimizer is not None
     if has_module != has_optimizer:
-        raise ValueError(
-            "pose_module and pose_optimizer must be provided together"
-        )
+        raise ValueError("pose_module and pose_optimizer must be provided together")
     if has_module and pose_image_names is None:
         raise ValueError(
             "pose_module, pose_optimizer, and pose_image_names must be "
@@ -127,9 +124,7 @@ def _validate_pose_arguments(
     if not all(isinstance(name, str) for name in names):
         raise TypeError("pose_image_names must contain only strings")
     camera_count = len(names)
-    if has_module and camera_count != int(
-        pose_module.embeds.embedding.shape[0]
-    ):
+    if has_module and camera_count != int(pose_module.embeds.embedding.shape[0]):
         raise ValueError(
             f"pose_image_names has {len(names)} entries, but pose_module has "
             f"{pose_module.embeds.embedding.shape[0]} cameras"
@@ -137,25 +132,17 @@ def _validate_pose_arguments(
     return names, camera_count
 
 
-def _validate_replicated_state(
-    node: Any, world_size: int, label: str
-) -> None:
+def _validate_replicated_state(node: Any, world_size: int, label: str) -> None:
     for value in jax.tree.leaves(_pure_state(node)):
         if not isinstance(value, jax.Array) or value.shape[0] != world_size:
-            raise ValueError(
-                f"distributed {label} must have a leading world axis"
-            )
+            raise ValueError(f"distributed {label} must have a leading world axis")
         comparable = (
             jax.random.key_data(value)
             if jax.dtypes.issubdtype(value.dtype, jax.dtypes.prng_key)
             else value
         )
-        if not bool(
-            jax.device_get(jnp.all(comparable == comparable[0]))
-        ):
-            raise ValueError(
-                f"distributed {label} replicas disagree across ranks"
-            )
+        if not bool(jax.device_get(jnp.all(comparable == comparable[0]))):
+            raise ValueError(f"distributed {label} replicas disagree across ranks")
 
 
 def _validate_distributed_pose_arguments(
@@ -168,15 +155,11 @@ def _validate_distributed_pose_arguments(
 ) -> tuple[tuple[str, ...], int] | None:
     has_module = pose_module is not None
     if has_module != (pose_optimizer is not None):
-        raise ValueError(
-            "pose_module and pose_optimizer must be provided together"
-        )
+        raise ValueError("pose_module and pose_optimizer must be provided together")
     if not has_module:
         return _validate_pose_arguments(None, None, pose_image_names)
 
-    pose_world_size = _distributed_world_size(
-        pose_module, pose_optimizer
-    )
+    pose_world_size = _distributed_world_size(pose_module, pose_optimizer)
     if pose_world_size != world_size:
         raise ValueError(
             "distributed pose state must match the Gaussian world size "
@@ -189,9 +172,7 @@ def _validate_distributed_pose_arguments(
     )
     if require_equal_replicas:
         _validate_replicated_state(pose_module, world_size, "pose module")
-        _validate_replicated_state(
-            pose_optimizer, world_size, "pose optimizer"
-        )
+        _validate_replicated_state(pose_optimizer, world_size, "pose optimizer")
     return pose
 
 
@@ -230,9 +211,7 @@ def _validate_distributed_appearance_arguments(
         appearance_image_names,
     )
     if require_equal_replicas:
-        _validate_replicated_state(
-            appearance_module, world_size, "appearance module"
-        )
+        _validate_replicated_state(appearance_module, world_size, "appearance module")
         _validate_replicated_state(
             appearance_optimizer, world_size, "appearance optimizer"
         )
@@ -257,9 +236,7 @@ def _validate_appearance_arguments(
     if not any(provided):
         return None
     if isinstance(appearance_image_names, str):
-        raise TypeError(
-            "appearance_image_names must be a sequence of image names"
-        )
+        raise TypeError("appearance_image_names must be a sequence of image names")
     assert appearance_image_names is not None
     names = tuple(appearance_image_names)
     if not all(isinstance(name, str) for name in names):
@@ -291,12 +268,12 @@ def _validate_scene_values(
     try:
         scale_array = np.asarray(jax.device_get(scene_scale))
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "scene_scale must be a finite non-negative scalar"
-        ) from exc
-    if scale_array.shape != () or not np.issubdtype(
-        scale_array.dtype, np.number
-    ) or np.issubdtype(scale_array.dtype, np.complexfloating):
+        raise ValueError("scene_scale must be a finite non-negative scalar") from exc
+    if (
+        scale_array.shape != ()
+        or not np.issubdtype(scale_array.dtype, np.number)
+        or np.issubdtype(scale_array.dtype, np.complexfloating)
+    ):
         raise ValueError("scene_scale must be a finite non-negative scalar")
     scale = float(scale_array)
     if not np.isfinite(scale) or scale < 0.0:
@@ -313,9 +290,7 @@ def _config_fingerprint(config: TrainConfig) -> str:
     values["rasterizer"].pop("projection_backend", None)
     if values["strategy"].get("target_primitives") is None:
         values["strategy"].pop("target_primitives")
-    payload = json.dumps(
-        values, sort_keys=True, separators=(",", ":")
-    )
+    payload = json.dumps(values, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -333,9 +308,7 @@ def _distributed_optimizer_contract(
     batch_size = getattr(optimizer, "_jax_gs_batch_size", None)
     world_size = getattr(optimizer, "_jax_gs_world_size", None)
     scene_scale = getattr(optimizer, "_jax_gs_scene_scale", None)
-    optimizer_config = getattr(
-        optimizer, "_jax_gs_optimizer_config", None
-    )
+    optimizer_config = getattr(optimizer, "_jax_gs_optimizer_config", None)
     kind = getattr(optimizer, "_jax_gs_optimizer_kind", None)
     if (
         not isinstance(batch_size, int)
@@ -376,8 +349,7 @@ def _distributed_pose_optimizer_contract(
         or any(value < 0.0 for value in contract[2:])
     ):
         raise ValueError(
-            "distributed pose optimizer does not record a valid static "
-            "contract"
+            "distributed pose optimizer does not record a valid static contract"
         )
     return {
         "batch_size": contract[0],
@@ -402,8 +374,7 @@ def _distributed_appearance_optimizer_contract(
         or any(value < 0.0 for value in contract[2:])
     ):
         raise ValueError(
-            "distributed appearance optimizer does not record a valid "
-            "static contract"
+            "distributed appearance optimizer does not record a valid static contract"
         )
     return {
         "kind": contract[0],
@@ -458,9 +429,7 @@ def save_distributed_checkpoint(
         if candidate_bound <= 0:
             raise ValueError("candidate_bound must be positive")
     if (scene_transform is None) != (scene_scale is None):
-        raise ValueError(
-            "scene_transform and scene_scale must be provided together"
-        )
+        raise ValueError("scene_transform and scene_scale must be provided together")
     scene_metadata = None
     if scene_transform is not None:
         scene_matrix, saved_scene_scale = _validate_scene_values(
@@ -471,9 +440,7 @@ def save_distributed_checkpoint(
             "scene_scale": saved_scene_scale,
         }
 
-    world_size = _distributed_world_size(
-        model, optimizer, strategy_state, safety_state
-    )
+    world_size = _distributed_world_size(model, optimizer, strategy_state, safety_state)
     pose = _validate_distributed_pose_arguments(
         pose_module,
         pose_optimizer,
@@ -499,13 +466,9 @@ def save_distributed_checkpoint(
             )
     pose_optimizer_contract = None
     if pose_optimizer is not None:
-        pose_optimizer_contract = _distributed_pose_optimizer_contract(
-            pose_optimizer
-        )
+        pose_optimizer_contract = _distributed_pose_optimizer_contract(pose_optimizer)
         if config is None:
-            raise ValueError(
-                "distributed pose checkpoints require TrainConfig"
-            )
+            raise ValueError("distributed pose checkpoints require TrainConfig")
         expected_pose_contract = {
             "batch_size": config.data.batch_size,
             "steps": config.steps,
@@ -513,9 +476,7 @@ def save_distributed_checkpoint(
             "regularization": float(config.pose_opt_reg),
         }
         if pose_optimizer_contract != expected_pose_contract:
-            raise ValueError(
-                "distributed pose optimizer does not match TrainConfig"
-            )
+            raise ValueError("distributed pose optimizer does not match TrainConfig")
     appearance_optimizer_contract = None
     if config is not None:
         if model.has_appearance != config.app_opt:
@@ -525,14 +486,11 @@ def save_distributed_checkpoint(
             )
         if config.app_opt != (appearance_module is not None):
             raise ValueError(
-                "distributed appearance state does not match "
-                "TrainConfig.app_opt"
+                "distributed appearance state does not match TrainConfig.app_opt"
             )
     if appearance_optimizer is not None:
         if config is None:
-            raise ValueError(
-                "distributed appearance checkpoints require TrainConfig"
-            )
+            raise ValueError("distributed appearance checkpoints require TrainConfig")
         if not model.has_appearance:
             raise ValueError(
                 "distributed appearance state requires an appearance model"
@@ -544,13 +502,10 @@ def save_distributed_checkpoint(
             or appearance_module.sh_degree != config.model.sh_degree
         ):
             raise ValueError(
-                "distributed appearance module does not match the model or "
-                "TrainConfig"
+                "distributed appearance module does not match the model or TrainConfig"
             )
-        appearance_optimizer_contract = (
-            _distributed_appearance_optimizer_contract(
-                appearance_optimizer
-            )
+        appearance_optimizer_contract = _distributed_appearance_optimizer_contract(
+            appearance_optimizer
         )
         expected_appearance_contract = {
             "kind": "appearance_multi_adam_v1",
@@ -583,15 +538,11 @@ def save_distributed_checkpoint(
         rtol=0.0,
         atol=0.0,
     ):
-        raise ValueError(
-            "scene_scale must match the distributed optimizer contract"
-        )
+        raise ValueError("scene_scale must match the distributed optimizer contract")
     local_capacity = _distributed_local_capacity(model, world_size)
     optimizer_steps = np.asarray(jax.device_get(optimizer.step[...]))
     if optimizer_steps.shape != (world_size,):
-        raise ValueError(
-            "distributed optimizer must hold one step counter per shard"
-        )
+        raise ValueError("distributed optimizer must hold one step counter per shard")
     if not np.all(optimizer_steps == optimizer_steps[0]):
         raise ValueError(
             "distributed shards disagree on the optimizer step: "
@@ -603,13 +554,9 @@ def save_distributed_checkpoint(
             f"optimizer step {int(optimizer_steps[0])}"
         )
     if pose_optimizer is not None:
-        pose_optimizer_steps = np.asarray(
-            jax.device_get(pose_optimizer.step[...])
-        )
+        pose_optimizer_steps = np.asarray(jax.device_get(pose_optimizer.step[...]))
         if pose_optimizer_steps.shape != (world_size,):
-            raise ValueError(
-                "distributed pose optimizer must hold one step per rank"
-            )
+            raise ValueError("distributed pose optimizer must hold one step per rank")
         if not np.all(pose_optimizer_steps == step):
             raise ValueError(
                 "distributed pose optimizer step must match checkpoint step; "
@@ -636,10 +583,7 @@ def save_distributed_checkpoint(
         jax.device_get(
             jnp.all(
                 model.active_mask[...]
-                == (
-                    jnp.arange(local_capacity)[None, :]
-                    < active_counts[:, None]
-                ),
+                == (jnp.arange(local_capacity)[None, :] < active_counts[:, None]),
                 axis=1,
             )
         )
@@ -655,9 +599,7 @@ def save_distributed_checkpoint(
     }
     if pose_module is not None:
         payload["pose"] = {
-            "module": _encode_empty_arrays(
-                _pure_state(_unstack_graph(pose_module, 0))
-            ),
+            "module": _encode_empty_arrays(_pure_state(_unstack_graph(pose_module, 0))),
             "optimizer": _encode_empty_arrays(
                 _pure_state(_unstack_graph(pose_optimizer, 0))
             ),
@@ -691,16 +633,12 @@ def save_distributed_checkpoint(
         "active_counts": [int(count) for count in active_counts],
         "active_prefix": [bool(value) for value in active_prefix],
         "optimizer_contract": optimizer_contract,
-        "config_fingerprint": (
-            None if config is None else _config_fingerprint(config)
-        ),
+        "config_fingerprint": (None if config is None else _config_fingerprint(config)),
     }
     if pose_optimizer_contract is not None:
         metadata["pose_optimizer_contract"] = pose_optimizer_contract
     if appearance_optimizer_contract is not None:
-        metadata["appearance_optimizer_contract"] = (
-            appearance_optimizer_contract
-        )
+        metadata["appearance_optimizer_contract"] = appearance_optimizer_contract
     if intersection_capacity is not None:
         metadata["intersection_capacity"] = intersection_capacity
     if candidate_bound is not None:
@@ -710,9 +648,7 @@ def save_distributed_checkpoint(
         metadata["pose_camera_count"] = camera_count
         metadata["pose_image_names"] = list(names)
     if model.has_appearance:
-        metadata["appearance_feature_dim"] = int(
-            model.features.shape[-1]
-        )
+        metadata["appearance_feature_dim"] = int(model.features.shape[-1])
     if appearance is not None:
         names, camera_count = appearance
         metadata["appearance_camera_count"] = camera_count
@@ -720,7 +656,12 @@ def save_distributed_checkpoint(
     if scene_metadata is not None:
         metadata["scene"] = scene_metadata
     return _write_checkpoint(
-        checkpoint_path, payload, config, metadata, force=force, executor=_executor,
+        checkpoint_path,
+        payload,
+        config,
+        metadata,
+        force=force,
+        executor=_executor,
     )
 
 
@@ -745,16 +686,12 @@ def _world_shaped_like(
             and value.ndim > 0
             and value.shape[0] == target_capacity
         ):
-            return jnp.zeros(
-                (capacity, *value.shape[1:]), dtype=value.dtype
-            )
+            return jnp.zeros((capacity, *value.shape[1:]), dtype=value.dtype)
         return value
 
     nnx.update(shard, jax.tree.map(reshape, state))
     replicated = _stack_graphs([shard])
-    return _stack_graphs(
-        [_unstack_graph(replicated, 0) for _ in range(world_size)]
-    )
+    return _stack_graphs([_unstack_graph(replicated, 0) for _ in range(world_size)])
 
 
 def restore_distributed_checkpoint(
@@ -806,9 +743,7 @@ def restore_distributed_checkpoint(
         raise ValueError(
             "checkpoint is not a distributed shard set; use restore_checkpoint"
         )
-    world_size = _distributed_world_size(
-        model, optimizer, strategy_state, safety_state
-    )
+    world_size = _distributed_world_size(model, optimizer, strategy_state, safety_state)
     pose = _validate_distributed_pose_arguments(
         pose_module,
         pose_optimizer,
@@ -826,9 +761,7 @@ def restore_distributed_checkpoint(
     local_capacity = _distributed_local_capacity(model, world_size)
     saved_world_size = int(metadata["world_size"])
     saved_local_capacity = int(metadata["local_capacity"])
-    reshaping = (
-        saved_world_size != world_size or saved_local_capacity != local_capacity
-    )
+    reshaping = saved_world_size != world_size or saved_local_capacity != local_capacity
     if reshaping and not allow_reshard:
         raise ValueError(
             f"checkpoint holds {saved_world_size} shards of capacity "
@@ -851,12 +784,9 @@ def restore_distributed_checkpoint(
     if config is not None:
         expected_optimizer_kind = _optimizer_kind_for_config(config)
         if (
-            target_optimizer_contract["batch_size"]
-            != config.data.batch_size
-            or target_optimizer_contract["config"]
-            != asdict(config.optimizer)
-            or target_optimizer_contract["kind"]
-            != expected_optimizer_kind
+            target_optimizer_contract["batch_size"] != config.data.batch_size
+            or target_optimizer_contract["config"] != asdict(config.optimizer)
+            or target_optimizer_contract["kind"] != expected_optimizer_kind
         ):
             raise ValueError(
                 "target optimizer must be created with "
@@ -884,13 +814,10 @@ def restore_distributed_checkpoint(
         if not isinstance(saved_optimizer_contract, dict) or not (
             required_contract_fields <= saved_optimizer_contract.keys()
         ):
-            raise ValueError(
-                "checkpoint optimizer contract is missing required fields"
-            )
+            raise ValueError("checkpoint optimizer contract is missing required fields")
         if saved_optimizer_contract["world_size"] != saved_world_size:
             raise ValueError(
-                "checkpoint optimizer world_size disagrees with its shard "
-                "manifest"
+                "checkpoint optimizer world_size disagrees with its shard manifest"
             )
         for field, label in (
             ("batch_size", "batch_size"),
@@ -898,13 +825,9 @@ def restore_distributed_checkpoint(
             ("kind", "kind"),
             ("config", "OptimizerConfig"),
         ):
-            if (
-                saved_optimizer_contract[field]
-                != target_optimizer_contract[field]
-            ):
+            if saved_optimizer_contract[field] != target_optimizer_contract[field]:
                 raise ValueError(
-                    f"checkpoint optimizer {label} does not match the "
-                    "target optimizer"
+                    f"checkpoint optimizer {label} does not match the target optimizer"
                 )
     components = metadata.get("components", ())
     has_pose_state = "pose" in components
@@ -914,20 +837,14 @@ def restore_distributed_checkpoint(
     if wants_pose_state and not has_pose_state:
         raise ValueError("checkpoint does not contain pose state")
     if wants_pose_state:
-        saved_pose_optimizer_contract = metadata.get(
-            "pose_optimizer_contract"
-        )
-        target_pose_optimizer_contract = (
-            _distributed_pose_optimizer_contract(pose_optimizer)
+        saved_pose_optimizer_contract = metadata.get("pose_optimizer_contract")
+        target_pose_optimizer_contract = _distributed_pose_optimizer_contract(
+            pose_optimizer
         )
         if saved_pose_optimizer_contract != target_pose_optimizer_contract:
-            raise ValueError(
-                "checkpoint pose optimizer contract does not match target"
-            )
+            raise ValueError("checkpoint pose optimizer contract does not match target")
         if config is None:
-            raise ValueError(
-                "restoring distributed pose state requires TrainConfig"
-            )
+            raise ValueError("restoring distributed pose state requires TrainConfig")
         expected_pose_optimizer_contract = {
             "batch_size": config.data.batch_size,
             "steps": config.steps,
@@ -935,9 +852,7 @@ def restore_distributed_checkpoint(
             "regularization": float(config.pose_opt_reg),
         }
         if target_pose_optimizer_contract != expected_pose_optimizer_contract:
-            raise ValueError(
-                "target pose optimizer does not match TrainConfig"
-            )
+            raise ValueError("target pose optimizer does not match TrainConfig")
     if pose is not None:
         names, camera_count = pose
         saved_count = metadata.get("pose_camera_count")
@@ -950,9 +865,7 @@ def restore_distributed_checkpoint(
                 f"{camera_count}"
             )
         if tuple(saved_names) != names:
-            raise ValueError(
-                "checkpoint pose image names do not match target"
-            )
+            raise ValueError("checkpoint pose image names do not match target")
     if wants_appearance_state and not has_appearance_state:
         raise ValueError("checkpoint does not contain appearance state")
     if wants_appearance_state:
@@ -960,17 +873,11 @@ def restore_distributed_checkpoint(
             "appearance_optimizer_contract"
         )
         target_appearance_optimizer_contract = (
-            _distributed_appearance_optimizer_contract(
-                appearance_optimizer
-            )
+            _distributed_appearance_optimizer_contract(appearance_optimizer)
         )
-        if (
-            saved_appearance_optimizer_contract
-            != target_appearance_optimizer_contract
-        ):
+        if saved_appearance_optimizer_contract != target_appearance_optimizer_contract:
             raise ValueError(
-                "checkpoint appearance optimizer contract does not match "
-                "target"
+                "checkpoint appearance optimizer contract does not match target"
             )
         if config is None:
             raise ValueError(
@@ -986,13 +893,9 @@ def restore_distributed_checkpoint(
             target_appearance_optimizer_contract
             != expected_appearance_optimizer_contract
         ):
-            raise ValueError(
-                "target appearance optimizer does not match TrainConfig"
-            )
+            raise ValueError("target appearance optimizer does not match TrainConfig")
         if not model.has_appearance:
-            raise ValueError(
-                "target appearance state requires an appearance model"
-            )
+            raise ValueError("target appearance state requires an appearance model")
         target_feature_dim = int(model.features.shape[-1])
         if (
             appearance_module.feature_dim != target_feature_dim
@@ -1000,14 +903,10 @@ def restore_distributed_checkpoint(
             or appearance_module.sh_degree != config.model.sh_degree
         ):
             raise ValueError(
-                "target appearance module does not match the model or "
-                "TrainConfig"
+                "target appearance module does not match the model or TrainConfig"
             )
         saved_feature_dim = metadata.get("appearance_feature_dim")
-        if (
-            saved_feature_dim is None
-            or int(saved_feature_dim) != target_feature_dim
-        ):
+        if saved_feature_dim is None or int(saved_feature_dim) != target_feature_dim:
             raise ValueError(
                 "checkpoint appearance feature dimension does not match target"
             )
@@ -1023,9 +922,7 @@ def restore_distributed_checkpoint(
                 f"target has {camera_count}"
             )
         if tuple(saved_names) != names:
-            raise ValueError(
-                "checkpoint appearance image names do not match target"
-            )
+            raise ValueError("checkpoint appearance image names do not match target")
     saved_color_mode = metadata.get("model_color_mode", "sh")
     target_color_mode = "appearance" if model.has_appearance else "sh"
     if saved_color_mode != target_color_mode:
@@ -1035,18 +932,12 @@ def restore_distributed_checkpoint(
         )
     if config is not None:
         saved_fingerprint = metadata.get("config_fingerprint")
-        if (
-            saved_fingerprint is None
-            and saved_optimizer_contract is not None
-        ):
+        if saved_fingerprint is None and saved_optimizer_contract is not None:
             raise ValueError("checkpoint does not record a config fingerprint")
-        if (
-            saved_fingerprint is not None
-            and saved_fingerprint != _config_fingerprint(config)
+        if saved_fingerprint is not None and saved_fingerprint != _config_fingerprint(
+            config
         ):
-            raise ValueError(
-                "checkpoint was written with a different training config"
-            )
+            raise ValueError("checkpoint was written with a different training config")
 
     # When resharding, restore into nodes of the saved shape first; the
     # caller's nodes receive the redistributed world below.
@@ -1065,9 +956,7 @@ def restore_distributed_checkpoint(
         "strategy": _pure_state(holders[2]),
         "safety": _pure_state(holders[3]),
     }
-    target = {
-        name: _encode_empty_arrays(state) for name, state in targets.items()
-    }
+    target = {name: _encode_empty_arrays(state) for name, state in targets.items()}
     target["step"] = jnp.asarray(0, dtype=jnp.int32)
     pose_module_holder = None
     pose_optimizer_holder = None
@@ -1088,35 +977,25 @@ def restore_distributed_checkpoint(
     appearance_optimizer_target = None
     if wants_appearance_state:
         appearance_module_holder = _unstack_graph(appearance_module, 0)
-        appearance_optimizer_holder = _unstack_graph(
-            appearance_optimizer, 0
-        )
+        appearance_optimizer_holder = _unstack_graph(appearance_optimizer, 0)
         appearance_module_target = _pure_state(appearance_module_holder)
-        appearance_optimizer_target = _pure_state(
-            appearance_optimizer_holder
-        )
+        appearance_optimizer_target = _pure_state(appearance_optimizer_holder)
         target["appearance"] = {
             "module": _encode_empty_arrays(appearance_module_target),
-            "optimizer": _encode_empty_arrays(
-                appearance_optimizer_target
-            ),
+            "optimizer": _encode_empty_arrays(appearance_optimizer_target),
         }
     partial_restore = (has_pose_state and not wants_pose_state) or (
         has_appearance_state and not wants_appearance_state
     )
     checkpointer = (
-        ocp.PyTreeCheckpointer()
-        if partial_restore
-        else ocp.StandardCheckpointer()
+        ocp.PyTreeCheckpointer() if partial_restore else ocp.StandardCheckpointer()
     )
     try:
         if partial_restore:
             restored = checkpointer.restore(
                 Path(checkpoint_path).absolute(),
                 item=target,
-                restore_args=ocp.checkpoint_utils.construct_restore_args(
-                    target
-                ),
+                restore_args=ocp.checkpoint_utils.construct_restore_args(target),
                 partial_restore=True,
             )
         else:
@@ -1132,15 +1011,11 @@ def restore_distributed_checkpoint(
     if wants_pose_state:
         nnx.update(
             pose_module_holder,
-            _restore_empty_arrays(
-                restored["pose"]["module"], pose_module_target
-            ),
+            _restore_empty_arrays(restored["pose"]["module"], pose_module_target),
         )
         nnx.update(
             pose_optimizer_holder,
-            _restore_empty_arrays(
-                restored["pose"]["optimizer"], pose_optimizer_target
-            ),
+            _restore_empty_arrays(restored["pose"]["optimizer"], pose_optimizer_target),
         )
         restored_pose_step = int(pose_optimizer_holder.step[...])
         restored_step = int(restored["step"])
@@ -1170,14 +1045,11 @@ def restore_distributed_checkpoint(
                 appearance_optimizer_target,
             ),
         )
-        restored_appearance_step = int(
-            appearance_optimizer_holder.step[...]
-        )
+        restored_appearance_step = int(appearance_optimizer_holder.step[...])
         restored_step = int(restored["step"])
         if restored_appearance_step != restored_step:
             raise ValueError(
-                "checkpoint appearance optimizer step does not match its "
-                "host step"
+                "checkpoint appearance optimizer step does not match its host step"
             )
         restored_appearance_module = _stack_graphs(
             [appearance_module_holder for _ in range(world_size)]
@@ -1192,9 +1064,7 @@ def restore_distributed_checkpoint(
         (holders[2], "strategy"),
         (holders[3], "safety"),
     ):
-        nnx.update(
-            node, _restore_empty_arrays(restored[name], targets[name])
-        )
+        nnx.update(node, _restore_empty_arrays(restored[name], targets[name]))
     if reshaping:
         resharded = reshard_distributed_training_state(
             *holders,
@@ -1213,9 +1083,7 @@ def restore_distributed_checkpoint(
         nnx.update(pose_module, _pure_state(restored_pose_module))
         nnx.update(pose_optimizer, _pure_state(restored_pose_optimizer))
     if wants_appearance_state:
-        nnx.update(
-            appearance_module, _pure_state(restored_appearance_module)
-        )
+        nnx.update(appearance_module, _pure_state(restored_appearance_module))
         nnx.update(
             appearance_optimizer,
             _pure_state(restored_appearance_optimizer),
@@ -1279,13 +1147,8 @@ def load_distributed_inference_checkpoint(
         raise ValueError(
             "distributed checkpoint shard layout metadata is invalid"
         ) from exc
-    if any(
-        isinstance(value, bool) or not isinstance(value, int)
-        for value in layout
-    ):
-        raise ValueError(
-            "distributed checkpoint shard layout metadata is invalid"
-        )
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in layout):
+        raise ValueError("distributed checkpoint shard layout metadata is invalid")
     (
         format_version,
         world_size,
@@ -1294,13 +1157,9 @@ def load_distributed_inference_checkpoint(
         max_capacity,
     ) = layout
     if format_version != 6:
-        raise ValueError(
-            "distributed inference restore requires checkpoint format 6"
-        )
+        raise ValueError("distributed inference restore requires checkpoint format 6")
     if world_size <= 0 or local_capacity <= 0 or max_capacity <= 0:
-        raise ValueError(
-            "distributed checkpoint shard capacities must be positive"
-        )
+        raise ValueError("distributed checkpoint shard capacities must be positive")
     if global_capacity != world_size * local_capacity:
         raise ValueError(
             "distributed checkpoint global capacity disagrees with its shards"
@@ -1323,9 +1182,8 @@ def load_distributed_inference_checkpoint(
         raise ValueError("distributed checkpoint does not contain model state")
 
     saved_fingerprint = metadata.get("config_fingerprint")
-    if (
-        saved_fingerprint is not None
-        and saved_fingerprint != _config_fingerprint(config)
+    if saved_fingerprint is not None and saved_fingerprint != _config_fingerprint(
+        config
     ):
         raise ValueError(
             "distributed checkpoint was written with a different training config"
@@ -1342,18 +1200,14 @@ def load_distributed_inference_checkpoint(
             for count in active_counts
         )
     ):
-        raise ValueError(
-            "distributed checkpoint active counts metadata is invalid"
-        )
+        raise ValueError("distributed checkpoint active counts metadata is invalid")
     active_prefix = metadata.get("active_prefix")
     if (
         not isinstance(active_prefix, list)
         or len(active_prefix) != world_size
         or not all(isinstance(value, bool) for value in active_prefix)
     ):
-        raise ValueError(
-            "distributed checkpoint active prefix metadata is invalid"
-        )
+        raise ValueError("distributed checkpoint active prefix metadata is invalid")
     active_total = sum(active_counts)
     if active_total > MAX_MODEL_CAPACITY:
         raise ValueError(
@@ -1384,14 +1238,10 @@ def load_distributed_inference_checkpoint(
                 "for an appearance checkpoint"
             )
         if isinstance(appearance_image_names, str):
-            raise TypeError(
-                "appearance_image_names must be a sequence of image names"
-            )
+            raise TypeError("appearance_image_names must be a sequence of image names")
         names = tuple(appearance_image_names)
         if not all(isinstance(name, str) for name in names):
-            raise TypeError(
-                "appearance_image_names must be a sequence of image names"
-            )
+            raise TypeError("appearance_image_names must be a sequence of image names")
         saved_names = metadata.get("appearance_image_names")
         saved_count = metadata.get("appearance_camera_count")
         feature_dim = metadata.get("appearance_feature_dim")
@@ -1400,18 +1250,14 @@ def load_distributed_inference_checkpoint(
             isinstance(value, bool) or not isinstance(value, int)
             for value in (feature_dim, camera_count)
         ):
-            raise ValueError(
-                "distributed checkpoint appearance metadata is incomplete"
-            )
+            raise ValueError("distributed checkpoint appearance metadata is incomplete")
         if (
             feature_dim <= 0
             or not isinstance(saved_names, list)
             or not all(isinstance(name, str) for name in saved_names)
             or camera_count != len(saved_names)
         ):
-            raise ValueError(
-                "distributed checkpoint appearance metadata is invalid"
-            )
+            raise ValueError("distributed checkpoint appearance metadata is invalid")
         if tuple(saved_names) != names:
             raise ValueError(
                 "distributed checkpoint appearance image names do not match target"
@@ -1428,9 +1274,7 @@ def load_distributed_inference_checkpoint(
         appearance_holder = nnx.clone(appearance_module)
         appearance_target = _pure_state(appearance_holder)
     elif has_appearance_arguments:
-        raise ValueError(
-            "appearance state cannot be restored for an SH checkpoint"
-        )
+        raise ValueError("appearance state cannot be restored for an SH checkpoint")
 
     shards = [
         GaussianModel.empty(
@@ -1447,9 +1291,7 @@ def load_distributed_inference_checkpoint(
         "step": jnp.asarray(0, dtype=jnp.int32),
     }
     if appearance_target is not None:
-        target["appearance"] = {
-            "module": _encode_empty_arrays(appearance_target)
-        }
+        target["appearance"] = {"module": _encode_empty_arrays(appearance_target)}
 
     checkpointer = ocp.PyTreeCheckpointer()
     try:
@@ -1471,9 +1313,7 @@ def load_distributed_inference_checkpoint(
     if appearance_target is not None:
         nnx.update(
             appearance_holder,
-            _restore_empty_arrays(
-                restored["appearance"]["module"], appearance_target
-            ),
+            _restore_empty_arrays(restored["appearance"]["module"], appearance_target),
         )
 
     masks = np.asarray(jax.device_get(model_holder.active_mask[...]))
@@ -1499,13 +1339,11 @@ def load_distributed_inference_checkpoint(
         merged_state = neutral_model.state_dict()
         inference_capacity = 1
     else:
+
         def compact_active_rows(value: Any) -> np.ndarray:
             host_value = np.asarray(jax.device_get(value))
             return np.concatenate(
-                [
-                    host_value[rank][masks[rank]]
-                    for rank in range(world_size)
-                ],
+                [host_value[rank][masks[rank]] for rank in range(world_size)],
                 axis=0,
             )
 
@@ -1514,9 +1352,7 @@ def load_distributed_inference_checkpoint(
             for name, value in source_state.items()
             if name != "active_mask"
         }
-        merged_state["active_mask"] = np.ones(
-            (active_total,), dtype=np.bool_
-        )
+        merged_state["active_mask"] = np.ones((active_total,), dtype=np.bool_)
         inference_capacity = active_total
     merged_model = GaussianModel.from_state_dict(
         merged_state, max_capacity=inference_capacity
@@ -1564,9 +1400,7 @@ def save_checkpoint(
     has_scene_transform = scene_transform is not None
     has_scene_scale = scene_scale is not None
     if has_scene_transform != has_scene_scale:
-        raise ValueError(
-            "scene_transform and scene_scale must be provided together"
-        )
+        raise ValueError("scene_transform and scene_scale must be provided together")
     scene_metadata = None
     if has_scene_transform:
         matrix, validated_scene_scale = _validate_scene_values(
@@ -1576,9 +1410,7 @@ def save_checkpoint(
             "matrix": matrix.tolist(),
             "scene_scale": validated_scene_scale,
         }
-    pose = _validate_pose_arguments(
-        pose_module, pose_optimizer, pose_image_names
-    )
+    pose = _validate_pose_arguments(pose_module, pose_optimizer, pose_image_names)
     appearance = _validate_appearance_arguments(
         appearance_module,
         appearance_optimizer,
@@ -1602,17 +1434,14 @@ def save_checkpoint(
     if appearance_module is not None:
         payload["appearance"] = {
             "module": _encode_empty_arrays(_pure_state(appearance_module)),
-            "optimizer": _encode_empty_arrays(
-                _pure_state(appearance_optimizer)
-            ),
+            "optimizer": _encode_empty_arrays(_pure_state(appearance_optimizer)),
         }
     checkpoint_path = directory / f"step_{step:08d}"
     active_count = int(jax.device_get(model.active_count))
     active_prefix = bool(
         jax.device_get(
             jnp.all(
-                model.active_mask[...]
-                == (jnp.arange(model.capacity) < active_count)
+                model.active_mask[...] == (jnp.arange(model.capacity) < active_count)
             )
         )
     )
@@ -1630,9 +1459,7 @@ def save_checkpoint(
     metadata: dict[str, Any] = {
         "format_version": 6,
         "components": components,
-        "model_color_mode": (
-            "appearance" if model.has_appearance else "sh"
-        ),
+        "model_color_mode": ("appearance" if model.has_appearance else "sh"),
         "storage_capacity": model.capacity,
         "max_capacity": model.max_capacity,
         "active_count": active_count,
@@ -1653,7 +1480,12 @@ def save_checkpoint(
     if scene_metadata is not None:
         metadata["scene"] = scene_metadata
     return _write_checkpoint(
-        checkpoint_path, payload, config, metadata, force=force, executor=_executor,
+        checkpoint_path,
+        payload,
+        config,
+        metadata,
+        force=force,
+        executor=_executor,
     )
 
 
@@ -1672,9 +1504,7 @@ def restore_checkpoint(
 ) -> int:
     """Restore into NNX objects with matching physical storage capacity."""
 
-    pose = _validate_pose_arguments(
-        pose_module, pose_optimizer, pose_image_names
-    )
+    pose = _validate_pose_arguments(pose_module, pose_optimizer, pose_image_names)
     appearance = _validate_appearance_arguments(
         appearance_module,
         appearance_optimizer,
@@ -1683,16 +1513,13 @@ def restore_checkpoint(
     metadata = _load_metadata(checkpoint_path)
     if metadata.get("kind") == _DISTRIBUTED_KIND:
         raise ValueError(
-            "checkpoint holds distributed shards; use "
-            "restore_distributed_checkpoint"
+            "checkpoint holds distributed shards; use restore_distributed_checkpoint"
         )
     format_version = int(metadata.get("format_version", 1))
     components = metadata.get("components", ())
     has_pose_state = format_version >= 4 and "pose" in components
     wants_pose_state = pose_module is not None
-    has_appearance_state = (
-        format_version >= 5 and "appearance" in components
-    )
+    has_appearance_state = format_version >= 5 and "appearance" in components
     wants_appearance_state = appearance_module is not None
     if wants_pose_state and not has_pose_state:
         raise ValueError("checkpoint does not contain pose state")
@@ -1730,9 +1557,7 @@ def restore_checkpoint(
                 f"has {camera_count}"
             )
         if tuple(saved_names) != names:
-            raise ValueError(
-                "checkpoint appearance image names do not match target"
-            )
+            raise ValueError("checkpoint appearance image names do not match target")
         saved_feature_dim = metadata.get("appearance_feature_dim")
         if saved_feature_dim is None:
             raise ValueError("checkpoint appearance feature metadata is incomplete")
@@ -1794,6 +1619,7 @@ def restore_checkpoint(
             restored = checkpointer.restore(
                 Path(checkpoint_path).absolute(),
                 item=target,
+                restore_args=ocp.checkpoint_utils.construct_restore_args(target),
                 partial_restore=True,
             )
         else:
@@ -1804,9 +1630,7 @@ def restore_checkpoint(
             checkpointer.wait_until_finished()
     finally:
         checkpointer.close()
-    nnx.update(
-        model, _restore_empty_arrays(restored["model"], model_target)
-    )
+    nnx.update(model, _restore_empty_arrays(restored["model"], model_target))
     if optimizer is not None:
         nnx.update(
             optimizer,
@@ -1820,15 +1644,11 @@ def restore_checkpoint(
     if wants_pose_state:
         nnx.update(
             pose_module,
-            _restore_empty_arrays(
-                restored["pose"]["module"], pose_module_target
-            ),
+            _restore_empty_arrays(restored["pose"]["module"], pose_module_target),
         )
         nnx.update(
             pose_optimizer,
-            _restore_empty_arrays(
-                restored["pose"]["optimizer"], pose_optimizer_target
-            ),
+            _restore_empty_arrays(restored["pose"]["optimizer"], pose_optimizer_target),
         )
     if wants_appearance_state:
         nnx.update(
@@ -1876,7 +1696,9 @@ def load_checkpoint_scene_transform(
         raise ValueError("scene metadata requires checkpoint format version 6")
     scene = metadata.get("scene")
     if not isinstance(scene, dict):
-        raise ValueError("checkpoint scene metadata is incomplete")
+        raise ValueError(  # noqa: TRY004 - malformed checkpoint value
+            "checkpoint scene metadata is incomplete"
+        )
     if not {"matrix", "scene_scale"}.issubset(scene):
         raise ValueError("checkpoint scene metadata is incomplete")
     return _validate_scene_values(scene["matrix"], scene["scene_scale"])
@@ -1908,9 +1730,7 @@ def load_checkpoint_appearance_image_names(
     count = metadata.get("appearance_camera_count")
     if names is None or count is None:
         raise ValueError("checkpoint appearance metadata is incomplete")
-    if not isinstance(names, list) or not all(
-        isinstance(name, str) for name in names
-    ):
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
         raise ValueError("checkpoint appearance image names are invalid")
     if len(names) != int(count):
         raise ValueError(

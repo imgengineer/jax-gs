@@ -1,7 +1,6 @@
-import numpy as np
-
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from jax_gs.compositing import composite_sorted_tile
 
@@ -33,10 +32,7 @@ def _dense_reference(
     dy = pixel_coords[None, :, 1] - means[:, None, 1]
     sigma = (
         0.5
-        * (
-            selected_conics[:, None, 0] * dx**2
-            + selected_conics[:, None, 2] * dy**2
-        )
+        * (selected_conics[:, None, 0] * dx**2 + selected_conics[:, None, 2] * dy**2)
         + selected_conics[:, None, 1] * dx * dy
     )
     alpha = jnp.minimum(
@@ -66,17 +62,13 @@ def _dense_reference(
 
 def _scene():
     gaussian_ids = jnp.array([2, 0, 1, -1, -1], dtype=jnp.int32)
-    means2d = jnp.array(
-        [[0.5, 0.5], [1.5, 0.5], [1.0, 1.25]], dtype=jnp.float32
-    )
+    means2d = jnp.array([[0.5, 0.5], [1.5, 0.5], [1.0, 1.25]], dtype=jnp.float32)
     conics = jnp.array(
         [[1.0, 0.0, 1.0], [0.8, 0.1, 1.2], [1.1, -0.05, 0.9]],
         dtype=jnp.float32,
     )
     opacities = jnp.array([0.35, 0.55, 0.45], dtype=jnp.float32)
-    features = jnp.array(
-        [[1.0, 0.0], [0.0, 1.0], [0.25, 0.75]], dtype=jnp.float32
-    )
+    features = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.25, 0.75]], dtype=jnp.float32)
     pixel_coords = jnp.array(
         [[0.5, 0.5], [1.5, 0.5], [0.5, 1.5], [1.5, 1.5]],
         dtype=jnp.float32,
@@ -123,9 +115,9 @@ def test_chunked_values_and_gradients_match_dense_formula():
     np.testing.assert_allclose(rendered, expected_rendered, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(alpha, expected_alpha, rtol=1e-6, atol=1e-6)
 
-    chunked_grads = jax.grad(lambda *args: chunked_loss(*args)[2], argnums=(0, 1, 2, 3))(
-        means, conics, opacities, features
-    )
+    chunked_grads = jax.grad(
+        lambda *args: chunked_loss(*args)[2], argnums=(0, 1, 2, 3)
+    )(means, conics, opacities, features)
     dense_grads = jax.grad(lambda *args: dense_loss(*args)[2], argnums=(0, 1, 2, 3))(
         means, conics, opacities, features
     )

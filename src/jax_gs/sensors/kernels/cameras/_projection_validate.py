@@ -38,9 +38,13 @@ def validate_camera_projection(
         fw_poly = _finite(projection.fw_poly, "fw_poly")
         bw_poly = _finite(projection.bw_poly, "bw_poly")
         if fw_poly[0] != 0.0:
-            raise ValueError("fw_poly[0] must be 0 (radial polynomial passes through origin)")
+            raise ValueError(
+                "fw_poly[0] must be 0 (radial polynomial passes through origin)"
+            )
         if bw_poly[0] != 0.0:
-            raise ValueError("bw_poly[0] must be 0 (radial polynomial passes through origin)")
+            raise ValueError(
+                "bw_poly[0] must be 0 (radial polynomial passes through origin)"
+            )
         a = _finite(projection.A, "A")
         determinant = a[0] * a[3] - a[1] * a[2]
         if abs(float(determinant)) < 1.0e-12:

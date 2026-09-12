@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
-from typing import Iterator
+from collections.abc import Iterator
+from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
@@ -129,18 +129,26 @@ def fully_fused_projection(
     camera_ids = (selected // gaussian_count) % camera_count
     batch_ids = selected // (gaussian_count * camera_count)
     batch_camera = batch_ids * camera_count + camera_ids
-    counts = jnp.zeros((batch_count * camera_count,), jnp.int32).at[
-        batch_camera
-    ].add(output_valid.astype(jnp.int32))
+    counts = (
+        jnp.zeros((batch_count * camera_count,), jnp.int32)
+        .at[batch_camera]
+        .add(output_valid.astype(jnp.int32))
+    )
     indptr = jnp.concatenate(
         (jnp.zeros((1,), jnp.int32), jnp.cumsum(counts, dtype=jnp.int32))
     )
 
     # Projection outputs all have the same leading [..., C, N] dimensions.
-    packed_radii = jnp.where(output_valid[:, None], radii.reshape(capacity, 2)[selected], 0)
-    packed_means = jnp.where(output_valid[:, None], means2d.reshape(capacity, 2)[selected], 0.0)
+    packed_radii = jnp.where(
+        output_valid[:, None], radii.reshape(capacity, 2)[selected], 0
+    )
+    packed_means = jnp.where(
+        output_valid[:, None], means2d.reshape(capacity, 2)[selected], 0.0
+    )
     packed_depths = jnp.where(output_valid, depths.reshape(capacity)[selected], 0.0)
-    packed_conics = jnp.where(output_valid[:, None], conics.reshape(capacity, 3)[selected], 0.0)
+    packed_conics = jnp.where(
+        output_valid[:, None], conics.reshape(capacity, 3)[selected], 0.0
+    )
     packed_compensations = None
     if compensations is not None:
         packed_compensations = jnp.where(

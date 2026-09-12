@@ -27,9 +27,7 @@ def _pinhole(*, distorted: bool = False) -> OpenCVPinholeProjection:
         radial_coeffs=jnp.array([0.01, -0.002, 0.0001, 0.0, 0.0, 0.0])
         if distorted
         else jnp.zeros(6),
-        tangential_coeffs=jnp.array([0.001, -0.002])
-        if distorted
-        else jnp.zeros(2),
+        tangential_coeffs=jnp.array([0.001, -0.002]) if distorted else jnp.zeros(2),
         thin_prism_coeffs=jnp.array([0.0001, 0.0, -0.0001, 0.0])
         if distorted
         else jnp.zeros(4),
@@ -69,9 +67,7 @@ def _fisheye() -> OpenCVFisheyeProjection:
 def _identity_windshield(reference: int = 0) -> BivariateWindshieldDistortion:
     horizontal = jnp.array([0.0, 1.0, 0.0])
     vertical = jnp.array([0.0, 0.0, 1.0])
-    return from_components(
-        horizontal, vertical, horizontal, vertical, reference
-    )
+    return from_components(horizontal, vertical, horizontal, vertical, reference)
 
 
 def test_pinhole_projection_and_backprojection_match_closed_form():
@@ -101,13 +97,23 @@ def test_distorted_pinhole_matches_open_cv_formula_and_round_trips():
     radius_fourth = radius_squared**2
     radius_sixth = radius_squared**3
     k = projection.radial_coeffs
-    radial = (1 + k[0] * radius_squared + k[1] * radius_fourth + k[2] * radius_sixth) / (
-        1 + k[3] * radius_squared + k[4] * radius_fourth + k[5] * radius_sixth
-    )
+    radial = (
+        1 + k[0] * radius_squared + k[1] * radius_fourth + k[2] * radius_sixth
+    ) / (1 + k[3] * radius_squared + k[4] * radius_fourth + k[5] * radius_sixth)
     p = projection.tangential_coeffs
     s = projection.thin_prism_coeffs
-    delta_x = 2 * p[0] * x * y + p[1] * (radius_squared + 2 * x * x) + s[0] * radius_squared + s[1] * radius_fourth
-    delta_y = p[0] * (radius_squared + 2 * y * y) + 2 * p[1] * x * y + s[2] * radius_squared + s[3] * radius_fourth
+    delta_x = (
+        2 * p[0] * x * y
+        + p[1] * (radius_squared + 2 * x * x)
+        + s[0] * radius_squared
+        + s[1] * radius_fourth
+    )
+    delta_y = (
+        p[0] * (radius_squared + 2 * y * y)
+        + 2 * p[1] * x * y
+        + s[2] * radius_squared
+        + s[3] * radius_fourth
+    )
     expected = jnp.stack((x * radial + delta_x, y * radial + delta_y), axis=-1)
     expected = expected * projection.focal_length + projection.principal_point
     np.testing.assert_allclose(points, expected, atol=1.0e-6)
@@ -122,7 +128,9 @@ def test_distorted_pinhole_matches_open_cv_formula_and_round_trips():
 
 
 @pytest.mark.parametrize("projection", [_pinhole(), _ftheta(0), _fisheye()])
-@pytest.mark.parametrize("reference", [ReferencePolynomial.FORWARD, ReferencePolynomial.BACKWARD])
+@pytest.mark.parametrize(
+    "reference", [ReferencePolynomial.FORWARD, ReferencePolynomial.BACKWARD]
+)
 def test_identity_windshield_matches_no_external(projection, reference):
     rays = jnp.array([[0.0, 0.0, 1.0], [0.05, 0.02, 1.0], [-0.04, 0.01, 1.0]])
     plain = camera_rays_to_image_points(rays, projection, NoExternalDistortion())
@@ -137,9 +145,7 @@ def test_identity_windshield_matches_no_external(projection, reference):
     windshield_rays = image_points_to_camera_rays(
         plain[0], projection, _identity_windshield(int(reference))
     )
-    np.testing.assert_allclose(
-        windshield_rays, plain_rays, atol=1.0e-4, rtol=1.0e-5
-    )
+    np.testing.assert_allclose(windshield_rays, plain_rays, atol=1.0e-4, rtol=1.0e-5)
 
 
 @pytest.mark.parametrize("reference", [0, 1])
@@ -158,18 +164,14 @@ def test_ftheta_linear_polynomials_project_and_round_trip(reference):
     )
     np.testing.assert_allclose(points, expected, atol=2.0e-4)
     assert bool(jnp.all(valid))
-    rays_back = image_points_to_camera_rays(
-        points, projection, NoExternalDistortion()
-    )
+    rays_back = image_points_to_camera_rays(points, projection, NoExternalDistortion())
     normalized = rays / jnp.linalg.norm(rays, axis=-1, keepdims=True)
     np.testing.assert_allclose(rays_back, normalized, atol=2.0e-5)
 
 
 def test_ftheta_marks_angle_frame_and_nan_failures_invalid():
     projection = _ftheta(0)
-    rays = jnp.array(
-        [[0.0, 0.0, -1.0], [1.0, 0.0, 1.0], [jnp.nan, 0.0, 1.0]]
-    )
+    rays = jnp.array([[0.0, 0.0, -1.0], [1.0, 0.0, 1.0], [jnp.nan, 0.0, 1.0]])
     points, valid = camera_rays_to_image_points(
         rays, projection, NoExternalDistortion()
     )
@@ -184,9 +186,7 @@ def test_fisheye_round_trip_clamps_angle_and_zeroes_out_of_frame_points():
         rays, projection, NoExternalDistortion()
     )
     assert bool(jnp.all(valid))
-    rays_back = image_points_to_camera_rays(
-        points, projection, NoExternalDistortion()
-    )
+    rays_back = image_points_to_camera_rays(points, projection, NoExternalDistortion())
     expected = rays / jnp.linalg.norm(rays, axis=-1, keepdims=True)
     np.testing.assert_allclose(rays_back, expected, atol=2.0e-5)
 
@@ -209,7 +209,9 @@ def test_fisheye_round_trip_clamps_angle_and_zeroes_out_of_frame_points():
     np.testing.assert_array_equal(over_valid, limit_valid)
 
 
-@pytest.mark.parametrize("projection", [_pinhole(distorted=True), _ftheta(1), _fisheye()])
+@pytest.mark.parametrize(
+    "projection", [_pinhole(distorted=True), _ftheta(1), _fisheye()]
+)
 def test_camera_ops_are_jittable_and_differentiable(projection):
     rays = jnp.array([[0.02, 0.01, 1.0], [-0.03, 0.02, 1.0]])
     compiled = jax.jit(camera_rays_to_image_points)
@@ -219,17 +221,13 @@ def test_camera_ops_are_jittable_and_differentiable(projection):
 
     gradient = jax.grad(
         lambda value: jnp.sum(
-            camera_rays_to_image_points(
-                value, projection, NoExternalDistortion()
-            )[0]
+            camera_rays_to_image_points(value, projection, NoExternalDistortion())[0]
         )
     )(rays)
     assert bool(jnp.all(jnp.isfinite(gradient)))
     inverse_gradient = jax.grad(
         lambda value: jnp.sum(
-            image_points_to_camera_rays(
-                value, projection, NoExternalDistortion()
-            )
+            image_points_to_camera_rays(value, projection, NoExternalDistortion())
         )
     )(points)
     assert bool(jnp.all(jnp.isfinite(inverse_gradient)))

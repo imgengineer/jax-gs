@@ -69,17 +69,15 @@ def generate_spinning_lidar_rays(
     return_timestamps: bool = False,
     allow_device_transfer: bool = False,
 ) -> WorldRaysReturn:
-    world_rays, timestamps, pose_t, pose_r = (
-        _kernel_ops.generate_spinning_lidar_rays(
-            projection,
-            elements,
-            dynamic_pose,
-            start_timestamp_us=start_timestamp_us,
-            end_timestamp_us=end_timestamp_us,
-            return_timestamps=return_timestamps,
-            return_poses=return_T_sensor_world,
-            allow_device_transfer=allow_device_transfer,
-        )
+    world_rays, timestamps, pose_t, pose_r = _kernel_ops.generate_spinning_lidar_rays(
+        projection,
+        elements,
+        dynamic_pose,
+        start_timestamp_us=start_timestamp_us,
+        end_timestamp_us=end_timestamp_us,
+        return_timestamps=return_timestamps,
+        return_poses=return_T_sensor_world,
+        allow_device_transfer=allow_device_transfer,
     )
     return WorldRaysReturn(
         world_rays=world_rays,
