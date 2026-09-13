@@ -305,9 +305,11 @@ def _kernels():
         cumulative_ref,
         valid_count_ref,
         depths_ref,
+        gaussian_order_ref,
         first_output_ref,
         second_output_ref,
         encode_sort_keys: _Constant[bool],
+        has_gaussian_order: _Constant[bool],
         tile_size: _Constant[int],
         tile_width: _Constant[int],
         outer_steps: _Constant[int],
@@ -361,6 +363,8 @@ def _kernels():
             padding_value=0,
         )
         local_rank = rank - starts
+        if has_gaussian_order:
+            owner = ct.gather(gaussian_order_ref, owner)
 
         valid = (ct.gather(valid_ref, owner) != 0) & output_valid
         is_y = ct.gather(is_y_ref, owner) != 0
@@ -887,6 +891,51 @@ def _prefix_finalize_kernel(
 
 
 @ct.kernel
+def _prepare_depth_keys_kernel(
+    depths,
+    keys_out,
+    values_out,
+    block_size: ct.Constant[int],
+):
+    block_id = ct.bid(0)
+    depth = ct.load(
+        depths, (block_id,), (block_size,), padding_mode=ct.PaddingMode.ZERO
+    )
+    depth = ct.where(depth == 0.0, 0.0, depth)
+    bits = ct.bitcast(depth, ct.uint32)
+    ordered = ct.where(
+        (bits & ct.astype(0x80000000, ct.uint32)) != 0,
+        ~bits,
+        bits ^ ct.astype(0x80000000, ct.uint32),
+    )
+    gaussian_id = ct.arange(block_size, start=block_id * block_size, dtype=ct.int32)
+    ct.store(keys_out, (block_id,), ct.astype(ordered, ct.uint64))
+    ct.store(values_out, (block_id,), gaussian_id)
+
+
+@ct.kernel
+def _retained_counts_kernel(
+    cumulative,
+    order,
+    valid_count,
+    sorted_counts,
+    block_size: ct.Constant[int],
+):
+    block_id = ct.bid(0)
+    gaussian_id = ct.load(
+        order, (block_id,), (block_size,), padding_mode=ct.PaddingMode.ZERO
+    )
+    retained_count = ct.load(valid_count, (0,), shape=())
+    end = ct.gather(cumulative, gaussian_id)
+    start = ct.gather(
+        cumulative, gaussian_id - 1, mask=gaussian_id > 0, padding_value=0
+    )
+    # The original prefix saturates at capacity + 1, one past the retained end.
+    counts = ct.minimum(end, retained_count) - ct.minimum(start, retained_count)
+    ct.store(sorted_counts, (block_id,), counts)
+
+
+@ct.kernel
 def _prepare_sort_keys_kernel(
     gaussian_ids,
     tile_ids,
@@ -1328,6 +1377,7 @@ def _emit_accutile_cutile(
     tile_width: int,
     tile_height: int,
     encode_sort_keys: bool,
+    gaussian_order: jax.Array | None = None,
 ) -> tuple[jax.Array, jax.Array]:
     gaussian_count = state.valid.shape[0]
     first_dtype = jnp.uint64 if encode_sort_keys else jnp.int32
@@ -1373,9 +1423,11 @@ def _emit_accutile_cutile(
             cumulative,
             jnp.asarray(valid_count, dtype=jnp.int32).reshape((1,)),
             depths,
+            cumulative if gaussian_order is None else gaussian_order,
             first_output,
             second_output,
             encode_sort_keys,
+            gaussian_order is not None,
             tile_size,
             tile_width,
             min(tile_width, tile_height),
@@ -1604,17 +1656,62 @@ def _radix_pass_cutile(
     )
 
 
+def _sort_gaussians_by_depth_cutile(depths: jax.Array) -> jax.Array:
+    gaussian_count = depths.shape[0]
+    keys, values = ctj.cutile_call(
+        (math.ceil(gaussian_count / _RADIX_BLOCK_SIZE),),
+        _prepare_depth_keys_kernel,
+        (
+            depths,
+            ctj.OutputPlaceholder((gaussian_count,), jnp.uint64),
+            ctj.OutputPlaceholder((gaussian_count,), jnp.int32),
+            _RADIX_BLOCK_SIZE,
+        ),
+    )
+    valid_count = jnp.asarray(gaussian_count, dtype=jnp.int32)
+    for shift in range(0, 32, _RADIX_BITS):
+        pass_bits = min(_RADIX_BITS, 32 - shift)
+        keys, values = _radix_pass_cutile(
+            keys,
+            values,
+            valid_count,
+            shift=shift,
+            radix_size=1 << pass_bits,
+        )
+    return values
+
+
+def _retained_counts_cutile(
+    cumulative: jax.Array,
+    order: jax.Array,
+    valid_count: jax.Array,
+) -> jax.Array:
+    gaussian_count = order.shape[0]
+    return ctj.cutile_call(
+        (ct.cdiv(gaussian_count, _PREFIX_BLOCK_SIZE),),
+        _retained_counts_kernel,
+        (
+            cumulative,
+            order,
+            jnp.asarray(valid_count, dtype=jnp.int32).reshape((1,)),
+            ctj.OutputPlaceholder((gaussian_count,), jnp.int32),
+            _PREFIX_BLOCK_SIZE,
+        ),
+    )
+
+
 def _sort_prepared_offsets_cutile(
     keys: jax.Array,
     values: jax.Array,
     valid_count: jax.Array,
     *,
     tile_count: int,
+    begin_bit: int = 0,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     capacity = keys.shape[0]
     block_count = math.ceil(capacity / _RADIX_BLOCK_SIZE)
     end_bit = 32 + tile_count.bit_length()
-    for shift in range(0, end_bit, _RADIX_BITS):
+    for shift in range(begin_bit, end_bit, _RADIX_BITS):
         # Do not pay for 32 buckets when the final pass has fewer than five bits.
         pass_bits = min(_RADIX_BITS, end_bit - shift)
         keys, values = _radix_pass_cutile(
@@ -1750,28 +1847,51 @@ def intersect_tiles_cutile(
         offsets = jnp.zeros((tile_height * tile_width,), jnp.int32)
         return empty, empty, offsets, valid_count, overflow, required_count
     state = _native_state(state_floats, state_bounds, state_flags)
-    keys, values = _emit_accutile_cutile(
-        state,
-        cumulative,
-        valid_count,
-        depths,
-        capacity=capacity,
-        tile_size=tile_size,
-        tile_width=tile_width,
-        tile_height=tile_height,
-        encode_sort_keys=True,
-    )
-    gaussian_ids, tile_ids, offsets, valid_count = _sort_prepared_offsets_cutile(
-        keys,
-        values,
-        valid_count,
-        tile_count=tile_width * tile_height,
-    )
-    return (
-        gaussian_ids,
-        tile_ids,
-        offsets,
-        valid_count,
-        overflow,
-        required_count,
-    )
+
+    def emit_and_sort(cumulative, gaussian_order):
+        keys, values = _emit_accutile_cutile(
+            state,
+            cumulative,
+            valid_count,
+            depths,
+            capacity=capacity,
+            tile_size=tile_size,
+            tile_width=tile_width,
+            tile_height=tile_height,
+            encode_sort_keys=True,
+            gaussian_order=gaussian_order,
+        )
+        # Stable tile sorting preserves the established depth and ID order.
+        gaussian_ids, tile_ids, offsets, effective_count = (
+            _sort_prepared_offsets_cutile(
+                keys,
+                values,
+                valid_count,
+                tile_count=tile_width * tile_height,
+                begin_bit=0 if gaussian_order is None else 32,
+            )
+        )
+        return (
+            gaussian_ids,
+            tile_ids,
+            offsets,
+            effective_count,
+            overflow,
+            required_count,
+        )
+
+    def depth_first():
+        order = _sort_gaussians_by_depth_cutile(depths)
+        # Preserve the original Gaussian-major prefix, including overflow.
+        retained = _retained_counts_cutile(cumulative, order, valid_count)
+        sorted_cumulative, _, _, _ = _prefix_counts_cutile(retained, capacity=capacity)
+        return emit_and_sort(sorted_cumulative, order)
+
+    if capacity >= _RADIX_LARGE_CAPACITY and capacity >= 4 * gaussian_count:
+        # Sparse frames retain the original path even with a large capacity.
+        return jax.lax.cond(
+            valid_count >= 4 * gaussian_count,
+            depth_first,
+            lambda: emit_and_sort(cumulative, None),
+        )
+    return emit_and_sort(cumulative, None)
