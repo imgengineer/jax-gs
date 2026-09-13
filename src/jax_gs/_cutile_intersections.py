@@ -327,18 +327,11 @@ def _kernels():
         )
         output_valid = rank < valid_count
         if block_id * block_size >= valid_count:
-            if encode_sort_keys:
-                ct.store(
-                    first_output_ref,
-                    (block_id,),
-                    ct.full(shape, _UINT64_MAX, ct.uint64),
-                )
-            else:
-                ct.store(
-                    first_output_ref,
-                    (block_id,),
-                    ct.full(shape, -1, ct.int32),
-                )
+            ct.store(
+                first_output_ref,
+                (block_id,),
+                ~ct.full(shape, 0, first_output_ref.dtype),
+            )
             ct.store(
                 second_output_ref,
                 (block_id,),
@@ -460,21 +453,25 @@ def _kernels():
         )
         final_valid = output_valid & found
         if encode_sort_keys:
-            depth = ct.gather(depths_ref, owner)
-            depth = ct.where(depth == 0.0, 0.0, depth)
-            bits = ct.bitcast(depth, ct.uint32)
-            ordered = ct.where(
-                (bits & ct.astype(0x80000000, ct.uint32)) != 0,
-                ~bits,
-                bits ^ ct.astype(0x80000000, ct.uint32),
-            )
-            key = (
-                ct.astype(tile_id, ct.uint64) << ct.astype(32, ct.uint64)
-            ) | ct.astype(ordered, ct.uint64)
+            if has_gaussian_order:
+                # Stable input order already carries the full depth and ID order.
+                key = ct.astype(tile_id, ct.uint32)
+            else:
+                depth = ct.gather(depths_ref, owner)
+                depth = ct.where(depth == 0.0, 0.0, depth)
+                bits = ct.bitcast(depth, ct.uint32)
+                ordered = ct.where(
+                    (bits & ct.astype(0x80000000, ct.uint32)) != 0,
+                    ~bits,
+                    bits ^ ct.astype(0x80000000, ct.uint32),
+                )
+                key = (
+                    ct.astype(tile_id, ct.uint64) << ct.astype(32, ct.uint64)
+                ) | ct.astype(ordered, ct.uint64)
             ct.store(
                 first_output_ref,
                 (block_id,),
-                ct.where(final_valid, key, ct.astype(_UINT64_MAX, ct.uint64)),
+                ct.where(final_valid, key, ~ct.astype(0, first_output_ref.dtype)),
             )
             ct.store(
                 second_output_ref,
@@ -909,7 +906,7 @@ def _prepare_depth_keys_kernel(
         bits ^ ct.astype(0x80000000, ct.uint32),
     )
     gaussian_id = ct.arange(block_size, start=block_id * block_size, dtype=ct.int32)
-    ct.store(keys_out, (block_id,), ct.astype(ordered, ct.uint64))
+    ct.store(keys_out, (block_id,), ordered)
     ct.store(values_out, (block_id,), gaussian_id)
 
 
@@ -1013,9 +1010,9 @@ def _radix_histogram_kernel(
         shape=(block_size,),
         padding_mode=ct.PaddingMode.ZERO,
     )
-    key = ct.where(in_bounds, key, ct.astype(_UINT64_MAX, ct.uint64))
+    key = ct.where(in_bounds, key, ct.astype(_UINT64_MAX, keys.dtype))
     digit = ct.astype(
-        (key >> ct.astype(shift, ct.uint64)) & ct.astype(radix_size - 1, ct.uint64),
+        (key >> ct.astype(shift, keys.dtype)) & ct.astype(radix_size - 1, keys.dtype),
         ct.int32,
     )
     subgroups = block_size // 32
@@ -1181,7 +1178,7 @@ def _radix_scatter_kernel(
         shape=(block_size,),
         padding_mode=ct.PaddingMode.ZERO,
     )
-    key = ct.where(in_bounds, key, ct.astype(_UINT64_MAX, ct.uint64))
+    key = ct.where(in_bounds, key, ct.astype(_UINT64_MAX, keys.dtype))
     value = ct.load(
         values,
         (block_id,),
@@ -1198,7 +1195,7 @@ def _radix_scatter_kernel(
         ct.int32,
     )
     digit = ct.astype(
-        (key >> ct.astype(shift, ct.uint64)) & ct.astype(radix_size - 1, ct.uint64),
+        (key >> ct.astype(shift, keys.dtype)) & ct.astype(radix_size - 1, keys.dtype),
         ct.int32,
     )
     prefix = ct.gather(block_prefix, (block_id, digit)) + ct.gather(
@@ -1224,7 +1221,7 @@ def _effective_count_kernel(
     while low < high:
         middle = low + (high - low) // 2
         key = ct.load(keys, (middle,), shape=())
-        if key != ct.astype(_UINT64_MAX, ct.uint64):
+        if key != ct.astype(_UINT64_MAX, keys.dtype):
             low = middle + 1
         else:
             high = middle
@@ -1239,6 +1236,7 @@ def _finalize_pairs_kernel(
     gaussian_ids_out,
     tile_ids_out,
     capacity: ct.Constant[int],
+    tile_shift: ct.Constant[int],
     block_size: ct.Constant[int],
 ):
     block_id = ct.bid(0)
@@ -1250,7 +1248,7 @@ def _finalize_pairs_kernel(
         shape=(block_size,),
         padding_mode=ct.PaddingMode.ZERO,
     )
-    key = ct.where(in_bounds, key, ct.astype(_UINT64_MAX, ct.uint64))
+    key = ct.where(in_bounds, key, ct.astype(_UINT64_MAX, keys.dtype))
     value = ct.load(
         values,
         (block_id,),
@@ -1258,8 +1256,8 @@ def _finalize_pairs_kernel(
         padding_mode=ct.PaddingMode.ZERO,
     )
     count = ct.load(effective_count, (0,), shape=())
-    valid = in_bounds & (rank < count) & (key != ct.astype(_UINT64_MAX, ct.uint64))
-    tile = ct.astype(key >> ct.astype(32, ct.uint64), ct.int32)
+    valid = in_bounds & (rank < count) & (key != ct.astype(_UINT64_MAX, keys.dtype))
+    tile = ct.astype(key >> ct.astype(tile_shift, keys.dtype), ct.int32)
     ct.scatter(
         gaussian_ids_out,
         rank,
@@ -1281,6 +1279,7 @@ def _offsets_kernel(
     offsets_out,
     capacity: ct.Constant[int],
     tile_count: ct.Constant[int],
+    tile_shift: ct.Constant[int],
     search_steps: ct.Constant[int],
     block_size: ct.Constant[int],
 ):
@@ -1289,7 +1288,7 @@ def _offsets_kernel(
     count = ct.load(effective_count, (0,), shape=())
     low = ct.zeros((block_size,), ct.int32)
     high = ct.full((block_size,), count, ct.int32)
-    needle = ct.astype(tile, ct.uint64) << ct.astype(32, ct.uint64)
+    needle = ct.astype(tile, keys.dtype) << ct.astype(tile_shift, keys.dtype)
     for _ in range(search_steps):
         middle = low + (high - low) // 2
         safe_middle = ct.minimum(middle, capacity - 1)
@@ -1297,7 +1296,7 @@ def _offsets_kernel(
             keys,
             safe_middle,
             mask=in_bounds & (middle < count),
-            padding_value=_UINT64_MAX,
+            padding_value=ct.astype(_UINT64_MAX, keys.dtype),
         )
         move_right = key < needle
         low = ct.where(move_right, middle + 1, low)
@@ -1380,14 +1379,16 @@ def _emit_accutile_cutile(
     gaussian_order: jax.Array | None = None,
 ) -> tuple[jax.Array, jax.Array]:
     gaussian_count = state.valid.shape[0]
-    first_dtype = jnp.uint64 if encode_sort_keys else jnp.int32
+    first_dtype = jnp.int32
+    if encode_sort_keys:
+        first_dtype = jnp.uint64 if gaussian_order is None else jnp.uint32
     if capacity == 0:
         return (
             jnp.zeros((0,), dtype=first_dtype),
             jnp.zeros((0,), dtype=jnp.int32),
         )
     if gaussian_count == 0:
-        first_padding = _UINT64_MAX if encode_sort_keys else -1
+        first_padding = jnp.iinfo(first_dtype).max if encode_sort_keys else -1
         return (
             jnp.full((capacity,), first_padding, dtype=first_dtype),
             jnp.full((capacity,), -1, dtype=jnp.int32),
@@ -1645,7 +1646,7 @@ def _radix_pass_cutile(
             block_prefix,
             chunk_prefix,
             local_ranks,
-            ctj.OutputPlaceholder((capacity,), jnp.uint64),
+            ctj.OutputPlaceholder((capacity,), keys.dtype),
             ctj.OutputPlaceholder((capacity,), jnp.int32),
             capacity,
             shift,
@@ -1663,7 +1664,7 @@ def _sort_gaussians_by_depth_cutile(depths: jax.Array) -> jax.Array:
         _prepare_depth_keys_kernel,
         (
             depths,
-            ctj.OutputPlaceholder((gaussian_count,), jnp.uint64),
+            ctj.OutputPlaceholder((gaussian_count,), jnp.uint32),
             ctj.OutputPlaceholder((gaussian_count,), jnp.int32),
             _RADIX_BLOCK_SIZE,
         ),
@@ -1706,12 +1707,12 @@ def _sort_prepared_offsets_cutile(
     valid_count: jax.Array,
     *,
     tile_count: int,
-    begin_bit: int = 0,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     capacity = keys.shape[0]
     block_count = math.ceil(capacity / _RADIX_BLOCK_SIZE)
-    end_bit = 32 + tile_count.bit_length()
-    for shift in range(begin_bit, end_bit, _RADIX_BITS):
+    tile_shift = 0 if keys.dtype == jnp.uint32 else 32
+    end_bit = tile_shift + tile_count.bit_length()
+    for shift in range(0, end_bit, _RADIX_BITS):
         # Do not pay for 32 buckets when the final pass has fewer than five bits.
         pass_bits = min(_RADIX_BITS, end_bit - shift)
         keys, values = _radix_pass_cutile(
@@ -1741,6 +1742,7 @@ def _sort_prepared_offsets_cutile(
             ctj.OutputPlaceholder((capacity,), jnp.int32),
             ctj.OutputPlaceholder((capacity,), jnp.int32),
             capacity,
+            tile_shift,
             _RADIX_BLOCK_SIZE,
         ),
     )
@@ -1754,6 +1756,7 @@ def _sort_prepared_offsets_cutile(
             ctj.OutputPlaceholder((tile_count,), jnp.int32),
             capacity,
             tile_count,
+            tile_shift,
             math.ceil(math.log2(capacity + 1)),
             _RADIX_BLOCK_SIZE,
         ),
@@ -1868,7 +1871,6 @@ def intersect_tiles_cutile(
                 values,
                 valid_count,
                 tile_count=tile_width * tile_height,
-                begin_bit=0 if gaussian_order is None else 32,
             )
         )
         return (
