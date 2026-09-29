@@ -1,0 +1,219 @@
+{
+  "baseline": {
+    "median_ms": 3.6336346101597883,
+    "min_ms": 3.6098079150542617,
+    "max_ms": 3.6343943150131963,
+    "runs": [
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7267269220319577,
+        "warmup_seconds": 3.8557583559886552,
+        "initial_loss": 0.06100306287407875,
+        "final_loss": 0.014865710400044918,
+        "final_pairs": 2676496,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.6336346101597883,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7268788630026393,
+        "warmup_seconds": 3.862507343001198,
+        "initial_loss": 0.061001505702733994,
+        "final_loss": 0.014893727377057076,
+        "final_pairs": 2675340,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.6343943150131963,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7219615830108523,
+        "warmup_seconds": 3.867302032012958,
+        "initial_loss": 0.06099984794855118,
+        "final_loss": 0.014879981055855751,
+        "final_pairs": 2678406,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.6098079150542617,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      }
+    ]
+  },
+  "narrow_keys": {
+    "median_ms": 3.5537169899907894,
+    "min_ms": 3.54987277998589,
+    "max_ms": 3.5550568951293826,
+    "runs": [
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7107433979981579,
+        "warmup_seconds": 3.878085704986006,
+        "initial_loss": 0.06100117787718773,
+        "final_loss": 0.014849375933408737,
+        "final_pairs": 2674226,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.5537169899907894,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7110113790258765,
+        "warmup_seconds": 3.8463738189893775,
+        "initial_loss": 0.06100025773048401,
+        "final_loss": 0.014867530204355717,
+        "final_pairs": 2681325,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.5550568951293826,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.709974555997178,
+        "warmup_seconds": 3.88277476397343,
+        "initial_loss": 0.061002086848020554,
+        "final_loss": 0.014890600927174091,
+        "final_pairs": 2678506,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.54987277998589,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      }
+    ]
+  },
+  "litegs": {
+    "median_ms": 3.7739187249098904,
+    "min_ms": 3.7666553500457667,
+    "max_ms": 3.786145475169178,
+    "runs": [
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7572290950338356,
+        "warmup_seconds": 0.132496620004531,
+        "initial_loss": 0.059713538736104965,
+        "final_loss": 0.014143599197268486,
+        "backend": "litegs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.786145475169178,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7533310700091533,
+        "warmup_seconds": 0.13274215097771958,
+        "initial_loss": 0.05971716344356537,
+        "final_loss": 0.014100169762969017,
+        "backend": "litegs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.7666553500457667,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7547837449819781,
+        "warmup_seconds": 0.1327217899961397,
+        "initial_loss": 0.05971372872591019,
+        "final_loss": 0.014096816070377827,
+        "backend": "litegs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.7739187249098904,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      }
+    ]
+  },
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "trial_order": [
+    [
+      "baseline",
+      "narrow_keys",
+      "litegs"
+    ],
+    [
+      "narrow_keys",
+      "litegs",
+      "baseline"
+    ],
+    [
+      "litegs",
+      "baseline",
+      "narrow_keys"
+    ]
+  ],
+  "jaxgs_reduction_vs_baseline": 0.02199385154069866,
+  "jaxgs_reduction_vs_litegs": 0.058348298140511456,
+  "changes": [
+    "uint16 tile sort keys when tile count including sentinel fits; uint32 fallback",
+    "unsigned widening before tile boundary comparisons and arithmetic"
+  ],
+  "interpretation": "Three interleaved repeats per version, same PLY, one view; compilation excluded. Full growth training measured separately."
+}

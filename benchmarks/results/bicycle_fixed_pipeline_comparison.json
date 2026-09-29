@@ -1,0 +1,221 @@
+{
+  "baseline": {
+    "median_ms": 3.7207184699946083,
+    "min_ms": 3.713978540035896,
+    "max_ms": 3.7317074049497023,
+    "runs": [
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7441436939989217,
+        "warmup_seconds": 3.8137582250055857,
+        "initial_loss": 0.06100074574351311,
+        "final_loss": 0.014880800619721413,
+        "final_pairs": 2677985,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.7207184699946083,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7427957080071792,
+        "warmup_seconds": 3.8085517860017717,
+        "initial_loss": 0.06099919229745865,
+        "final_loss": 0.014857868663966656,
+        "final_pairs": 2680658,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.713978540035896,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7463414809899405,
+        "warmup_seconds": 3.816008944006171,
+        "initial_loss": 0.06100209802389145,
+        "final_loss": 0.01486261934041977,
+        "final_pairs": 2682423,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.7317074049497023,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      }
+    ]
+  },
+  "pipeline": {
+    "median_ms": 3.6227259898441844,
+    "min_ms": 3.6115105348289944,
+    "max_ms": 3.637212954927236,
+    "runs": [
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7274425909854472,
+        "warmup_seconds": 3.863333059998695,
+        "initial_loss": 0.06100079044699669,
+        "final_loss": 0.014873254112899303,
+        "final_pairs": 2675116,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.637212954927236,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7245451979688369,
+        "warmup_seconds": 3.861595292983111,
+        "initial_loss": 0.06100248172879219,
+        "final_loss": 0.014863858930766582,
+        "final_pairs": 2678986,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.6227259898441844,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7223021069657989,
+        "warmup_seconds": 3.8666274870047346,
+        "initial_loss": 0.06100154668092728,
+        "final_loss": 0.014863621443510056,
+        "final_pairs": 2680215,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.6115105348289944,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      }
+    ]
+  },
+  "litegs": {
+    "median_ms": 3.7716821051435545,
+    "min_ms": 3.7630080798408017,
+    "max_ms": 3.7820244950125925,
+    "runs": [
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7526016159681603,
+        "warmup_seconds": 0.12232480599777773,
+        "initial_loss": 0.05971471592783928,
+        "final_loss": 0.014068183489143848,
+        "backend": "litegs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.7630080798408017,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7564048990025185,
+        "warmup_seconds": 0.12957762303994969,
+        "initial_loss": 0.059715013951063156,
+        "final_loss": 0.01408939715474844,
+        "backend": "litegs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.7820244950125925,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.7543364210287109,
+        "warmup_seconds": 0.12969702400732785,
+        "initial_loss": 0.05971699208021164,
+        "final_loss": 0.014065248891711235,
+        "backend": "litegs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 3.7716821051435545,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      }
+    ]
+  },
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "trial_order": [
+    [
+      "baseline",
+      "pipeline",
+      "litegs"
+    ],
+    [
+      "pipeline",
+      "litegs",
+      "baseline"
+    ],
+    [
+      "litegs",
+      "baseline",
+      "pipeline"
+    ]
+  ],
+  "jaxgs_reduction_vs_baseline": 0.02633697790915257,
+  "jaxgs_reduction_vs_litegs": 0.03949328473262215,
+  "changes": [
+    "LiteGS tile boundary scan adapted to contiguous empty-tile offsets",
+    "vector writes of 32-byte PackedParams",
+    "SH shared-transpose padding from 128 to 129"
+  ],
+  "interpretation": "Three interleaved repeats per version, same PLY, one view; compilation excluded. Full growth training measured separately.",
+  "hardware_counters": "Nsight Compute could not collect hardware counters: ERR_NVGPUCTRPERM. Kernel timing comes from JAX GPU traces."
+}

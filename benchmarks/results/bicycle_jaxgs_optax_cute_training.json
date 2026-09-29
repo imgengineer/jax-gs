@@ -1,0 +1,572 @@
+{
+  "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "images": "images_4",
+  "image_shape": [
+    822,
+    1237
+  ],
+  "training_images": 169,
+  "actual_updates": 9971,
+  "initial_sparse_gaussians": 54275,
+  "initial_padded_gaussians": 54400,
+  "target_gaussians": 1000000,
+  "final_gaussians": 975104,
+  "pair_capacity": 8000000,
+  "cluster_size": 128,
+  "tile_size": 16,
+  "tile_height": 8,
+  "warmup_seconds": 9.597106657980476,
+  "image_load_seconds": 0.4505967540317215,
+  "data_loader": "grain.MapDataset, 4 decode threads, 8 prefetched images; GPU uint8 preload",
+  "training_seconds": 23.97443599399412,
+  "densify_until": 41,
+  "seed": 0,
+  "history": [
+    {
+      "epoch": 0,
+      "step": 169,
+      "active": 54400,
+      "loss": 0.18883879482746124,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1137159
+    },
+    {
+      "epoch": 1,
+      "step": 338,
+      "active": 54400,
+      "loss": 0.14735230803489685,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1072982
+    },
+    {
+      "epoch": 2,
+      "step": 507,
+      "active": 54400,
+      "loss": 0.18925678730010986,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 992860
+    },
+    {
+      "epoch": 3,
+      "step": 676,
+      "active": 54400,
+      "loss": 0.23600581288337708,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 946737
+    },
+    {
+      "epoch": 4,
+      "step": 845,
+      "active": 79104,
+      "loss": 0.20896029472351074,
+      "born": 24704,
+      "pruned": 0,
+      "peak_pairs": 916500
+    },
+    {
+      "epoch": 5,
+      "step": 1014,
+      "active": 79104,
+      "loss": 0.16378065943717957,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1145519
+    },
+    {
+      "epoch": 6,
+      "step": 1183,
+      "active": 129024,
+      "loss": 0.1336832344532013,
+      "born": 49920,
+      "pruned": 0,
+      "peak_pairs": 1076079
+    },
+    {
+      "epoch": 7,
+      "step": 1352,
+      "active": 129024,
+      "loss": 0.17775949835777283,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1544423
+    },
+    {
+      "epoch": 8,
+      "step": 1521,
+      "active": 178688,
+      "loss": 0.1977769285440445,
+      "born": 50048,
+      "pruned": 384,
+      "peak_pairs": 1326725
+    },
+    {
+      "epoch": 9,
+      "step": 1690,
+      "active": 178688,
+      "loss": 0.22112730145454407,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1671472
+    },
+    {
+      "epoch": 10,
+      "step": 1859,
+      "active": 228480,
+      "loss": 0.16262628138065338,
+      "born": 49920,
+      "pruned": 128,
+      "peak_pairs": 1532902
+    },
+    {
+      "epoch": 11,
+      "step": 2028,
+      "active": 228480,
+      "loss": 0.15258918702602386,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1815329
+    },
+    {
+      "epoch": 12,
+      "step": 2197,
+      "active": 278144,
+      "loss": 0.1620796173810959,
+      "born": 53248,
+      "pruned": 3584,
+      "peak_pairs": 1735975
+    },
+    {
+      "epoch": 13,
+      "step": 2366,
+      "active": 278144,
+      "loss": 0.1431228369474411,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1977288
+    },
+    {
+      "epoch": 14,
+      "step": 2535,
+      "active": 328064,
+      "loss": 0.13913796842098236,
+      "born": 50688,
+      "pruned": 768,
+      "peak_pairs": 1897596
+    },
+    {
+      "epoch": 15,
+      "step": 2704,
+      "active": 328064,
+      "loss": 0.1291692554950714,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2075018
+    },
+    {
+      "epoch": 16,
+      "step": 2873,
+      "active": 377856,
+      "loss": 0.12087838351726532,
+      "born": 50304,
+      "pruned": 512,
+      "peak_pairs": 2000412
+    },
+    {
+      "epoch": 17,
+      "step": 3042,
+      "active": 377856,
+      "loss": 0.12523198127746582,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2187929
+    },
+    {
+      "epoch": 18,
+      "step": 3211,
+      "active": 427648,
+      "loss": 0.1543278843164444,
+      "born": 50176,
+      "pruned": 384,
+      "peak_pairs": 2139352
+    },
+    {
+      "epoch": 19,
+      "step": 3380,
+      "active": 427648,
+      "loss": 0.10396018624305725,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2293847
+    },
+    {
+      "epoch": 20,
+      "step": 3549,
+      "active": 477440,
+      "loss": 0.1159658432006836,
+      "born": 50176,
+      "pruned": 384,
+      "peak_pairs": 2249769
+    },
+    {
+      "epoch": 21,
+      "step": 3718,
+      "active": 477440,
+      "loss": 0.11325632780790329,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2409261
+    },
+    {
+      "epoch": 22,
+      "step": 3887,
+      "active": 527232,
+      "loss": 0.13034489750862122,
+      "born": 58752,
+      "pruned": 8960,
+      "peak_pairs": 2321525
+    },
+    {
+      "epoch": 23,
+      "step": 4056,
+      "active": 527232,
+      "loss": 0.12433876097202301,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2554886
+    },
+    {
+      "epoch": 24,
+      "step": 4225,
+      "active": 576896,
+      "loss": 0.10026819258928299,
+      "born": 51712,
+      "pruned": 2048,
+      "peak_pairs": 2448904
+    },
+    {
+      "epoch": 25,
+      "step": 4394,
+      "active": 576896,
+      "loss": 0.11211130023002625,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2639265
+    },
+    {
+      "epoch": 26,
+      "step": 4563,
+      "active": 626688,
+      "loss": 0.166196808218956,
+      "born": 50816,
+      "pruned": 1024,
+      "peak_pairs": 2559709
+    },
+    {
+      "epoch": 27,
+      "step": 4732,
+      "active": 626688,
+      "loss": 0.12258397787809372,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2707039
+    },
+    {
+      "epoch": 28,
+      "step": 4901,
+      "active": 676352,
+      "loss": 0.09263568371534348,
+      "born": 50432,
+      "pruned": 768,
+      "peak_pairs": 2634009
+    },
+    {
+      "epoch": 29,
+      "step": 5070,
+      "active": 676352,
+      "loss": 0.09575630724430084,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2792997
+    },
+    {
+      "epoch": 30,
+      "step": 5239,
+      "active": 726272,
+      "loss": 0.20081543922424316,
+      "born": 50432,
+      "pruned": 512,
+      "peak_pairs": 2724789
+    },
+    {
+      "epoch": 31,
+      "step": 5408,
+      "active": 726272,
+      "loss": 0.13018488883972168,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2895341
+    },
+    {
+      "epoch": 32,
+      "step": 5577,
+      "active": 776064,
+      "loss": 0.096536785364151,
+      "born": 64384,
+      "pruned": 14592,
+      "peak_pairs": 2814535
+    },
+    {
+      "epoch": 33,
+      "step": 5746,
+      "active": 776064,
+      "loss": 0.12463503330945969,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2956609
+    },
+    {
+      "epoch": 34,
+      "step": 5915,
+      "active": 825856,
+      "loss": 0.09872733801603317,
+      "born": 52992,
+      "pruned": 3200,
+      "peak_pairs": 2937876
+    },
+    {
+      "epoch": 35,
+      "step": 6084,
+      "active": 825856,
+      "loss": 0.1343693882226944,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3113744
+    },
+    {
+      "epoch": 36,
+      "step": 6253,
+      "active": 875520,
+      "loss": 0.09822460263967514,
+      "born": 51072,
+      "pruned": 1408,
+      "peak_pairs": 3015180
+    },
+    {
+      "epoch": 37,
+      "step": 6422,
+      "active": 875520,
+      "loss": 0.08785445243120193,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3156340
+    },
+    {
+      "epoch": 38,
+      "step": 6591,
+      "active": 925312,
+      "loss": 0.13995946943759918,
+      "born": 50816,
+      "pruned": 1024,
+      "peak_pairs": 3096172
+    },
+    {
+      "epoch": 39,
+      "step": 6760,
+      "active": 925312,
+      "loss": 0.08749398589134216,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3205185
+    },
+    {
+      "epoch": 40,
+      "step": 6929,
+      "active": 975104,
+      "loss": 0.10428496450185776,
+      "born": 50688,
+      "pruned": 896,
+      "peak_pairs": 3176458
+    },
+    {
+      "epoch": 41,
+      "step": 7098,
+      "active": 975104,
+      "loss": 0.08823644369840622,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3251752
+    },
+    {
+      "epoch": 42,
+      "step": 7267,
+      "active": 975104,
+      "loss": 0.15392589569091797,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3248573
+    },
+    {
+      "epoch": 43,
+      "step": 7436,
+      "active": 975104,
+      "loss": 0.0807105228304863,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3214573
+    },
+    {
+      "epoch": 44,
+      "step": 7605,
+      "active": 975104,
+      "loss": 0.08636703342199326,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3188558
+    },
+    {
+      "epoch": 45,
+      "step": 7774,
+      "active": 975104,
+      "loss": 0.08056730777025223,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3180843
+    },
+    {
+      "epoch": 46,
+      "step": 7943,
+      "active": 975104,
+      "loss": 0.09918349236249924,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3173708
+    },
+    {
+      "epoch": 47,
+      "step": 8112,
+      "active": 975104,
+      "loss": 0.05638379976153374,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3153026
+    },
+    {
+      "epoch": 48,
+      "step": 8281,
+      "active": 975104,
+      "loss": 0.0814296156167984,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3162136
+    },
+    {
+      "epoch": 49,
+      "step": 8450,
+      "active": 975104,
+      "loss": 0.082130067050457,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3136885
+    },
+    {
+      "epoch": 50,
+      "step": 8619,
+      "active": 975104,
+      "loss": 0.072756327688694,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3130118
+    },
+    {
+      "epoch": 51,
+      "step": 8788,
+      "active": 975104,
+      "loss": 0.13435404002666473,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3131884
+    },
+    {
+      "epoch": 52,
+      "step": 8957,
+      "active": 975104,
+      "loss": 0.07992646098136902,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3123013
+    },
+    {
+      "epoch": 53,
+      "step": 9126,
+      "active": 975104,
+      "loss": 0.07010243833065033,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3115649
+    },
+    {
+      "epoch": 54,
+      "step": 9295,
+      "active": 975104,
+      "loss": 0.1147054061293602,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3110743
+    },
+    {
+      "epoch": 55,
+      "step": 9464,
+      "active": 975104,
+      "loss": 0.17907379567623138,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3095378
+    },
+    {
+      "epoch": 56,
+      "step": 9633,
+      "active": 975104,
+      "loss": 0.05666991323232651,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3092022
+    },
+    {
+      "epoch": 57,
+      "step": 9802,
+      "active": 975104,
+      "loss": 0.06517710536718369,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3094257
+    },
+    {
+      "epoch": 58,
+      "step": 9971,
+      "active": 975104,
+      "loss": 0.06760241836309433,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3087315
+    }
+  ],
+  "model": "flax.nnx.Module",
+  "jit": "nnx.jit(graph=False)",
+  "optimizer": "cute",
+  "jit_cache_size": 8,
+  "donation": true,
+  "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+  "remaining_differences": [
+    "JAX world cluster bounds and frustum mask",
+    "fixed-capacity intermediates with valid compact prefixes",
+    "XLA prefix sums and stable sorting",
+    "reduction rounding and partial-tile masks",
+    "analytic SH view-direction gradient for xyz",
+    "independent RNG implementations"
+  ]
+}

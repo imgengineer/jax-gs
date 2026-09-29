@@ -1,0 +1,23 @@
+{
+  "count": 975104,
+  "image": "_DSC8679.JPG",
+  "shape": [
+    822,
+    1237
+  ],
+  "seconds": 0.9462001390056685,
+  "warmup_seconds": 3.913153519970365,
+  "initial_loss": 0.061001528054475784,
+  "final_loss": 0.014891397207975388,
+  "final_pairs": 2675961,
+  "jit_cache_size": 1,
+  "donation": true,
+  "model": "flax.nnx.Module",
+  "jit": "nnx.jit(graph=False)",
+  "backend": "jaxgs",
+  "steps": 200,
+  "warmup_steps": 10,
+  "mean_step_ms": 4.731000695028342,
+  "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification",
+  "status": "Superseded experiment: model-first arguments caused XLA donation copies; fixed by placing state/stats before model."
+}

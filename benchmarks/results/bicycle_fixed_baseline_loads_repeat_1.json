@@ -1,0 +1,20 @@
+{
+  "count": 975104,
+  "image": "_DSC8679.JPG",
+  "shape": [
+    822,
+    1237
+  ],
+  "seconds": 0.7528251470066607,
+  "warmup_seconds": 3.8394504690077156,
+  "initial_loss": 0.06100044026970863,
+  "final_loss": 0.01486988365650177,
+  "final_pairs": 2672419,
+  "jit_cache_size": 1,
+  "donation": true,
+  "backend": "jaxgs",
+  "steps": 200,
+  "warmup_steps": 10,
+  "mean_step_ms": 3.7641257350333035,
+  "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+}

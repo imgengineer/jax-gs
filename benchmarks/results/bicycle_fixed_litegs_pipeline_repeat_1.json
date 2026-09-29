@@ -1,0 +1,17 @@
+{
+  "count": 975104,
+  "image": "_DSC8679.JPG",
+  "shape": [
+    822,
+    1237
+  ],
+  "seconds": 0.7526016159681603,
+  "warmup_seconds": 0.12232480599777773,
+  "initial_loss": 0.05971471592783928,
+  "final_loss": 0.014068183489143848,
+  "backend": "litegs",
+  "steps": 200,
+  "warmup_steps": 10,
+  "mean_step_ms": 3.7630080798408017,
+  "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+}

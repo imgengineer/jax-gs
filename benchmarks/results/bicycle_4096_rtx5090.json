@@ -1,0 +1,225 @@
+{
+  "date": "2026-09-29",
+  "scene": "MipNeRF360/bicycle",
+  "scene_dir": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "capacity": 4096,
+  "downsample": 8,
+  "tile_size": 16,
+  "sh_degree": 3,
+  "repeats_per_run": 100,
+  "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute python benchmarks/capacity_sweep.py --scene /home/lzc/datasets/benchmarks/MipNerf360/bicycle --capacity 4096 --downsample 8 --include-backward --repeats 100",
+  "selected": {
+    "cluster_size": 128,
+    "max_gaussians_per_tile": 128
+  },
+  "runs": [
+    [
+      {
+        "cluster_size": 128,
+        "max_gaussians_per_tile": 128,
+        "projection_ms": 0.024259992642328143,
+        "binning_ms": 0.6708519940730184,
+        "render_ms": 0.4078265046700835,
+        "total_ms": 2.5210489984601736,
+        "forward_backward_ms": 1.1522890126798302,
+        "parameter_backward_ms": 1.17915851296857,
+        "training_step_ms": 2.5210489984601736,
+        "training_step_mad_ms": 0.037584512028843164
+      },
+      {
+        "cluster_size": 256,
+        "max_gaussians_per_tile": 128,
+        "projection_ms": 0.026335037546232343,
+        "binning_ms": 0.7732219819445163,
+        "render_ms": 0.4118710057809949,
+        "total_ms": 2.5938690232578665,
+        "forward_backward_ms": 1.1493990023154765,
+        "parameter_backward_ms": 1.1842389940284193,
+        "training_step_ms": 2.5938690232578665,
+        "training_step_mad_ms": 0.0412949884776026
+      },
+      {
+        "cluster_size": 512,
+        "max_gaussians_per_tile": 128,
+        "projection_ms": 0.03719000960700214,
+        "binning_ms": 0.792857987107709,
+        "render_ms": 0.41526148561388254,
+        "total_ms": 2.6099139940924942,
+        "forward_backward_ms": 1.1604585160966963,
+        "parameter_backward_ms": 1.1791995202656835,
+        "training_step_ms": 2.6099139940924942,
+        "training_step_mad_ms": 0.04932997399009764
+      },
+      {
+        "cluster_size": 128,
+        "max_gaussians_per_tile": 256,
+        "projection_ms": 0.026214984245598316,
+        "binning_ms": 0.7208780152723193,
+        "render_ms": 1.1717684974428266,
+        "total_ms": 3.3367715077474713,
+        "forward_backward_ms": 1.8511209927964956,
+        "parameter_backward_ms": 1.8775065254885703,
+        "training_step_ms": 3.3367715077474713,
+        "training_step_mad_ms": 0.05006499122828245
+      },
+      {
+        "cluster_size": 256,
+        "max_gaussians_per_tile": 256,
+        "projection_ms": 0.026374997105449438,
+        "binning_ms": 0.807782489573583,
+        "render_ms": 1.1779639753513038,
+        "total_ms": 3.4245109709445387,
+        "forward_backward_ms": 1.8328459991607815,
+        "parameter_backward_ms": 1.864976016804576,
+        "training_step_ms": 3.4245109709445387,
+        "training_step_mad_ms": 0.044006010284647346
+      },
+      {
+        "cluster_size": 512,
+        "max_gaussians_per_tile": 256,
+        "projection_ms": 0.02845501876436174,
+        "binning_ms": 0.833302503451705,
+        "render_ms": 1.179023995064199,
+        "total_ms": 3.4280264808330685,
+        "forward_backward_ms": 1.8476514960639179,
+        "parameter_backward_ms": 1.8619564943946898,
+        "training_step_ms": 3.4280264808330685,
+        "training_step_mad_ms": 0.0702955003362149
+      },
+      {
+        "cluster_size": 128,
+        "max_gaussians_per_tile": 64,
+        "overflow_tiles": 32
+      },
+      {
+        "cluster_size": 256,
+        "max_gaussians_per_tile": 64,
+        "overflow_tiles": 32
+      },
+      {
+        "cluster_size": 512,
+        "max_gaussians_per_tile": 64,
+        "overflow_tiles": 32
+      }
+    ],
+    [
+      {
+        "cluster_size": 128,
+        "max_gaussians_per_tile": 128,
+        "projection_ms": 0.03634500899352133,
+        "binning_ms": 0.6764369900338352,
+        "render_ms": 0.4076464974787086,
+        "total_ms": 2.527584001654759,
+        "forward_backward_ms": 1.1528239992912859,
+        "parameter_backward_ms": 1.1797990009654313,
+        "training_step_ms": 2.527584001654759,
+        "training_step_mad_ms": 0.026958994567394257
+      },
+      {
+        "cluster_size": 256,
+        "max_gaussians_per_tile": 128,
+        "projection_ms": 0.03125498187728226,
+        "binning_ms": 0.7594029884785414,
+        "render_ms": 0.40957648889161646,
+        "total_ms": 2.6012439629994333,
+        "forward_backward_ms": 1.1504889989737421,
+        "parameter_backward_ms": 1.1777239851653576,
+        "training_step_ms": 2.6012439629994333,
+        "training_step_mad_ms": 0.03804548759944737
+      },
+      {
+        "cluster_size": 512,
+        "max_gaussians_per_tile": 128,
+        "projection_ms": 0.031810515793040395,
+        "binning_ms": 0.7838775054551661,
+        "render_ms": 0.4123009857721627,
+        "total_ms": 2.6253889955114573,
+        "forward_backward_ms": 1.1564090091269463,
+        "parameter_backward_ms": 1.178418518975377,
+        "training_step_ms": 2.6253889955114573,
+        "training_step_mad_ms": 0.04419550532475114
+      },
+      {
+        "cluster_size": 128,
+        "max_gaussians_per_tile": 256,
+        "projection_ms": 0.031990493880584836,
+        "binning_ms": 0.7183669949881732,
+        "render_ms": 1.1691790132317692,
+        "total_ms": 3.343610995216295,
+        "forward_backward_ms": 1.8446659960318357,
+        "parameter_backward_ms": 1.8764609994832426,
+        "training_step_ms": 3.343610995216295,
+        "training_step_mad_ms": 0.04097050987184048
+      },
+      {
+        "cluster_size": 256,
+        "max_gaussians_per_tile": 256,
+        "projection_ms": 0.03189549897797406,
+        "binning_ms": 0.8058724924921989,
+        "render_ms": 1.1797090119216591,
+        "total_ms": 3.4323559957556427,
+        "forward_backward_ms": 1.838710973970592,
+        "parameter_backward_ms": 1.8816370284184813,
+        "training_step_ms": 3.4323559957556427,
+        "training_step_mad_ms": 0.028255017241463065
+      },
+      {
+        "cluster_size": 512,
+        "max_gaussians_per_tile": 256,
+        "projection_ms": 0.032665004255250096,
+        "binning_ms": 0.832196994451806,
+        "render_ms": 1.164459012215957,
+        "total_ms": 3.4458164882380515,
+        "forward_backward_ms": 1.8499060242902488,
+        "parameter_backward_ms": 1.8878309929277748,
+        "training_step_ms": 3.4458164882380515,
+        "training_step_mad_ms": 0.05622999742627144
+      },
+      {
+        "cluster_size": 128,
+        "max_gaussians_per_tile": 64,
+        "overflow_tiles": 32
+      },
+      {
+        "cluster_size": 256,
+        "max_gaussians_per_tile": 64,
+        "overflow_tiles": 32
+      },
+      {
+        "cluster_size": 512,
+        "max_gaussians_per_tile": 64,
+        "overflow_tiles": 32
+      }
+    ]
+  ],
+  "jax_gpu_trace": {
+    "training_steps": 50,
+    "kernel_median_us": {
+      "cluster_bounds": {
+        "launches": 50,
+        "median_us": 24.128
+      },
+      "tile_table": {
+        "launches": 50,
+        "median_us": 611.401
+      },
+      "projection_kernel": {
+        "launches": 50,
+        "median_us": 3.631
+      },
+      "forward_kernel": {
+        "launches": 50,
+        "median_us": 338.796
+      },
+      "backward_tiled": {
+        "launches": 50,
+        "median_us": 763.863
+      },
+      "projection_backward_kernel": {
+        "launches": 50,
+        "median_us": 10.56
+      }
+    }
+  }
+}

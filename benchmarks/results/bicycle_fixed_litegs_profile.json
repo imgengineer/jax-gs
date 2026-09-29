@@ -1,0 +1,257 @@
+[
+  {
+    "kernel": "void raster_backward_kernel<8, 16, false, false, false>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, PackedParams const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, short, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, short, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, PackedGrad*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, int, int, int, int)",
+    "ms_per_step": 1.2516306,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "sparse_chunk_adam_kernel(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, long, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, long, 1ul, torch::headeronly::RestrictPtrTraits, int>, int*, float, float, float, float)",
+    "ms_per_step": 0.6765580999999999,
+    "launches_per_step": 6.0
+  },
+  {
+    "kernel": "void raster_forward_kernel<8, 16, false, false, false>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, PackedParams const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, short, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, short, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, int, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, int, int)",
+    "ms_per_step": 0.5264515999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void duplicate_with_keys_kernel<8, 16>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, long, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, long, 2ul, torch::headeronly::RestrictPtrTraits, int>, int, int, unsigned int, unsigned int, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.19801680000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void activate_backward_kernel<3>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, long, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, long, 1ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.16175810000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+    "ms_per_step": 0.14239870000000004,
+    "launches_per_step": 18.0
+  },
+  {
+    "kernel": "void activate_forward_kernel<3>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, long, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, long, 1ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.12428679999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "pack_forward_params(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, int, int)",
+    "ms_per_step": 0.0594331,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "fusedl1ssim_loss_backwardCUDA(float, int, int, int, float, float, float const*, float const*, float const*, float*, float const*, float const*, float const*)",
+    "ms_per_step": 0.0589337,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "fusedl1ssim_lossCUDA(float, int, int, int, float, float, float const*, float const*, float*, float*, float*, float*)",
+    "ms_per_step": 0.05210820000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::CUB_300001_SM_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::CUB_300001_SM_1200::detail::radix::policy_hub<int, int, unsigned int>::Policy1000, (cub::CUB_300001_SM_1200::SortOrder)0, int, int, unsigned int, int, int, cub::CUB_300001_SM_1200::detail::identity_decomposer_t>(int*, int*, unsigned int*, unsigned int const*, int*, int const*, int*, int const*, int, int, int, cub::CUB_300001_SM_1200::detail::identity_decomposer_t)",
+    "ms_per_step": 0.047657,
+    "launches_per_step": 2.0
+  },
+  {
+    "kernel": "void at_cuda_detail::cub::detail::radix_sort::DeviceRadixSortOnesweepKernel<at_cuda_detail::cub::detail::radix::policy_hub<float, at::cuda::cub::detail::OpaqueType<8>, unsigned long long>::Policy1000, (at_cuda_detail::cub::SortOrder)0, float, at::cuda::cub::detail::OpaqueType<8>, unsigned long long, int, int, at_cuda_detail::cub::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, float*, float const*, at::cuda::cub::detail::OpaqueType<8>*, at::cuda::cub::detail::OpaqueType<8> const*, int, int, int, at_cuda_detail::cub::detail::identity_decomposer_t)",
+    "ms_per_step": 0.042130299999999996,
+    "launches_per_step": 4.0
+  },
+  {
+    "kernel": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1})",
+    "ms_per_step": 0.03765110000000001,
+    "launches_per_step": 4.0
+  },
+  {
+    "kernel": "void create_cov2d_backward<float>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, int const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.0348506,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "create_transform_matrix_backward_kernel(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, int const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.019366199999999997,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "create_transform_matrix_forward_kernel(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, int const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.0183005,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "mvp_backward_data_kernel(float const*, float const*, float const*, float const*, float const*, int const*, float*, int, int)",
+    "ms_per_step": 0.0174238,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, float)::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, float)::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, float)::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, float)::{lambda(float)#1} const&)::{lambda(int)#1})",
+    "ms_per_step": 0.016726099999999997,
+    "launches_per_step": 2.0
+  },
+  {
+    "kernel": "unpack_gradient(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, float const*, int, int, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.0163581,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void get_allocate_size_kernel<8, 16>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, int const*, int, int, unsigned int, unsigned int, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, int, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, int, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.0155486,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void inv_2x2matrix_kernel_backward<float>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, int const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.013686300000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::CUB_300001_SM_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::CUB_300001_SM_1200::detail::radix::policy_hub<int, int, unsigned int>::Policy1000, (cub::CUB_300001_SM_1200::SortOrder)0, int, unsigned int, cub::CUB_300001_SM_1200::detail::identity_decomposer_t>(unsigned int*, int const*, unsigned int, int, int, cub::CUB_300001_SM_1200::detail::identity_decomposer_t)",
+    "ms_per_step": 0.013539100000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<int>, std::array<char*, 1ul> >(int, at::native::FillFunctor<int>, std::array<char*, 1ul>)",
+    "ms_per_step": 0.011203300000000001,
+    "launches_per_step": 5.0
+  },
+  {
+    "kernel": "void eigh_and_inv_2x2matrix_kernel_forward<float>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, int const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.010912,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "tile_range_kernel(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>, int, int, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, int, 2ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.0102205,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::reduce_kernel<128, 4, at::native::ReduceOp<long, at::native::func_wrapper_t<long, at::native::sum_functor<long, long, long>::operator()(at::TensorIterator&)::{lambda(long, long)#1}>, unsigned int, long, 4, 4> >(at::native::ReduceOp<long, at::native::func_wrapper_t<long, at::native::sum_functor<long, long, long>::operator()(at::TensorIterator&)::{lambda(long, long)#1}>, unsigned int, long, 4, 4>)",
+    "ms_per_step": 0.009577600000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "mvp_forward_kernel(float const*, float const*, float const*, int const*, float*, float*, int, int)",
+    "ms_per_step": 0.008710399999999998,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+    "ms_per_step": 0.0081215,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void create_cov2d_forward<float>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, int const*, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.007990400000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(bool, unsigned int, unsigned int)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(bool, unsigned int, unsigned int)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(bool, unsigned int, unsigned int)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(bool, unsigned int, unsigned int)#1} const&)::{lambda(int)#1})",
+    "ms_per_step": 0.0075677999999999995,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1} const&)::{lambda(int)#1})",
+    "ms_per_step": 0.007270400000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1})",
+    "ms_per_step": 0.0069631,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+    "ms_per_step": 0.006940600000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::reduce_kernel<512, 1, at::native::ReduceOp<float, at::native::MeanOps<float, float, float, float>, unsigned int, float, 4, 4> >(at::native::ReduceOp<float, at::native::MeanOps<float, float, float, float>, unsigned int, float, 4, 4>)",
+    "ms_per_step": 0.006425600000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::reduce_kernel<512, 1, at::native::ReduceOp<float, at::native::func_wrapper_t<float, at::native::MaxNanFunctor<float> >, unsigned int, float, 4, 4> >(at::native::ReduceOp<float, at::native::func_wrapper_t<float, at::native::MaxNanFunctor<float> >, unsigned int, float, 4, 4>)",
+    "ms_per_step": 0.0056415,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::nan_to_num_kernel_cuda(at::TensorIteratorBase&, std::optional<double>, std::optional<double>, std::optional<double>)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::nan_to_num_kernel_cuda(at::TensorIteratorBase&, std::optional<double>, std::optional<double>, std::optional<double>)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+    "ms_per_step": 0.005433599999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void jacobian_rayspace_kernel<float>(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, int const*, int, int, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<4ul, int>, float, 4ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.0053693,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::AbsFunctor<float>, std::array<char*, 2ul> >(int, at::native::AbsFunctor<float>, std::array<char*, 2ul>)",
+    "ms_per_step": 0.0052799000000000006,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at_cuda_detail::cub::detail::radix_sort::DeviceRadixSortHistogramKernel<at_cuda_detail::cub::detail::radix::policy_hub<float, at::cuda::cub::detail::OpaqueType<8>, unsigned long long>::Policy1000, (at_cuda_detail::cub::SortOrder)0, float, unsigned long long, at_cuda_detail::cub::detail::identity_decomposer_t>(unsigned long long*, float const*, unsigned long long, int, int, at_cuda_detail::cub::detail::identity_decomposer_t)",
+    "ms_per_step": 0.0051584,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+    "ms_per_step": 0.0041633,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at_cuda_detail::cub::detail::scan::DeviceScanKernel<at_cuda_detail::cub::detail::scan::policy_hub<int, int, int, unsigned int, std::plus<int> >::Policy1000, int const*, int*, at_cuda_detail::cub::ScanTileState<int, true>, std::plus<int>, at_cuda_detail::cub::NullType, unsigned int, int, false, at_cuda_detail::cub::NullType>(int const*, int*, at_cuda_detail::cub::ScanTileState<int, true>, int, std::plus<int>, at_cuda_detail::cub::NullType, unsigned int)",
+    "ms_per_step": 0.0040542999999999985,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "at::native::(anonymous namespace)::fill_reverse_indices_kernel(long*, int, at::cuda::detail::IntDivider<unsigned int>)",
+    "ms_per_step": 0.0033759999999999997,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<bool, bool, bool, at::native::logical_and_kernel_cuda(at::TensorIterator&)::{lambda()#2}::operator()() const::{lambda()#9}::operator()() const::{lambda(bool, bool)#1}>, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<bool, bool, bool, at::native::logical_and_kernel_cuda(at::TensorIterator&)::{lambda()#2}::operator()() const::{lambda()#9}::operator()() const::{lambda(bool, bool)#1}>, std::array<char*, 3ul>)",
+    "ms_per_step": 0.0029888,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<int, int, int, at::native::binary_internal::MulFunctor<int> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<int, int, int, at::native::binary_internal::MulFunctor<int> >, std::array<char*, 2ul>)",
+    "ms_per_step": 0.0026592000000000005,
+    "launches_per_step": 2.0
+  },
+  {
+    "kernel": "frustum_culling_aabb_kernel(torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<3ul, int>, float, 3ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, float, 1ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<2ul, int>, float, 2ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, bool, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, bool, 1ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, int, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, int, 1ul, torch::headeronly::RestrictPtrTraits, int>, torch::headeronly::detail::GenericPackedTensorAccessor<torch::headeronly::detail::TensorAccessor<c10::ArrayRef<long>, long, 0ul, torch::headeronly::RestrictPtrTraits, int>, at::detail::IndexBoundsCheck<1ul, int>, long, 1ul, torch::headeronly::RestrictPtrTraits, int>)",
+    "ms_per_step": 0.0024735,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<int, int, bool, at::native::(anonymous namespace)::CompareEqFunctor<int> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<int, int, bool, at::native::(anonymous namespace)::CompareEqFunctor<int> >, std::array<char*, 2ul>)",
+    "ms_per_step": 0.0015550999999999998,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<short>, std::array<char*, 1ul> >(int, at::native::FillFunctor<short>, std::array<char*, 1ul>)",
+    "ms_per_step": 0.0011329,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void (anonymous namespace)::elementwise_kernel_with_index<int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, function_traits<at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>::result_type*)",
+    "ms_per_step": 0.0010750999999999998,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at_cuda_detail::cub::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<at_cuda_detail::cub::detail::radix::policy_hub<float, at::cuda::cub::detail::OpaqueType<8>, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+    "ms_per_step": 0.0009536000000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::CUB_300001_SM_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::CUB_300001_SM_1200::detail::radix::policy_hub<int, int, unsigned int>::Policy1000, unsigned int>(unsigned int*)",
+    "ms_per_step": 0.0009214999999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void at_cuda_detail::cub::detail::scan::DeviceScanInitKernel<at_cuda_detail::cub::ScanTileState<int, true> >(at_cuda_detail::cub::ScanTileState<int, true>, int)",
+    "ms_per_step": 0.0006945,
+    "launches_per_step": 1.0
+  }
+]

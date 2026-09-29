@@ -1,0 +1,262 @@
+[
+  {
+    "kernel": "kernel_cutlass__backward_warp_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign2_2",
+    "ms_per_step": 4.7715092,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cudnn::cnn::conv2d_grouped_direct_kernel<false, true, false, true, false, false, 0, 0, int, float, float, float, float, float, float>(cudnn::cnn::GroupedDirectFpropParams, float const*, float const*, float*, float, float, float const*, float const*, float const*, float const*, cudnnActivationStruct)",
+    "ms_per_step": 1.5713054000000004,
+    "launches_per_step": 8.0
+  },
+  {
+    "kernel": "kernel_cutlass__forward_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o975_0",
+    "ms_per_step": 0.9436594999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_select_fusion_1",
+    "ms_per_step": 0.8341211999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptr_0",
+    "ms_per_step": 0.7046886,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "kernel_cutlass__emit_pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o97_1",
+    "ms_per_step": 0.6059629999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "kernel_cutlass__count_pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o9_0",
+    "ms_per_step": 0.5983534,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "kernel_cutlass__projection_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemal_0",
+    "ms_per_step": 0.2062862,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_select_fusion_3",
+    "ms_per_step": 0.1282581,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, int, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, int*, int const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+    "ms_per_step": 0.0870549,
+    "launches_per_step": 4.0
+  },
+  {
+    "kernel": "loop_select_fusion_2",
+    "ms_per_step": 0.05616259999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+    "ms_per_step": 0.053938499999999986,
+    "launches_per_step": 4.0
+  },
+  {
+    "kernel": "MemcpyD2D",
+    "ms_per_step": 0.03968469999999985,
+    "launches_per_step": 45.0
+  },
+  {
+    "kernel": "input_clamp_multiply_reduce_fusion",
+    "ms_per_step": 0.026674700000000003,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_multiply_fusion",
+    "ms_per_step": 0.024297400000000004,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_select_fusion",
+    "ms_per_step": 0.021532499999999972,
+    "launches_per_step": 22.0
+  },
+  {
+    "kernel": "loop_add_fusion",
+    "ms_per_step": 0.020575099999999968,
+    "launches_per_step": 22.0
+  },
+  {
+    "kernel": "input_add_reduce_fusion",
+    "ms_per_step": 0.0192448,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_add_multiply_fusion",
+    "ms_per_step": 0.018633399999999998,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_add_select_fusion",
+    "ms_per_step": 0.0166943,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "kernel_cutlass__clear_pairs_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o40000001_4000000_4056_0",
+    "ms_per_step": 0.015308800000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "kernel_cutlass__zero_grads_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o_0",
+    "ms_per_step": 0.0144096,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "input_scatter_fusion",
+    "ms_per_step": 0.011292599999999996,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+    "ms_per_step": 0.010992,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "Memset 3",
+    "ms_per_step": 0.010060799999999984,
+    "launches_per_step": 12.0
+  },
+  {
+    "kernel": "loop_broadcast_compare_gather_fusion",
+    "ms_per_step": 0.0091456,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_broadcast_or_select_fusion",
+    "ms_per_step": 0.0065536,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+    "ms_per_step": 0.0057216,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_reduce_window_fusion_1",
+    "ms_per_step": 0.0034977000000000003,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "input_reduce_fusion_1",
+    "ms_per_step": 0.0027839000000000006,
+    "launches_per_step": 2.0
+  },
+  {
+    "kernel": "loop_broadcast_fusion_1",
+    "ms_per_step": 0.0026912,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_and_convert_fusion",
+    "ms_per_step": 0.0025118999999999996,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_convert_fusion",
+    "ms_per_step": 0.0018303,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_slice_fusion",
+    "ms_per_step": 0.0014462999999999998,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_reduce_window_fusion",
+    "ms_per_step": 0.0011869999999999997,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_reduce_window_fusion_2",
+    "ms_per_step": 0.0011392000000000004,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "memcpy32_post",
+    "ms_per_step": 0.0010815000000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_add_fusion_1",
+    "ms_per_step": 0.0010655,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "wrapped_reverse",
+    "ms_per_step": 0.0010626000000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_multiply_fusion_1",
+    "ms_per_step": 0.0010144000000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+    "ms_per_step": 0.0009728000000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+    "ms_per_step": 0.0009696000000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_exponential_fusion",
+    "ms_per_step": 0.0009407,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_add_fusion_2",
+    "ms_per_step": 0.0009121000000000001,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_compare_or_slice_fusion",
+    "ms_per_step": 0.0009120000000000002,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "fusion_153",
+    "ms_per_step": 0.0008672999999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "wrapped_convert",
+    "ms_per_step": 0.0008286999999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_broadcast_fusion",
+    "ms_per_step": 0.0008064999999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "wrapped_iota",
+    "ms_per_step": 0.0007391999999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_broadcast_fusion_3",
+    "ms_per_step": 0.0007327999999999998,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "loop_broadcast_fusion_2",
+    "ms_per_step": 0.0006879999999999999,
+    "launches_per_step": 1.0
+  },
+  {
+    "kernel": "MemcpyH2D",
+    "ms_per_step": 0.0002783,
+    "launches_per_step": 1.0
+  }
+]

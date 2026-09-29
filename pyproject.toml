@@ -1,0 +1,56 @@
+[project]
+name = "jaxgs"
+version = "0.1.0"
+description = "Fixed-capacity JAX Gaussian splatting with a CuTe rasterizer"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chex>=0.1.92",
+    "flax>=0.12.10",
+    "grain>=0.2.18",
+    "jax[cuda13]>=0.11.2",
+    "optax>=0.2.8",
+    "pillow>=12.3.0",
+    "scipy>=1.18.1",
+]
+
+[project.scripts]
+jaxgs-train-reference = "jaxgs.training.reference_trainer:main"
+jaxgs-train = "jaxgs.training.trainer:main"
+
+[project.optional-dependencies]
+cute = [
+    "nvidia-cutlass-dsl[cu13]>=4.8.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "plyfile>=1.1.5",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.9",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["jaxgs"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
+fail_under = 99
+# CuTe compiles these bodies to GPU code; Python tracing cannot measure them.
+# Keep all Python bindings and launch preparation in the coverage denominator.
+exclude_also = ["@cute\\.(kernel|jit)", "@dsl_user_op"]

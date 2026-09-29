@@ -1,0 +1,128 @@
+{
+  "change": "Flax NNX model, nnx.jit tree mode, LiteGS directory layout",
+  "fixed_count": {
+    "before_nnx": {
+      "median_ms": 3.5424945599515922,
+      "min_ms": 3.528547460155096,
+      "max_ms": 3.5520621997420676
+    },
+    "nnx": {
+      "median_ms": 3.5393271999782883,
+      "min_ms": 3.535133039986249,
+      "max_ms": 3.549844349909108
+    },
+    "nnx_change_percent": -0.08941044000776444
+  },
+  "fixed_count_report": "benchmarks/results/bicycle_fixed_nnx_comparison.json",
+  "full_training": {
+    "before_nnx": {
+      "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+      "gpu": "NVIDIA GeForce RTX 5090",
+      "images": "images_4",
+      "image_shape": [
+        822,
+        1237
+      ],
+      "training_images": 169,
+      "actual_updates": 9971,
+      "initial_sparse_gaussians": 54275,
+      "initial_padded_gaussians": 54400,
+      "target_gaussians": 1000000,
+      "final_gaussians": 975104,
+      "pair_capacity": 8000000,
+      "cluster_size": 128,
+      "tile_size": 16,
+      "tile_height": 8,
+      "warmup_seconds": 9.426682184042875,
+      "training_seconds": 24.40346507896902,
+      "densify_until": 41,
+      "seed": 0,
+      "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+      "remaining_differences": [
+        "JAX world cluster bounds and frustum mask",
+        "fixed-capacity intermediates with valid compact prefixes",
+        "XLA prefix sums and stable sorting",
+        "reduction rounding and partial-tile masks",
+        "analytic SH view-direction gradient for xyz",
+        "independent RNG implementations"
+      ],
+      "held_out_mean_psnr": 25.054914544654004,
+      "evaluation_views": 25,
+      "checkpoint_checks": {
+        "parameters_finite": true,
+        "alive_matches_count": true,
+        "free_mask_complement": true,
+        "capacity": 1000000,
+        "n_active": 975104,
+        "losses_finite": true,
+        "peak_pairs": 3259482
+      },
+      "training_history": "benchmarks/results/bicycle_jaxgs_before_nnx_training.json",
+      "quality_report": "benchmarks/results/bicycle_jaxgs_before_nnx_quality.json"
+    },
+    "nnx": {
+      "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+      "gpu": "NVIDIA GeForce RTX 5090",
+      "images": "images_4",
+      "image_shape": [
+        822,
+        1237
+      ],
+      "training_images": 169,
+      "actual_updates": 9971,
+      "initial_sparse_gaussians": 54275,
+      "initial_padded_gaussians": 54400,
+      "target_gaussians": 1000000,
+      "final_gaussians": 975104,
+      "pair_capacity": 8000000,
+      "cluster_size": 128,
+      "tile_size": 16,
+      "tile_height": 8,
+      "warmup_seconds": 9.523113378963899,
+      "training_seconds": 24.335837479971815,
+      "densify_until": 41,
+      "seed": 0,
+      "model": "flax.nnx.Module",
+      "jit": "nnx.jit(graph=False)",
+      "jit_cache_size": 8,
+      "donation": true,
+      "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+      "remaining_differences": [
+        "JAX world cluster bounds and frustum mask",
+        "fixed-capacity intermediates with valid compact prefixes",
+        "XLA prefix sums and stable sorting",
+        "reduction rounding and partial-tile masks",
+        "analytic SH view-direction gradient for xyz",
+        "independent RNG implementations"
+      ],
+      "held_out_mean_psnr": 25.0832095120001,
+      "evaluation_views": 25,
+      "checkpoint_checks": {
+        "parameters_finite": true,
+        "alive_matches_count": true,
+        "free_mask_complement": true,
+        "capacity": 1000000,
+        "n_active": 975104,
+        "losses_finite": true,
+        "peak_pairs": 3292097
+      },
+      "training_history": "benchmarks/results/bicycle_jaxgs_nnx_training.json",
+      "quality_report": "benchmarks/results/bicycle_jaxgs_nnx_quality.json"
+    }
+  },
+  "full_training_time_change_percent": -0.2771229363468075,
+  "validation": {
+    "gpu_pytest_passed": 50,
+    "gpu_pytest_seconds": 83.18,
+    "cute_module_bodies_unchanged": true,
+    "checks": [
+      "NNX Param filtering and split/merge round trip",
+      "zero-copy pool views",
+      "fixed-shape occupancy updates reuse compiled step",
+      "array/NNX step parameter, moment, statistics and loss parity at SH0 and SH3",
+      "parameter and Adam donation buffer addresses",
+      "full 9971-step training and 25-view held-out evaluation"
+    ]
+  },
+  "interpretation": "No observed performance regression on bicycle/RTX 5090. Fixed-count timings use three interleaved repeats; each full-growth result is one run with independent floating-point reduction/densification trajectories."
+}

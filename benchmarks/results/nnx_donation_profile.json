@@ -1,0 +1,29 @@
+{
+  "before_nnx": {
+    "trace": "/tmp/jaxgs-nnx-baseline-trace/plugins/profile/2026_09_29_12_51_59/supernova.trace.json.gz",
+    "traced_steps": 10,
+    "gpu_event_sum_ms_per_step": 3.5030807,
+    "copy_ms_per_step": 0.0,
+    "copy_counts_per_step": {}
+  },
+  "nnx_model_first": {
+    "trace": "/tmp/jaxgs-nnx-probe-trace/plugins/profile/2026_09_29_12_52_13/supernova.trace.json.gz",
+    "traced_steps": 10,
+    "gpu_event_sum_ms_per_step": 4.6254048999999995,
+    "copy_ms_per_step": 1.143864,
+    "copy_counts_per_step": {
+      "memcpy32_post": 13.0,
+      "memcpy128": 21.0
+    }
+  },
+  "nnx_state_first": {
+    "trace": "/tmp/jaxgs-nnx-order-trace/plugins/profile/2026_09_29_12_52_57/supernova.trace.json.gz",
+    "traced_steps": 10,
+    "gpu_event_sum_ms_per_step": 3.4868743,
+    "copy_ms_per_step": 0.0010528,
+    "copy_counts_per_step": {
+      "memcpy32_post": 1.0
+    }
+  },
+  "resolution": "NNX appends model variable updates after explicit outputs. Put state/stats arguments before model so XLA donation pairs each parameter and moment with its own output; all CuTe calculations unchanged."
+}

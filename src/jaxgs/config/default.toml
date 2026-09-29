@@ -1,0 +1,54 @@
+# Algorithm defaults from LiteGS litegs/arguments.py, commit
+# 004b95215c90c36cdaf4b354301132b700ac287b (get_default_arg, not a benchmark preset).
+# Scene and output paths are supplied on the command line.
+[model]
+sh_degree = 3
+images = "images"
+resolution = -1  # cap width at 1600; 1/2/4/8 are downsample factors
+white_background = false
+data_device = "cuda"
+eval = false
+
+[pipeline]
+cluster_size = 128
+tile_size = [8, 16]  # height, width
+sparse_grad = true
+device_preload = true
+enable_transmitance = false
+enable_depth = false
+input_color_type = "sh"
+
+[optimization]
+iterations = 30000
+position_lr_init = 0.00016
+position_lr_final = 0.0000016
+position_lr_max_steps = 30000
+feature_lr = 0.0025  # higher SH coefficients use feature_lr / 10
+opacity_lr = 0.025
+scaling_lr = 0.005
+rotation_lr = 0.001
+lambda_dssim = 0.2
+reg_weight = 0.0
+learnable_viewproj = false
+
+[densify]
+# All intervals and boundaries are in epochs, not optimizer steps.
+densification_interval = 5
+densify_from = 3
+densify_until = -1  # floor(epochs * 0.8 / reset_interval) * reset_interval + 1
+opacity_reset_interval = 10
+opacity_reset_mode = "decay"
+prune_mode = "weight"
+target_primitives = 1000000
+# Retained for source-default parity; the weight-based controller ignores these three.
+densify_grad_threshold = 0.00015
+opacity_threshold = 0.005
+screen_size_threshold = 128
+percent_dense = 0.01
+
+[runtime]
+# JAX-specific implementation settings; these have no native default equivalent.
+max_gaussians = 1000000
+max_visibility_pairs = 8000000
+optimizer = "optax"
+seed = 0

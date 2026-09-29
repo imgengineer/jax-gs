@@ -1,0 +1,40 @@
+{
+  "old_package": "jaxgs.submodules.gaussian_raster",
+  "new_package": "jaxgs.kernels",
+  "rationale": "Local Python CuTe kernels and JAX bindings cover rendering, loss, sparse Adam and allocation; the package is maintained within jaxgs.",
+  "integration": [
+    "nnx.jit / JAX binding",
+    "cutlass.jax.cutlass_call",
+    "cute.jit launcher",
+    "cute.kernel GPU program"
+  ],
+  "upstream_references": [
+    "https://github.com/NVIDIA/cutlass/blob/main/examples/python/CuTeDSL/dsl_tutorials/jax/cutlass_call_basic.py",
+    "https://github.com/NVIDIA/cutlass/blob/main/examples/python/CuTeDSL/dsl_tutorials/jax/cute_dsl_jax_kernels.py",
+    "https://docs.jax.dev/en/latest/401/cute-dsl.html"
+  ],
+  "validation": {
+    "gpu_tests_passed": 54,
+    "gpu_tests_seconds": 84.61,
+    "kernel_and_binding_modules_with_identical_non_import_ast": 20,
+    "total_source_modules_with_identical_non_import_ast": 47,
+    "licenses_byte_identical": true,
+    "old_package_removed": true
+  },
+  "benchmark": "benchmarks/results/bicycle_fixed_kernels_layout_comparison.json",
+  "scope": "Only package paths, imports and documentation changed. NNX training, Grain loading, CuTe arithmetic, launch parameters, shapes and buffer aliases preserved.",
+  "fixed_count": {
+    "before_layout": {
+      "median_ms": 3.565959279949311,
+      "min_ms": 3.5560017099487595,
+      "max_ms": 3.572041250008624
+    },
+    "kernels_layout": {
+      "median_ms": 3.54833501012763,
+      "min_ms": 3.5446567449253052,
+      "max_ms": 3.5588661549263634
+    },
+    "time_change_percent": -0.49423642947296065,
+    "all_jit_cache_sizes_one": true
+  }
+}

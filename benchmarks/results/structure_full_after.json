@@ -1,0 +1,626 @@
+{
+  "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "images": "images_4",
+  "image_shape": [
+    822,
+    1237
+  ],
+  "training_images": 169,
+  "actual_updates": 9971,
+  "initial_sparse_gaussians": 54275,
+  "initial_padded_gaussians": 54400,
+  "target_gaussians": 1000000,
+  "final_gaussians": 975104,
+  "pair_capacity": 8000000,
+  "cluster_size": 128,
+  "tile_size": 16,
+  "tile_height": 8,
+  "warmup_seconds": 10.355512565001845,
+  "image_load_seconds": 0.49009285698411986,
+  "data_loader": "grain.MapDataset, 4 decode threads, 8 prefetched images; GPU uint8 preload",
+  "training_seconds": 30.10679828003049,
+  "densify_until": 41,
+  "seed": 0,
+  "history": [
+    {
+      "epoch": 0,
+      "step": 169,
+      "active": 54400,
+      "loss": 0.18866734206676483,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1136868
+    },
+    {
+      "epoch": 1,
+      "step": 338,
+      "active": 54400,
+      "loss": 0.14729858934879303,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1071697
+    },
+    {
+      "epoch": 2,
+      "step": 507,
+      "active": 54400,
+      "loss": 0.18925458192825317,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 992642
+    },
+    {
+      "epoch": 3,
+      "step": 676,
+      "active": 54400,
+      "loss": 0.2361747920513153,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 946148
+    },
+    {
+      "epoch": 4,
+      "step": 845,
+      "active": 79104,
+      "loss": 0.20927409827709198,
+      "born": 24704,
+      "pruned": 0,
+      "peak_pairs": 914192
+    },
+    {
+      "epoch": 5,
+      "step": 1014,
+      "active": 79104,
+      "loss": 0.16440263390541077,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1141740
+    },
+    {
+      "epoch": 6,
+      "step": 1183,
+      "active": 129024,
+      "loss": 0.13401813805103302,
+      "born": 49920,
+      "pruned": 0,
+      "peak_pairs": 1077974
+    },
+    {
+      "epoch": 7,
+      "step": 1352,
+      "active": 129024,
+      "loss": 0.18194235861301422,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1571409
+    },
+    {
+      "epoch": 8,
+      "step": 1521,
+      "active": 178688,
+      "loss": 0.19749853014945984,
+      "born": 49920,
+      "pruned": 256,
+      "peak_pairs": 1346100
+    },
+    {
+      "epoch": 9,
+      "step": 1690,
+      "active": 178688,
+      "loss": 0.22176872193813324,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1705085
+    },
+    {
+      "epoch": 10,
+      "step": 1859,
+      "active": 228480,
+      "loss": 0.1653769165277481,
+      "born": 50048,
+      "pruned": 256,
+      "peak_pairs": 1555653
+    },
+    {
+      "epoch": 11,
+      "step": 2028,
+      "active": 228480,
+      "loss": 0.15278150141239166,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1813050
+    },
+    {
+      "epoch": 12,
+      "step": 2197,
+      "active": 278272,
+      "loss": 0.16029177606105804,
+      "born": 53248,
+      "pruned": 3456,
+      "peak_pairs": 1735196
+    },
+    {
+      "epoch": 13,
+      "step": 2366,
+      "active": 278272,
+      "loss": 0.14285334944725037,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2007006
+    },
+    {
+      "epoch": 14,
+      "step": 2535,
+      "active": 328064,
+      "loss": 0.13850168883800507,
+      "born": 50816,
+      "pruned": 1024,
+      "peak_pairs": 1889952
+    },
+    {
+      "epoch": 15,
+      "step": 2704,
+      "active": 328064,
+      "loss": 0.1275641769170761,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2074161
+    },
+    {
+      "epoch": 16,
+      "step": 2873,
+      "active": 377856,
+      "loss": 0.12134304642677307,
+      "born": 50304,
+      "pruned": 512,
+      "peak_pairs": 2016883
+    },
+    {
+      "epoch": 17,
+      "step": 3042,
+      "active": 377856,
+      "loss": 0.12659457325935364,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2172995
+    },
+    {
+      "epoch": 18,
+      "step": 3211,
+      "active": 427648,
+      "loss": 0.15554910898208618,
+      "born": 50176,
+      "pruned": 384,
+      "peak_pairs": 2122295
+    },
+    {
+      "epoch": 19,
+      "step": 3380,
+      "active": 427648,
+      "loss": 0.10407321900129318,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2293354
+    },
+    {
+      "epoch": 20,
+      "step": 3549,
+      "active": 477440,
+      "loss": 0.11700068414211273,
+      "born": 50176,
+      "pruned": 384,
+      "peak_pairs": 2253807
+    },
+    {
+      "epoch": 21,
+      "step": 3718,
+      "active": 477440,
+      "loss": 0.11329872161149979,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2398114
+    },
+    {
+      "epoch": 22,
+      "step": 3887,
+      "active": 527232,
+      "loss": 0.13052433729171753,
+      "born": 59264,
+      "pruned": 9472,
+      "peak_pairs": 2333825
+    },
+    {
+      "epoch": 23,
+      "step": 4056,
+      "active": 527232,
+      "loss": 0.12444888055324554,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2562812
+    },
+    {
+      "epoch": 24,
+      "step": 4225,
+      "active": 576896,
+      "loss": 0.1001267209649086,
+      "born": 51840,
+      "pruned": 2176,
+      "peak_pairs": 2457636
+    },
+    {
+      "epoch": 25,
+      "step": 4394,
+      "active": 576896,
+      "loss": 0.11299426853656769,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2620598
+    },
+    {
+      "epoch": 26,
+      "step": 4563,
+      "active": 626688,
+      "loss": 0.16511444747447968,
+      "born": 50688,
+      "pruned": 896,
+      "peak_pairs": 2566497
+    },
+    {
+      "epoch": 27,
+      "step": 4732,
+      "active": 626688,
+      "loss": 0.12266772985458374,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2723799
+    },
+    {
+      "epoch": 28,
+      "step": 4901,
+      "active": 676480,
+      "loss": 0.09287961572408676,
+      "born": 50560,
+      "pruned": 768,
+      "peak_pairs": 2653814
+    },
+    {
+      "epoch": 29,
+      "step": 5070,
+      "active": 676480,
+      "loss": 0.09540512412786484,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2813919
+    },
+    {
+      "epoch": 30,
+      "step": 5239,
+      "active": 726272,
+      "loss": 0.19928596913814545,
+      "born": 50432,
+      "pruned": 640,
+      "peak_pairs": 2739617
+    },
+    {
+      "epoch": 31,
+      "step": 5408,
+      "active": 726272,
+      "loss": 0.13062503933906555,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2906399
+    },
+    {
+      "epoch": 32,
+      "step": 5577,
+      "active": 776064,
+      "loss": 0.09601671993732452,
+      "born": 64128,
+      "pruned": 14336,
+      "peak_pairs": 2816543
+    },
+    {
+      "epoch": 33,
+      "step": 5746,
+      "active": 776064,
+      "loss": 0.12520261108875275,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2942497
+    },
+    {
+      "epoch": 34,
+      "step": 5915,
+      "active": 825856,
+      "loss": 0.09851617366075516,
+      "born": 52992,
+      "pruned": 3200,
+      "peak_pairs": 2911684
+    },
+    {
+      "epoch": 35,
+      "step": 6084,
+      "active": 825856,
+      "loss": 0.13724181056022644,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3040925
+    },
+    {
+      "epoch": 36,
+      "step": 6253,
+      "active": 875520,
+      "loss": 0.0998016744852066,
+      "born": 51072,
+      "pruned": 1408,
+      "peak_pairs": 2999436
+    },
+    {
+      "epoch": 37,
+      "step": 6422,
+      "active": 875520,
+      "loss": 0.08867120742797852,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3091562
+    },
+    {
+      "epoch": 38,
+      "step": 6591,
+      "active": 925312,
+      "loss": 0.14039675891399384,
+      "born": 50816,
+      "pruned": 1024,
+      "peak_pairs": 3070007
+    },
+    {
+      "epoch": 39,
+      "step": 6760,
+      "active": 925312,
+      "loss": 0.08696093410253525,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3168842
+    },
+    {
+      "epoch": 40,
+      "step": 6929,
+      "active": 975104,
+      "loss": 0.10409656912088394,
+      "born": 50688,
+      "pruned": 896,
+      "peak_pairs": 3142957
+    },
+    {
+      "epoch": 41,
+      "step": 7098,
+      "active": 975104,
+      "loss": 0.08797105401754379,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3237850
+    },
+    {
+      "epoch": 42,
+      "step": 7267,
+      "active": 975104,
+      "loss": 0.15503767132759094,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3193237
+    },
+    {
+      "epoch": 43,
+      "step": 7436,
+      "active": 975104,
+      "loss": 0.0815262570977211,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3189055
+    },
+    {
+      "epoch": 44,
+      "step": 7605,
+      "active": 975104,
+      "loss": 0.08764734864234924,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3150726
+    },
+    {
+      "epoch": 45,
+      "step": 7774,
+      "active": 975104,
+      "loss": 0.07922418415546417,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3139912
+    },
+    {
+      "epoch": 46,
+      "step": 7943,
+      "active": 975104,
+      "loss": 0.09781376272439957,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3124348
+    },
+    {
+      "epoch": 47,
+      "step": 8112,
+      "active": 975104,
+      "loss": 0.05630981922149658,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3109868
+    },
+    {
+      "epoch": 48,
+      "step": 8281,
+      "active": 975104,
+      "loss": 0.08114346116781235,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3108889
+    },
+    {
+      "epoch": 49,
+      "step": 8450,
+      "active": 975104,
+      "loss": 0.08382820338010788,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3106203
+    },
+    {
+      "epoch": 50,
+      "step": 8619,
+      "active": 975104,
+      "loss": 0.0723218023777008,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3088977
+    },
+    {
+      "epoch": 51,
+      "step": 8788,
+      "active": 975104,
+      "loss": 0.13405458629131317,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3076874
+    },
+    {
+      "epoch": 52,
+      "step": 8957,
+      "active": 975104,
+      "loss": 0.08160325139760971,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3067122
+    },
+    {
+      "epoch": 53,
+      "step": 9126,
+      "active": 975104,
+      "loss": 0.06978899240493774,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3065353
+    },
+    {
+      "epoch": 54,
+      "step": 9295,
+      "active": 975104,
+      "loss": 0.11554721742868423,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3056718
+    },
+    {
+      "epoch": 55,
+      "step": 9464,
+      "active": 975104,
+      "loss": 0.18014946579933167,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3047080
+    },
+    {
+      "epoch": 56,
+      "step": 9633,
+      "active": 975104,
+      "loss": 0.05687205493450165,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3054598
+    },
+    {
+      "epoch": 57,
+      "step": 9802,
+      "active": 975104,
+      "loss": 0.06531880050897598,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3045062
+    },
+    {
+      "epoch": 58,
+      "step": 9971,
+      "active": 975104,
+      "loss": 0.06696675717830658,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3036129
+    }
+  ],
+  "config": {
+    "model": {
+      "sh_degree": 3,
+      "images": "images_4",
+      "resolution": 1,
+      "white_background": false,
+      "data_device": "cuda",
+      "eval": true
+    },
+    "pipeline": {
+      "cluster_size": 128,
+      "tile_size": [
+        8,
+        16
+      ],
+      "sparse_grad": true,
+      "device_preload": true,
+      "enable_transmitance": false,
+      "enable_depth": false,
+      "input_color_type": "sh"
+    },
+    "optimization": {
+      "iterations": 10000,
+      "position_lr_init": 0.00016,
+      "position_lr_final": 1.6e-05,
+      "position_lr_max_steps": 10000,
+      "feature_lr": 0.0025,
+      "opacity_lr": 0.025,
+      "scaling_lr": 0.005,
+      "rotation_lr": 0.001,
+      "lambda_dssim": 0.2,
+      "reg_weight": 0.0,
+      "learnable_viewproj": false
+    },
+    "densify": {
+      "densification_interval": 2,
+      "densify_from": 3,
+      "densify_until": -1,
+      "opacity_reset_interval": 10,
+      "opacity_reset_mode": "decay",
+      "prune_mode": "weight",
+      "target_primitives": 1000000,
+      "densify_grad_threshold": 0.00015,
+      "opacity_threshold": 0.005,
+      "screen_size_threshold": 128,
+      "percent_dense": 0.01
+    },
+    "runtime": {
+      "max_gaussians": 1000000,
+      "max_visibility_pairs": 8000000,
+      "optimizer": "optax",
+      "seed": 0
+    }
+  },
+  "model": "flax.nnx.Module",
+  "jit": "nnx.jit(graph=False)",
+  "optimizer": "optax",
+  "jit_cache_size": 8,
+  "donation": true,
+  "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+  "remaining_differences": [
+    "JAX world cluster bounds and frustum mask",
+    "fixed-capacity intermediates with valid compact prefixes",
+    "XLA prefix sums and stable sorting",
+    "reduction rounding and partial-tile masks",
+    "analytic SH view-direction gradient for xyz",
+    "independent RNG implementations"
+  ]
+}

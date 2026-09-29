@@ -1,0 +1,20 @@
+{
+  "nnx": {
+    "parameters_finite": true,
+    "alive_matches_count": true,
+    "free_mask_complement": true,
+    "capacity": 1000000,
+    "n_active": 975104,
+    "losses_finite": true,
+    "peak_pairs": 3292097
+  },
+  "before_nnx": {
+    "parameters_finite": true,
+    "alive_matches_count": true,
+    "free_mask_complement": true,
+    "capacity": 1000000,
+    "n_active": 975104,
+    "losses_finite": true,
+    "peak_pairs": 3259482
+  }
+}

@@ -1,0 +1,505 @@
+{
+  "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "images": "images_4",
+  "image_shape": [
+    822,
+    1237
+  ],
+  "training_images": 169,
+  "actual_updates": 9971,
+  "target_gaussians": 1000000,
+  "final_gaussians": 975104,
+  "pair_capacity": 8000000,
+  "cluster_size": 128,
+  "tile_size": 16,
+  "warmup_seconds": 7.9661522709648125,
+  "training_seconds": 97.56332384300185,
+  "densify_until": 41,
+  "seed": 0,
+  "history": [
+    {
+      "epoch": 0,
+      "step": 169,
+      "active": 54400,
+      "loss": 0.18849125504493713,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 1,
+      "step": 338,
+      "active": 54400,
+      "loss": 0.14733955264091492,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 2,
+      "step": 507,
+      "active": 54400,
+      "loss": 0.18995562195777893,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 3,
+      "step": 676,
+      "active": 54400,
+      "loss": 0.23692649602890015,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 4,
+      "step": 845,
+      "active": 79104,
+      "loss": 0.20886430144309998,
+      "born": 24704,
+      "pruned": 0
+    },
+    {
+      "epoch": 5,
+      "step": 1014,
+      "active": 79104,
+      "loss": 0.16382193565368652,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 6,
+      "step": 1183,
+      "active": 129024,
+      "loss": 0.13406983017921448,
+      "born": 49920,
+      "pruned": 0
+    },
+    {
+      "epoch": 7,
+      "step": 1352,
+      "active": 129024,
+      "loss": 0.1798352301120758,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 8,
+      "step": 1521,
+      "active": 178816,
+      "loss": 0.19850251078605652,
+      "born": 50048,
+      "pruned": 256
+    },
+    {
+      "epoch": 9,
+      "step": 1690,
+      "active": 178816,
+      "loss": 0.22136422991752625,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 10,
+      "step": 1859,
+      "active": 228480,
+      "loss": 0.16493666172027588,
+      "born": 49920,
+      "pruned": 256
+    },
+    {
+      "epoch": 11,
+      "step": 2028,
+      "active": 228480,
+      "loss": 0.152260884642601,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 12,
+      "step": 2197,
+      "active": 278272,
+      "loss": 0.1606888473033905,
+      "born": 53376,
+      "pruned": 3584
+    },
+    {
+      "epoch": 13,
+      "step": 2366,
+      "active": 278272,
+      "loss": 0.14229771494865417,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 14,
+      "step": 2535,
+      "active": 328064,
+      "loss": 0.13846060633659363,
+      "born": 50816,
+      "pruned": 1024
+    },
+    {
+      "epoch": 15,
+      "step": 2704,
+      "active": 328064,
+      "loss": 0.12718914449214935,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 16,
+      "step": 2873,
+      "active": 377856,
+      "loss": 0.12101777642965317,
+      "born": 50304,
+      "pruned": 512
+    },
+    {
+      "epoch": 17,
+      "step": 3042,
+      "active": 377856,
+      "loss": 0.12596933543682098,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 18,
+      "step": 3211,
+      "active": 427648,
+      "loss": 0.1539105772972107,
+      "born": 50176,
+      "pruned": 384
+    },
+    {
+      "epoch": 19,
+      "step": 3380,
+      "active": 427648,
+      "loss": 0.10407520830631256,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 20,
+      "step": 3549,
+      "active": 477312,
+      "loss": 0.11650466918945312,
+      "born": 50048,
+      "pruned": 384
+    },
+    {
+      "epoch": 21,
+      "step": 3718,
+      "active": 477312,
+      "loss": 0.11361932754516602,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 22,
+      "step": 3887,
+      "active": 527232,
+      "loss": 0.13036710023880005,
+      "born": 59008,
+      "pruned": 9088
+    },
+    {
+      "epoch": 23,
+      "step": 4056,
+      "active": 527232,
+      "loss": 0.12392914295196533,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 24,
+      "step": 4225,
+      "active": 576896,
+      "loss": 0.09927983582019806,
+      "born": 51840,
+      "pruned": 2176
+    },
+    {
+      "epoch": 25,
+      "step": 4394,
+      "active": 576896,
+      "loss": 0.11209467053413391,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 26,
+      "step": 4563,
+      "active": 626688,
+      "loss": 0.16544732451438904,
+      "born": 50688,
+      "pruned": 896
+    },
+    {
+      "epoch": 27,
+      "step": 4732,
+      "active": 626688,
+      "loss": 0.12147000432014465,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 28,
+      "step": 4901,
+      "active": 676480,
+      "loss": 0.09228932112455368,
+      "born": 50560,
+      "pruned": 768
+    },
+    {
+      "epoch": 29,
+      "step": 5070,
+      "active": 676480,
+      "loss": 0.09525078535079956,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 30,
+      "step": 5239,
+      "active": 726144,
+      "loss": 0.20009030401706696,
+      "born": 50304,
+      "pruned": 640
+    },
+    {
+      "epoch": 31,
+      "step": 5408,
+      "active": 726144,
+      "loss": 0.12961581349372864,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 32,
+      "step": 5577,
+      "active": 776064,
+      "loss": 0.09618496894836426,
+      "born": 64000,
+      "pruned": 14080
+    },
+    {
+      "epoch": 33,
+      "step": 5746,
+      "active": 776064,
+      "loss": 0.12511667609214783,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 34,
+      "step": 5915,
+      "active": 825856,
+      "loss": 0.09836700558662415,
+      "born": 52992,
+      "pruned": 3200
+    },
+    {
+      "epoch": 35,
+      "step": 6084,
+      "active": 825856,
+      "loss": 0.1330380141735077,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 36,
+      "step": 6253,
+      "active": 875648,
+      "loss": 0.10025327652692795,
+      "born": 51200,
+      "pruned": 1408
+    },
+    {
+      "epoch": 37,
+      "step": 6422,
+      "active": 875648,
+      "loss": 0.08899432420730591,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 38,
+      "step": 6591,
+      "active": 925312,
+      "loss": 0.14026951789855957,
+      "born": 50688,
+      "pruned": 1024
+    },
+    {
+      "epoch": 39,
+      "step": 6760,
+      "active": 925312,
+      "loss": 0.08742909878492355,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 40,
+      "step": 6929,
+      "active": 975104,
+      "loss": 0.10315048694610596,
+      "born": 50560,
+      "pruned": 768
+    },
+    {
+      "epoch": 41,
+      "step": 7098,
+      "active": 975104,
+      "loss": 0.08778710663318634,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 42,
+      "step": 7267,
+      "active": 975104,
+      "loss": 0.15334552526474,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 43,
+      "step": 7436,
+      "active": 975104,
+      "loss": 0.0804346576333046,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 44,
+      "step": 7605,
+      "active": 975104,
+      "loss": 0.08727305382490158,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 45,
+      "step": 7774,
+      "active": 975104,
+      "loss": 0.07931973040103912,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 46,
+      "step": 7943,
+      "active": 975104,
+      "loss": 0.09737556427717209,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 47,
+      "step": 8112,
+      "active": 975104,
+      "loss": 0.05623685568571091,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 48,
+      "step": 8281,
+      "active": 975104,
+      "loss": 0.08082494884729385,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 49,
+      "step": 8450,
+      "active": 975104,
+      "loss": 0.08271383494138718,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 50,
+      "step": 8619,
+      "active": 975104,
+      "loss": 0.07197738438844681,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 51,
+      "step": 8788,
+      "active": 975104,
+      "loss": 0.13453398644924164,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 52,
+      "step": 8957,
+      "active": 975104,
+      "loss": 0.08077342808246613,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 53,
+      "step": 9126,
+      "active": 975104,
+      "loss": 0.07025806605815887,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 54,
+      "step": 9295,
+      "active": 975104,
+      "loss": 0.11508946120738983,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 55,
+      "step": 9464,
+      "active": 975104,
+      "loss": 0.17894065380096436,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 56,
+      "step": 9633,
+      "active": 975104,
+      "loss": 0.05713219195604324,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 57,
+      "step": 9802,
+      "active": 975104,
+      "loss": 0.0652373880147934,
+      "born": 0,
+      "pruned": 0
+    },
+    {
+      "epoch": 58,
+      "step": 9971,
+      "active": 975104,
+      "loss": 0.06693831086158752,
+      "born": 0,
+      "pruned": 0
+    }
+  ],
+  "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+  "remaining_differences": [
+    "float32 rasterization vs LiteGS packed half",
+    "16x16 vs 8x16 tiles",
+    "3-sigma cutoff in addition to opacity threshold",
+    "full-capacity projection rather than compact projection",
+    "per-fragment squared error vs LiteGS packed partial-sum squared error",
+    "independent RNG implementations"
+  ],
+  "initial_sparse_gaussians": 54275,
+  "initial_padded_gaussians": 54400
+}

@@ -1,0 +1,37 @@
+{
+  "dependency": "optax==0.2.8 (added with uv add optax)",
+  "tests": {
+    "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q",
+    "passed": 60,
+    "seconds": 94.0
+  },
+  "targeted_tests": {
+    "passed": 16,
+    "seconds": 39.42
+  },
+  "native_parity": "benchmarks/results/packed_parity_backward_warp1.json",
+  "fixed_benchmark": "benchmarks/results/bicycle_fixed_optax_comparison.json",
+  "checks": [
+    "multi-step LiteGS update parity",
+    "per-field rates and learning-rate schedule",
+    "changing visibility and zero visible clusters",
+    "inactive parameter and moment preservation",
+    "slot reuse and moment reset",
+    "NaN-poisoned unused compact gradient capacity",
+    "partial final clusters",
+    "NNX parameter and moment buffer donation",
+    "JIT cache reuse"
+  ],
+  "default_optimizer": "cute",
+  "native_parity_max_relative_l2": 0.001091549638658762,
+  "dependency_lock_check": "uv lock --check passed",
+  "full_training_comparison": "benchmarks/results/bicycle_optax_full_comparison.json",
+  "full_training_checks": {
+    "updates_per_run": 9971,
+    "pool_capacity": 1000000,
+    "jit_variants_per_run": 8,
+    "overflow": false,
+    "finite_parameters": true,
+    "held_out_views": 25
+  }
+}

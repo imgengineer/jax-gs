@@ -1,0 +1,256 @@
+{
+  "profiled_steps": 10,
+  "gpu_ms_per_step": 3.5242794,
+  "kernels": [
+    {
+      "name": "kernel_cutlass__backward_tensorptri32gmemalign256o78008321_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o80351_tensorptrf32gmemalign256o10168141_tensorptri32gmemalign256o1016_1",
+      "ms_per_step": 1.2156666999999999,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o468049921_tensorptrf32gmemalign256o468049921_tensorptrf32gmemalign256o468049921_tensorptrf32gmemalign256o468049921_tensorptri8gmemalign256o_0",
+      "ms_per_step": 0.5764722,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__forward_tensorptri32gmemalign256o78008321_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o80351_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o10168_1",
+      "ms_per_step": 0.5314105,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptr_0",
+      "ms_per_step": 0.25431010000000004,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o9751041_1",
+      "ms_per_step": 0.187844,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__projection_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemal_1",
+      "ms_per_step": 0.1487788,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, int, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, int*, int const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.0873621,
+      "calls": 40
+    },
+    {
+      "name": "kernel_cutlass__forward_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o91513261_1237_822_0",
+      "ms_per_step": 0.0742934,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__backward_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o91513261_tensorptrf32gmemalign256o30504421_1237_822_1",
+      "ms_per_step": 0.059426599999999996,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__pack_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o9751041_tensorptri32gmemalign256o780083_0",
+      "ms_per_step": 0.05721520000000001,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptri8gmemalign256o9751_0",
+      "ms_per_step": 0.0561018,
+      "calls": 20
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.0511577,
+      "calls": 40
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o39004161_tensorptri8gmemalign256o9751_0",
+      "ms_per_step": 0.0452924,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o9751041_0",
+      "ms_per_step": 0.025929300000000002,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__clear_projected_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign_0",
+      "ms_per_step": 0.021491,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.013955,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__zero_grads_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o_0",
+      "ms_per_step": 0.0135934,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041__0",
+      "ms_per_step": 0.011084700000000001,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__clear_pairs_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o40000001_4000000_8034_0",
+      "ms_per_step": 0.0097022,
+      "calls": 10
+    },
+    {
+      "name": "input_scatter_fusion",
+      "ms_per_step": 0.0090204,
+      "calls": 10
+    },
+    {
+      "name": "Memset 3",
+      "ms_per_step": 0.008976000000000001,
+      "calls": 120
+    },
+    {
+      "name": "kernel_cutlass__tile_ranges_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o80351_4000000_8034_0",
+      "ms_per_step": 0.0083102,
+      "calls": 10
+    },
+    {
+      "name": "loop_broadcast_compare_gather_fusion",
+      "ms_per_step": 0.007427200000000001,
+      "calls": 10
+    },
+    {
+      "name": "loop_broadcast_or_select_fusion",
+      "ms_per_step": 0.006144,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.0053952,
+      "calls": 10
+    },
+    {
+      "name": "loop_add_convert_fusion",
+      "ms_per_step": 0.004636799999999999,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_1",
+      "ms_per_step": 0.0034207,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion_1",
+      "ms_per_step": 0.0030239,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion",
+      "ms_per_step": 0.002915,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_4",
+      "ms_per_step": 0.0017821999999999998,
+      "calls": 10
+    },
+    {
+      "name": "loop_slice_fusion",
+      "ms_per_step": 0.0016832000000000001,
+      "calls": 10
+    },
+    {
+      "name": "loop_convert_fusion",
+      "ms_per_step": 0.0015904,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_3",
+      "ms_per_step": 0.0015647,
+      "calls": 10
+    },
+    {
+      "name": "loop_slice_fusion_2",
+      "ms_per_step": 0.0014655999999999998,
+      "calls": 10
+    },
+    {
+      "name": "loop_convert_fusion_1",
+      "ms_per_step": 0.0012225,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion_3",
+      "ms_per_step": 0.0012225,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion",
+      "ms_per_step": 0.0011678,
+      "calls": 10
+    },
+    {
+      "name": "loop_add_fusion",
+      "ms_per_step": 0.0010944000000000001,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion_2",
+      "ms_per_step": 0.0010815000000000002,
+      "calls": 10
+    },
+    {
+      "name": "loop_multiply_fusion",
+      "ms_per_step": 0.0010657,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_2",
+      "ms_per_step": 0.0010561,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__scatter_tensorptri32gmemalign256o76181_tensorptri32gmemalign256o76181_tensorptri32gmemalign256o76181_7618_0",
+      "ms_per_step": 0.0010398,
+      "calls": 10
+    },
+    {
+      "name": "MemcpyD2D",
+      "ms_per_step": 0.001024,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+      "ms_per_step": 0.0009599,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+      "ms_per_step": 0.0009568,
+      "calls": 10
+    },
+    {
+      "name": "loop_slice_fusion_1",
+      "ms_per_step": 0.0009537,
+      "calls": 10
+    },
+    {
+      "name": "loop_compare_or_slice_fusion",
+      "ms_per_step": 0.0009281000000000001,
+      "calls": 10
+    },
+    {
+      "name": "loop_maximum_fusion",
+      "ms_per_step": 0.0009121,
+      "calls": 10
+    },
+    {
+      "name": "loop_exponential_fusion",
+      "ms_per_step": 0.0008799,
+      "calls": 10
+    },
+    {
+      "name": "MemcpyH2D",
+      "ms_per_step": 0.000272,
+      "calls": 10
+    }
+  ]
+}

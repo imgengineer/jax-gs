@@ -1,0 +1,443 @@
+{
+  "dependencies": {
+    "chex": "0.1.92",
+    "ruff": "0.16.9",
+    "managed_with": "uv add / uv add --dev"
+  },
+  "static_checks": [
+    "GaussianModel pool shapes and boolean masks",
+    "COLMAP quaternion and translation shapes",
+    "Optax gradient/moment shape and dtype agreement",
+    "Optax step rank and active mask shape/type"
+  ],
+  "validation": {
+    "tests_passed": 151,
+    "new_chex_test_cases": 15,
+    "seconds": 201.31,
+    "ruff_check": "passed",
+    "ruff_format_check": "70 files formatted",
+    "coverage": {
+      "covered_lines": 1532,
+      "num_statements": 1532,
+      "percent_covered": 100.0,
+      "percent_covered_display": "100.00",
+      "missing_lines": 0,
+      "excluded_lines": 2591,
+      "percent_statements_covered": 100.0,
+      "percent_statements_covered_display": "100.00",
+      "num_branches": 224,
+      "num_partial_branches": 0,
+      "covered_branches": 224,
+      "missing_branches": 0,
+      "percent_branches_covered": 100.0,
+      "percent_branches_covered_display": "100.00"
+    },
+    "coverage_scope": "Host Python including launch setup; only CuTe/DSL decorated function bodies excluded",
+    "unchanged_cute_dsl_function_asts": 65,
+    "stablehlo_comparison": [
+      {
+        "compact_gradients": false,
+        "capacity": 256,
+        "cluster_size": 128,
+        "sh_degree": 3,
+        "lowering_platform": "cpu",
+        "stablehlo_equal": true,
+        "sha256": "ae26765ab747fd102f0c4147cf9ea7cfa2d5904b639aba11973412a35d828cf8"
+      },
+      {
+        "compact_gradients": true,
+        "capacity": 256,
+        "cluster_size": 128,
+        "sh_degree": 3,
+        "lowering_platform": "cpu",
+        "stablehlo_equal": true,
+        "sha256": "65da7de2f25fadb3ffbd97f4265d49c51bd1a5ec9d76b6aa82f5722fbe3f35f7"
+      }
+    ],
+    "repeated_update_trace_count": 1,
+    "nnx_buffer_donation_tests": "passed"
+  },
+  "profiling": {
+    "trace": "/tmp/jaxgs-style-profile-before/plugins/profile/2026_09_29_20_13_37/supernova.trace.json.gz",
+    "profiled_steps": 10,
+    "gpu_shared": true,
+    "other_gpu_pid": 4086475,
+    "kernels": [
+      {
+        "name": "kernel_cutlass__backward_tensorptri32gmemalign256o78008321_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o80351_tensorptrf32gmemalign256o10168141_tensorptri32gmemalign256o1016_1",
+        "calls": 10,
+        "ms_per_step": 1.7631383000000003,
+        "kernel_details": "regs:75 static_shared:0 dynamic_shared:0 grid:8034,1,1 block:32,1,1 occ_pct:50"
+      },
+      {
+        "name": "loop_add_select_fusion",
+        "calls": 10,
+        "ms_per_step": 0.8648557000000001,
+        "kernel_details": "regs:40 static_shared:0 dynamic_shared:0 grid:91416,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__forward_tensorptri32gmemalign256o78008321_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o80351_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o10168_1",
+        "calls": 10,
+        "ms_per_step": 0.6275276,
+        "kernel_details": "regs:40 static_shared:0 dynamic_shared:0 grid:2009,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o9751041_1",
+        "calls": 10,
+        "ms_per_step": 0.3991243,
+        "kernel_details": "regs:48 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 40,
+        "ms_per_step": 0.28721199999999997,
+        "kernel_details": "regs:80 static_shared:45056 dynamic_shared:0 grid:182,1,1 block:384,1,1 occ_pct:50"
+      },
+      {
+        "name": "kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptr_0",
+        "calls": 10,
+        "ms_per_step": 0.2184707,
+        "kernel_details": "regs:72 static_shared:0 dynamic_shared:24764 grid:7618,1,1 block:128,1,1 occ_pct:33.3333"
+      },
+      {
+        "name": "loop_add_select_fusion_2",
+        "calls": 10,
+        "ms_per_step": 0.1791045,
+        "kernel_details": "regs:40 static_shared:0 dynamic_shared:0 grid:5714,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__projection_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemal_1",
+        "calls": 10,
+        "ms_per_step": 0.1763817,
+        "kernel_details": "regs:40 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__forward_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o91513261_1237_822_0",
+        "calls": 10,
+        "ms_per_step": 0.0765078,
+        "kernel_details": "regs:37 static_shared:0 dynamic_shared:13728 grid:78,52,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__backward_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o91513261_tensorptrf32gmemalign256o30504421_1237_822_1",
+        "calls": 10,
+        "ms_per_step": 0.0615863,
+        "kernel_details": "regs:38 static_shared:0 dynamic_shared:13104 grid:78,52,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_add_select_fusion_1",
+        "calls": 10,
+        "ms_per_step": 0.06081520000000001,
+        "kernel_details": "regs:37 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__pack_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o9751041_tensorptri32gmemalign256o780083_0",
+        "calls": 10,
+        "ms_per_step": 0.057065,
+        "kernel_details": "regs:26 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned short, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned short, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned short*, unsigned short const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 20,
+        "ms_per_step": 0.048217,
+        "kernel_details": "regs:64 static_shared:38912 dynamic_shared:0 grid:435,1,1 block:512,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o9751041_0",
+        "calls": 10,
+        "ms_per_step": 0.0262206,
+        "kernel_details": "regs:56 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__clear_projected_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign_0",
+        "calls": 10,
+        "ms_per_step": 0.0235197,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:15236,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_add_and_select_fusion",
+        "calls": 10,
+        "ms_per_step": 0.019574099999999997,
+        "kernel_details": "regs:40 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned short, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned short, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned short const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 10,
+        "ms_per_step": 0.013660499999999999,
+        "kernel_details": "regs:37 static_shared:2048 dynamic_shared:0 grid:2040,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__zero_grads_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o_0",
+        "calls": 10,
+        "ms_per_step": 0.0135678,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:15236,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_scatter_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0090495,
+        "kernel_details": "regs:24 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__tile_ranges_tensorptri16gmemalign256o40000001_tensorptri32gmemalign256o80351_4000000_8034_0",
+        "calls": 10,
+        "ms_per_step": 0.0085118,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:15626,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__clear_pairs_tensorptri16gmemalign256o40000001_tensorptri32gmemalign256o40000001_4000000_8034_0",
+        "calls": 10,
+        "ms_per_step": 0.0079679,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:15625,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_broadcast_compare_gather_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0079101,
+        "kernel_details": "regs:28 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_broadcast_or_select_fusion",
+        "calls": 10,
+        "ms_per_step": 0.006195,
+        "kernel_details": "regs:26 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 10,
+        "ms_per_step": 0.005471800000000001,
+        "kernel_details": "regs:40 static_shared:4096 dynamic_shared:0 grid:2040,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion_1",
+        "calls": 10,
+        "ms_per_step": 0.0034909999999999997,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:30,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_reduce_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0032094999999999997,
+        "kernel_details": "regs:24 static_shared:20 dynamic_shared:0 grid:1237,1,1 block:160,1,1 occ_pct:93.75"
+      },
+      {
+        "name": "input_reduce_fusion_1",
+        "calls": 10,
+        "ms_per_step": 0.0030783,
+        "kernel_details": "regs:24 static_shared:20 dynamic_shared:0 grid:1237,1,1 block:160,1,1 occ_pct:93.75"
+      },
+      {
+        "name": "loop_and_convert_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0022975,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "memcpy128",
+        "calls": 10,
+        "ms_per_step": 0.0019264,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:952,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion_4",
+        "calls": 10,
+        "ms_per_step": 0.0017568000000000002,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion_3",
+        "calls": 10,
+        "ms_per_step": 0.0017085000000000002,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:0 grid:4,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0016445999999999998,
+        "kernel_details": "regs:29 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "memcpy32_post",
+        "calls": 20,
+        "ms_per_step": 0.0015968,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_convert_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0015903,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion_2",
+        "calls": 10,
+        "ms_per_step": 0.0014945,
+        "kernel_details": "regs:26 static_shared:0 dynamic_shared:0 grid:477,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion_2",
+        "calls": 10,
+        "ms_per_step": 0.0013664,
+        "kernel_details": "regs:26 static_shared:0 dynamic_shared:0 grid:477,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_reduce_fusion_3",
+        "calls": 10,
+        "ms_per_step": 0.0012638999999999999,
+        "kernel_details": "regs:30 static_shared:12 dynamic_shared:0 grid:1,1,1 block:96,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_negate_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0012224,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_reduce_window_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0011458,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:0 grid:2,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_reduce_fusion_2",
+        "calls": 10,
+        "ms_per_step": 0.0011007000000000002,
+        "kernel_details": "regs:19 static_shared:0 dynamic_shared:16 grid:1,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_multiply_fusion",
+        "calls": 10,
+        "ms_per_step": 0.001088,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "kernel_cutlass__scatter_tensorptri32gmemalign256o76181_tensorptri32gmemalign256o76181_tensorptri32gmemalign256o76181_7618_0",
+        "calls": 10,
+        "ms_per_step": 0.0010877,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:30,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_add_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0010750999999999998,
+        "kernel_details": "regs:30 static_shared:0 dynamic_shared:0 grid:30,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_convert_fusion_1",
+        "calls": 10,
+        "ms_per_step": 0.0010655,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion_1",
+        "calls": 10,
+        "ms_per_step": 0.0010016,
+        "kernel_details": "regs:37 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+        "calls": 10,
+        "ms_per_step": 0.0009855999999999999,
+        "kernel_details": "regs:37 static_shared:2336 dynamic_shared:0 grid:4,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned short, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+        "calls": 10,
+        "ms_per_step": 0.000976,
+        "kernel_details": "regs:37 static_shared:2336 dynamic_shared:0 grid:2,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_compare_or_slice_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0009471999999999999,
+        "kernel_details": "regs:30 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_maximum_fusion",
+        "calls": 10,
+        "ms_per_step": 0.0009182999999999999,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      }
+    ],
+    "total_gpu_kernel_ms_per_step": 5.0006933
+  },
+  "optimizer_gather_experiment": {
+    "capacity": 975104,
+    "cluster_size": 128,
+    "sh_degree": 3,
+    "visible_clusters": "cluster index modulo 3 != 0",
+    "warmup_steps": 10,
+    "timed_steps": 150,
+    "trials_per_variant": 3,
+    "gpu_shared": true,
+    "measurements": [
+      {
+        "trial": 0,
+        "mode": "baseline",
+        "ms": 1.4445656933821738
+      },
+      {
+        "trial": 0,
+        "mode": "gather_fill",
+        "ms": 1.4378971268888563
+      },
+      {
+        "trial": 0,
+        "mode": "gather_safe",
+        "ms": 1.4492687132830422
+      },
+      {
+        "trial": 0,
+        "mode": "cluster",
+        "ms": 1.4400293402529012
+      },
+      {
+        "trial": 1,
+        "mode": "baseline",
+        "ms": 1.4229666732717305
+      },
+      {
+        "trial": 1,
+        "mode": "gather_fill",
+        "ms": 1.4538312000998606
+      },
+      {
+        "trial": 1,
+        "mode": "gather_safe",
+        "ms": 1.430446373221154
+      },
+      {
+        "trial": 1,
+        "mode": "cluster",
+        "ms": 1.4505076466593891
+      },
+      {
+        "trial": 2,
+        "mode": "baseline",
+        "ms": 1.3973619664708774
+      },
+      {
+        "trial": 2,
+        "mode": "gather_fill",
+        "ms": 1.43720406650876
+      },
+      {
+        "trial": 2,
+        "mode": "gather_safe",
+        "ms": 1.436442059930414
+      },
+      {
+        "trial": 2,
+        "mode": "cluster",
+        "ms": 1.4477137064871688
+      }
+    ],
+    "median_ms": {
+      "baseline": 1.4229666732717305,
+      "cluster": 1.4477137064871688,
+      "gather_fill": 1.4378971268888563,
+      "gather_safe": 1.436442059930414
+    },
+    "decision": "No alternative had a stable gain. Production optimizer is unchanged."
+  },
+  "performance_status": "Clean timing deferred by user while GPU is shared. Shared-GPU measurements are exploratory and not evidence of speedup or regression."
+}

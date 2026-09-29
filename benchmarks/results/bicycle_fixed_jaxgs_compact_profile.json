@@ -1,0 +1,291 @@
+{
+  "profiled_steps": 10,
+  "gpu_ms_per_step": 4.3524056,
+  "kernels": [
+    {
+      "name": "kernel_cutlass__backward_tensorptri32gmemalign256o78008321_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o80351_tensorptrf32gmemalign256o10168141_tensorptri32gmemalign256o1016_1",
+      "ms_per_step": 1.4846292,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o468049921_tensorptrf32gmemalign256o468049921_tensorptrf32gmemalign256o468049921_tensorptrf32gmemalign256o468049921_tensorptri8gmemalign256o_0",
+      "ms_per_step": 0.573869,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__forward_tensorptri32gmemalign256o78008321_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o80351_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o10168_1",
+      "ms_per_step": 0.5563435999999999,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptr_1",
+      "ms_per_step": 0.5328074999999999,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o9751041_1",
+      "ms_per_step": 0.18956510000000001,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__projection_kernel_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemal_1",
+      "ms_per_step": 0.14814460000000002,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__clear_parameter_grads_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gm_0",
+      "ms_per_step": 0.1197389,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__forward_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o91513261_1237_822_0",
+      "ms_per_step": 0.11461259999999998,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, int, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, int*, int const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.08761790000000003,
+      "calls": 40
+    },
+    {
+      "name": "kernel_cutlass__pack_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o9751041_tensorptri32gmemalign256o780083_0",
+      "ms_per_step": 0.0720372,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__backward_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o91513261_tensorptrf32gmemalign256o30504421_1237_822_1",
+      "ms_per_step": 0.06914129999999999,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o29253121_tensorptri8gmemalign256o9751_0",
+      "ms_per_step": 0.056088599999999995,
+      "calls": 20
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned long*, unsigned long const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.050975100000000016,
+      "calls": 40
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o39004161_tensorptri8gmemalign256o9751_0",
+      "ms_per_step": 0.04506190000000001,
+      "calls": 10
+    },
+    {
+      "name": "MemcpyD2D",
+      "ms_per_step": 0.03820449999999984,
+      "calls": 450
+    },
+    {
+      "name": "kernel_cutlass__pairs_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041_tensorptri32gmemalign256o9751041_0",
+      "ms_per_step": 0.025903699999999998,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__clear_projected_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign_0",
+      "ms_per_step": 0.022201499999999996,
+      "calls": 10
+    },
+    {
+      "name": "loop_select_fusion",
+      "ms_per_step": 0.021174400000000027,
+      "calls": 220
+    },
+    {
+      "name": "loop_add_fusion",
+      "ms_per_step": 0.0191772,
+      "calls": 220
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.013929499999999997,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__zero_grads_tensorptrf32gmemalign256o19502081_tensorptrf32gmemalign256o39004161_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o29253121_tensorptrf32gmemalign256o_0",
+      "ms_per_step": 0.013183799999999999,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__update_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o9751041_tensorptrf32gmemalign256o9751041_tensorptri8gmemalign256o9751041__0",
+      "ms_per_step": 0.0105373,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__clear_pairs_tensorptri32gmemalign256o40000001_tensorptri32gmemalign256o40000001_4000000_8034_0",
+      "ms_per_step": 0.009682999999999999,
+      "calls": 10
+    },
+    {
+      "name": "input_scatter_fusion",
+      "ms_per_step": 0.0090621,
+      "calls": 10
+    },
+    {
+      "name": "Memset 3",
+      "ms_per_step": 0.00856970000000001,
+      "calls": 120
+    },
+    {
+      "name": "loop_broadcast_compare_gather_fusion",
+      "ms_per_step": 0.007510299999999999,
+      "calls": 10
+    },
+    {
+      "name": "loop_broadcast_or_select_fusion",
+      "ms_per_step": 0.0061727,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+      "ms_per_step": 0.005414500000000001,
+      "calls": 10
+    },
+    {
+      "name": "loop_add_convert_fusion",
+      "ms_per_step": 0.0045791,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_1",
+      "ms_per_step": 0.0034622,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion_1",
+      "ms_per_step": 0.0030624000000000007,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion",
+      "ms_per_step": 0.0028576,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_4",
+      "ms_per_step": 0.0017343999999999999,
+      "calls": 10
+    },
+    {
+      "name": "loop_slice_fusion",
+      "ms_per_step": 0.0016864999999999998,
+      "calls": 10
+    },
+    {
+      "name": "loop_convert_fusion",
+      "ms_per_step": 0.0015680000000000004,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_3",
+      "ms_per_step": 0.0015584000000000001,
+      "calls": 10
+    },
+    {
+      "name": "loop_slice_fusion_2",
+      "ms_per_step": 0.0015103,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion_2",
+      "ms_per_step": 0.001331,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion_3",
+      "ms_per_step": 0.0012606,
+      "calls": 10
+    },
+    {
+      "name": "loop_exponential_fusion",
+      "ms_per_step": 0.0011903999999999999,
+      "calls": 10
+    },
+    {
+      "name": "loop_reduce_window_fusion",
+      "ms_per_step": 0.0011263000000000002,
+      "calls": 10
+    },
+    {
+      "name": "input_reduce_fusion_2",
+      "ms_per_step": 0.0010880000000000002,
+      "calls": 10
+    },
+    {
+      "name": "loop_add_fusion_1",
+      "ms_per_step": 0.0010688999999999998,
+      "calls": 10
+    },
+    {
+      "name": "loop_multiply_fusion",
+      "ms_per_step": 0.0010654999999999998,
+      "calls": 10
+    },
+    {
+      "name": "loop_convert_fusion_1",
+      "ms_per_step": 0.0010624,
+      "calls": 10
+    },
+    {
+      "name": "kernel_cutlass__scatter_tensorptri32gmemalign256o76181_tensorptri32gmemalign256o76181_tensorptri32gmemalign256o76181_7618_0",
+      "ms_per_step": 0.0010494,
+      "calls": 10
+    },
+    {
+      "name": "loop_compare_or_slice_fusion",
+      "ms_per_step": 0.0009631999999999999,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<int, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+      "ms_per_step": 0.0009536,
+      "calls": 10
+    },
+    {
+      "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned long, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+      "ms_per_step": 0.0009535999999999998,
+      "calls": 10
+    },
+    {
+      "name": "loop_slice_fusion_1",
+      "ms_per_step": 0.0009438999999999999,
+      "calls": 10
+    },
+    {
+      "name": "memcpy32_post",
+      "ms_per_step": 0.0009088,
+      "calls": 10
+    },
+    {
+      "name": "loop_maximum_fusion",
+      "ms_per_step": 0.0008895000000000001,
+      "calls": 10
+    },
+    {
+      "name": "wrapped_convert",
+      "ms_per_step": 0.0008320999999999998,
+      "calls": 10
+    },
+    {
+      "name": "loop_broadcast_fusion_1",
+      "ms_per_step": 0.0007523,
+      "calls": 10
+    },
+    {
+      "name": "loop_broadcast_fusion",
+      "ms_per_step": 0.0007423999999999999,
+      "calls": 10
+    },
+    {
+      "name": "wrapped_iota",
+      "ms_per_step": 0.0005729999999999999,
+      "calls": 10
+    },
+    {
+      "name": "MemcpyH2D",
+      "ms_per_step": 0.00027509999999999996,
+      "calls": 10
+    }
+  ]
+}

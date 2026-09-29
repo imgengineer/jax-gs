@@ -1,0 +1,32 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "count": 975104,
+  "scope": "same PLY/view, 10 warmup + 200 sequential complete training updates, no densification",
+  "runs_ms": {
+    "baseline": [
+      3.5522210350609384,
+      3.5542362951673567,
+      3.555683550075628
+    ],
+    "cute": [
+      3.439499035011977,
+      3.47156844480196,
+      3.443818690138869
+    ],
+    "optax": [
+      3.7728608449106105,
+      3.767191329970956,
+      3.7702168748364784
+    ]
+  },
+  "median_ms": {
+    "baseline": 3.5542362951673567,
+    "cute": 3.443818690138869,
+    "optax": 3.7702168748364784
+  },
+  "baseline": "before one-warp backward launch and Optax integration",
+  "cute_and_optax": "both use one-warp backward launch; only optimizer backend differs",
+  "optax_algorithm": "custom GradientTransformationExtraArgs using Optax moment helpers; LiteGS Adam without bias correction",
+  "optax_vs_cute_percent": 9.477798167256225,
+  "cute_vs_baseline_percent": -3.1066478382042573
+}

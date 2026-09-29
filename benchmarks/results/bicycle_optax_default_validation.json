@@ -1,0 +1,33 @@
+{
+  "gpu_tests": {
+    "cases": 61,
+    "existing_cases_passed": 60,
+    "new_regression_passed": 1,
+    "suite_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q --tb=short",
+    "regression_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q tests/test_cute.py::test_projection_pullback_zero_and_individual_cotangents --tb=short",
+    "note": "New test initially supplied an invalid [1,3] scale fixture; corrected to [9,3] and rerun successfully. Other 60 cases passed unchanged."
+  },
+  "checks": [
+    "per-attribute parameter/moment parity",
+    "visible-slot zero-gradient momentum decay",
+    "zero and individual projection cotangents",
+    "NNX donation and compilation reuse",
+    "CLI help and module compilation",
+    "uv lock --check"
+  ],
+  "naming_audit": "bicycle_optax_default_naming.json",
+  "fixed_comparison": "bicycle_optax_default_comparison.json",
+  "gpu_profile": "bicycle_optax_default_profile.json",
+  "full_comparison": "bicycle_optax_default_full_comparison.json",
+  "full_training": {
+    "runs": 2,
+    "optimizer": "optax",
+    "updates_per_run": 9971,
+    "pool_capacity": 1000000,
+    "final_active_per_run": 975104,
+    "jit_variants_per_run": 8,
+    "overflow": false,
+    "finite_parameters": true,
+    "held_out_views": 25
+  }
+}

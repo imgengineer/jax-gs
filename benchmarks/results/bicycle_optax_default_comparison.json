@@ -1,0 +1,23 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "count": 975104,
+  "scope": "same PLY/view, 10 warmup + 200 sequential complete training updates, no densification; Optax in both versions",
+  "runs_ms": {
+    "baseline": [
+      3.7627033251919784,
+      3.782033945026342,
+      3.7877420100267045
+    ],
+    "current": [
+      3.697505989985075,
+      3.704380900016986,
+      3.706983524898533
+    ]
+  },
+  "median_ms": {
+    "baseline": 3.782033945026342,
+    "current": 3.704380900016986
+  },
+  "change": "canonical jaxgs names, Optax default, skip projection pullback arithmetic for all-zero cotangents",
+  "step_time_change_percent": -2.0532085681429613
+}

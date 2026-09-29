@@ -1,0 +1,23 @@
+{
+  "count": 975104,
+  "image": "_DSC8679.JPG",
+  "shape": [
+    822,
+    1237
+  ],
+  "seconds": 0.7393194000469521,
+  "warmup_seconds": 4.259176933031995,
+  "initial_loss": 0.06100171059370041,
+  "final_loss": 0.014903578907251358,
+  "final_pairs": 2677388,
+  "jit_cache_size": 1,
+  "donation": true,
+  "model": "flax.nnx.Module",
+  "jit": "nnx.jit(graph=False)",
+  "optimizer": "optax",
+  "backend": "jaxgs",
+  "steps": 200,
+  "warmup_steps": 10,
+  "mean_step_ms": 3.6965970002347603,
+  "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+}

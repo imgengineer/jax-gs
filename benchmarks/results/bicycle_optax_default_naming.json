@@ -1,0 +1,17 @@
+{
+  "production_command": "jaxgs-train",
+  "reference_command": "jaxgs-train-reference",
+  "default_optimizer": "optax",
+  "project_function_or_argument_names_containing_litegs": [],
+  "renames": {
+    "litegs_train_step": "array_train_step",
+    "litegs_optax": "adam_transform",
+    "litegs_adam_update": "sparse_adam_update",
+    "kernels/litegs_rasterize.py": "kernels/sorted_rasterize.py",
+    "kernels/litegs_visibility.py": "kernels/sorted_visibility.py",
+    "taming_densify_step": "densify_step",
+    "load_litegs_pool": "load_gaussian_ply",
+    "--litegs-ply": "--ply"
+  },
+  "external_names": "LiteGS retained in external baseline commands, attribution and historical measurement artifacts"
+}

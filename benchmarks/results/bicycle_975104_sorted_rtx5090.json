@@ -1,0 +1,1285 @@
+{
+  "scope": "fixed-state step probe, not full training",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "images": "images_4",
+  "ply": "/tmp/jaxgs-litegs-full-1m/point_cloud/finish/point_cloud.ply",
+  "capacity": 1000000,
+  "active": 975104,
+  "pair_capacity": 4000000,
+  "image_shape": [
+    822,
+    1237
+  ],
+  "sh_degree": 3,
+  "tile_size": 16,
+  "first_step_including_compile_seconds": 1.0167618300183676,
+  "loss": 0.12592542171478271,
+  "occupancy": [
+    {
+      "view": "_DSC8679.JPG",
+      "pairs": 2180052,
+      "max_tile_count": 3695,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8680.JPG",
+      "pairs": 1562535,
+      "max_tile_count": 2418,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8681.JPG",
+      "pairs": 2253838,
+      "max_tile_count": 3449,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8682.JPG",
+      "pairs": 1109288,
+      "max_tile_count": 1895,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8683.JPG",
+      "pairs": 2179724,
+      "max_tile_count": 3167,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8684.JPG",
+      "pairs": 919691,
+      "max_tile_count": 1616,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8685.JPG",
+      "pairs": 2135702,
+      "max_tile_count": 3494,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8686.JPG",
+      "pairs": 858219,
+      "max_tile_count": 1422,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8687.JPG",
+      "pairs": 2081472,
+      "max_tile_count": 3563,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8688.JPG",
+      "pairs": 863585,
+      "max_tile_count": 1330,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8689.JPG",
+      "pairs": 2164426,
+      "max_tile_count": 3835,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8690.JPG",
+      "pairs": 720542,
+      "max_tile_count": 1188,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8691.JPG",
+      "pairs": 2227365,
+      "max_tile_count": 3933,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8692.JPG",
+      "pairs": 960584,
+      "max_tile_count": 1721,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8693.JPG",
+      "pairs": 2209007,
+      "max_tile_count": 4833,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8694.JPG",
+      "pairs": 1006413,
+      "max_tile_count": 3093,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8695.JPG",
+      "pairs": 2250464,
+      "max_tile_count": 4564,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8696.JPG",
+      "pairs": 986105,
+      "max_tile_count": 1125,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8697.JPG",
+      "pairs": 2183719,
+      "max_tile_count": 3845,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8698.JPG",
+      "pairs": 985364,
+      "max_tile_count": 542,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8699.JPG",
+      "pairs": 2159727,
+      "max_tile_count": 3237,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8700.JPG",
+      "pairs": 987508,
+      "max_tile_count": 1606,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8701.JPG",
+      "pairs": 2132493,
+      "max_tile_count": 2962,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8702.JPG",
+      "pairs": 1003503,
+      "max_tile_count": 1943,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8703.JPG",
+      "pairs": 2124171,
+      "max_tile_count": 2651,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8704.JPG",
+      "pairs": 851074,
+      "max_tile_count": 507,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8705.JPG",
+      "pairs": 2043408,
+      "max_tile_count": 2271,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8706.JPG",
+      "pairs": 1743784,
+      "max_tile_count": 2313,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8707.JPG",
+      "pairs": 2113587,
+      "max_tile_count": 2474,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8708.JPG",
+      "pairs": 1186476,
+      "max_tile_count": 1560,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8709.JPG",
+      "pairs": 2081704,
+      "max_tile_count": 2848,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8710.JPG",
+      "pairs": 1513595,
+      "max_tile_count": 2152,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8711.JPG",
+      "pairs": 2112472,
+      "max_tile_count": 3588,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8712.JPG",
+      "pairs": 1390530,
+      "max_tile_count": 2370,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8713.JPG",
+      "pairs": 2070868,
+      "max_tile_count": 3600,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8714.JPG",
+      "pairs": 1206155,
+      "max_tile_count": 2381,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8715.JPG",
+      "pairs": 2040097,
+      "max_tile_count": 4283,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8716.JPG",
+      "pairs": 1167934,
+      "max_tile_count": 3038,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8717.JPG",
+      "pairs": 1928874,
+      "max_tile_count": 4198,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8718.JPG",
+      "pairs": 1270081,
+      "max_tile_count": 2551,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8719.JPG",
+      "pairs": 1929792,
+      "max_tile_count": 3999,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8720.JPG",
+      "pairs": 1052875,
+      "max_tile_count": 1637,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8721.JPG",
+      "pairs": 1964795,
+      "max_tile_count": 3387,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8722.JPG",
+      "pairs": 1204241,
+      "max_tile_count": 1538,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8723.JPG",
+      "pairs": 2219584,
+      "max_tile_count": 3743,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8724.JPG",
+      "pairs": 1357263,
+      "max_tile_count": 1836,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8725.JPG",
+      "pairs": 2013030,
+      "max_tile_count": 2893,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8726.JPG",
+      "pairs": 1197613,
+      "max_tile_count": 1720,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8727.JPG",
+      "pairs": 2011611,
+      "max_tile_count": 2778,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8728.JPG",
+      "pairs": 1141686,
+      "max_tile_count": 1538,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8729.JPG",
+      "pairs": 1990816,
+      "max_tile_count": 2569,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8730.JPG",
+      "pairs": 1101855,
+      "max_tile_count": 1907,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8731.JPG",
+      "pairs": 1959501,
+      "max_tile_count": 2477,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8732.JPG",
+      "pairs": 1113993,
+      "max_tile_count": 1810,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8733.JPG",
+      "pairs": 1900852,
+      "max_tile_count": 2263,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8734.JPG",
+      "pairs": 1248404,
+      "max_tile_count": 2166,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8735.JPG",
+      "pairs": 1925989,
+      "max_tile_count": 2633,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8736.JPG",
+      "pairs": 1186667,
+      "max_tile_count": 2101,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8737.JPG",
+      "pairs": 1877344,
+      "max_tile_count": 2662,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8738.JPG",
+      "pairs": 1306994,
+      "max_tile_count": 2133,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8739.JPG",
+      "pairs": 1987782,
+      "max_tile_count": 3239,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8741.JPG",
+      "pairs": 1194672,
+      "max_tile_count": 2008,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8742.JPG",
+      "pairs": 1991877,
+      "max_tile_count": 3961,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8743.JPG",
+      "pairs": 1445747,
+      "max_tile_count": 3197,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8744.JPG",
+      "pairs": 1969799,
+      "max_tile_count": 4150,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8745.JPG",
+      "pairs": 1335029,
+      "max_tile_count": 3153,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8746.JPG",
+      "pairs": 1919603,
+      "max_tile_count": 3331,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8747.JPG",
+      "pairs": 1515896,
+      "max_tile_count": 2929,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8748.JPG",
+      "pairs": 1902659,
+      "max_tile_count": 3264,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8749.JPG",
+      "pairs": 1892982,
+      "max_tile_count": 3862,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8750.JPG",
+      "pairs": 1907871,
+      "max_tile_count": 2972,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8751.JPG",
+      "pairs": 1855400,
+      "max_tile_count": 3172,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8752.JPG",
+      "pairs": 1918860,
+      "max_tile_count": 2530,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8753.JPG",
+      "pairs": 1640417,
+      "max_tile_count": 2699,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8754.JPG",
+      "pairs": 1912024,
+      "max_tile_count": 2301,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8755.JPG",
+      "pairs": 1423230,
+      "max_tile_count": 1751,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8756.JPG",
+      "pairs": 1934668,
+      "max_tile_count": 1988,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8757.JPG",
+      "pairs": 1729804,
+      "max_tile_count": 2133,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8758.JPG",
+      "pairs": 1958040,
+      "max_tile_count": 1940,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8759.JPG",
+      "pairs": 1769893,
+      "max_tile_count": 2266,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8760.JPG",
+      "pairs": 1994229,
+      "max_tile_count": 2324,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8761.JPG",
+      "pairs": 1519704,
+      "max_tile_count": 1658,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8762.JPG",
+      "pairs": 1896144,
+      "max_tile_count": 2530,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8763.JPG",
+      "pairs": 1699192,
+      "max_tile_count": 2656,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8764.JPG",
+      "pairs": 1993585,
+      "max_tile_count": 3272,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8765.JPG",
+      "pairs": 1667880,
+      "max_tile_count": 3357,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8766.JPG",
+      "pairs": 1936799,
+      "max_tile_count": 3514,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8767.JPG",
+      "pairs": 1662898,
+      "max_tile_count": 3962,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8768.JPG",
+      "pairs": 1987039,
+      "max_tile_count": 4349,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8769.JPG",
+      "pairs": 1710966,
+      "max_tile_count": 4561,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8770.JPG",
+      "pairs": 1883634,
+      "max_tile_count": 4344,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8771.JPG",
+      "pairs": 1705329,
+      "max_tile_count": 3765,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8772.JPG",
+      "pairs": 1890862,
+      "max_tile_count": 3686,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8773.JPG",
+      "pairs": 1316641,
+      "max_tile_count": 2354,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8774.JPG",
+      "pairs": 1811725,
+      "max_tile_count": 2692,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8775.JPG",
+      "pairs": 1407128,
+      "max_tile_count": 2292,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8776.JPG",
+      "pairs": 1824532,
+      "max_tile_count": 2710,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8777.JPG",
+      "pairs": 1479479,
+      "max_tile_count": 2288,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8778.JPG",
+      "pairs": 1841886,
+      "max_tile_count": 2543,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8779.JPG",
+      "pairs": 1359452,
+      "max_tile_count": 2163,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8780.JPG",
+      "pairs": 1834221,
+      "max_tile_count": 2405,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8781.JPG",
+      "pairs": 1667277,
+      "max_tile_count": 2173,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8782.JPG",
+      "pairs": 1782335,
+      "max_tile_count": 2326,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8783.JPG",
+      "pairs": 1731787,
+      "max_tile_count": 2192,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8784.JPG",
+      "pairs": 1770369,
+      "max_tile_count": 2111,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8785.JPG",
+      "pairs": 1731836,
+      "max_tile_count": 2166,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8786.JPG",
+      "pairs": 1822701,
+      "max_tile_count": 2155,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8787.JPG",
+      "pairs": 1323095,
+      "max_tile_count": 1929,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8788.JPG",
+      "pairs": 1827431,
+      "max_tile_count": 2758,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8789.JPG",
+      "pairs": 1494411,
+      "max_tile_count": 2619,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8790.JPG",
+      "pairs": 1776059,
+      "max_tile_count": 3451,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8791.JPG",
+      "pairs": 1679197,
+      "max_tile_count": 2985,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8792.JPG",
+      "pairs": 1710692,
+      "max_tile_count": 4129,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8793.JPG",
+      "pairs": 1730163,
+      "max_tile_count": 4055,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8794.JPG",
+      "pairs": 1708565,
+      "max_tile_count": 2713,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8795.JPG",
+      "pairs": 1738267,
+      "max_tile_count": 2861,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8796.JPG",
+      "pairs": 1741631,
+      "max_tile_count": 2186,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8797.JPG",
+      "pairs": 1713863,
+      "max_tile_count": 2598,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8798.JPG",
+      "pairs": 1755782,
+      "max_tile_count": 2109,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8799.JPG",
+      "pairs": 1745210,
+      "max_tile_count": 2319,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8800.JPG",
+      "pairs": 1739110,
+      "max_tile_count": 1737,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8801.JPG",
+      "pairs": 1520164,
+      "max_tile_count": 1553,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8802.JPG",
+      "pairs": 1799494,
+      "max_tile_count": 1926,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8803.JPG",
+      "pairs": 1548285,
+      "max_tile_count": 1601,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8804.JPG",
+      "pairs": 1802739,
+      "max_tile_count": 2407,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8805.JPG",
+      "pairs": 1630964,
+      "max_tile_count": 2622,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8806.JPG",
+      "pairs": 1750466,
+      "max_tile_count": 2947,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8807.JPG",
+      "pairs": 1749958,
+      "max_tile_count": 3467,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8808.JPG",
+      "pairs": 1689297,
+      "max_tile_count": 4216,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8809.JPG",
+      "pairs": 1785180,
+      "max_tile_count": 4008,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8810.JPG",
+      "pairs": 1724470,
+      "max_tile_count": 3371,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8811.JPG",
+      "pairs": 1387811,
+      "max_tile_count": 2881,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8812.JPG",
+      "pairs": 1748990,
+      "max_tile_count": 2623,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8813.JPG",
+      "pairs": 1376455,
+      "max_tile_count": 2330,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8814.JPG",
+      "pairs": 1784932,
+      "max_tile_count": 2902,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8815.JPG",
+      "pairs": 1316270,
+      "max_tile_count": 1790,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8816.JPG",
+      "pairs": 1824528,
+      "max_tile_count": 2464,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8817.JPG",
+      "pairs": 1595586,
+      "max_tile_count": 2229,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8818.JPG",
+      "pairs": 1768890,
+      "max_tile_count": 2253,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8819.JPG",
+      "pairs": 1086088,
+      "max_tile_count": 1777,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8820.JPG",
+      "pairs": 1752152,
+      "max_tile_count": 2895,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8821.JPG",
+      "pairs": 1129496,
+      "max_tile_count": 2099,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8822.JPG",
+      "pairs": 1697285,
+      "max_tile_count": 2236,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8823.JPG",
+      "pairs": 1161650,
+      "max_tile_count": 1854,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8824.JPG",
+      "pairs": 1725354,
+      "max_tile_count": 2411,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8825.JPG",
+      "pairs": 1097278,
+      "max_tile_count": 1740,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8826.JPG",
+      "pairs": 1731373,
+      "max_tile_count": 3161,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8827.JPG",
+      "pairs": 1487133,
+      "max_tile_count": 2635,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8828.JPG",
+      "pairs": 1700079,
+      "max_tile_count": 3157,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8829.JPG",
+      "pairs": 1220496,
+      "max_tile_count": 2504,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8830.JPG",
+      "pairs": 1649045,
+      "max_tile_count": 4111,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8831.JPG",
+      "pairs": 1291920,
+      "max_tile_count": 4402,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8832.JPG",
+      "pairs": 1628810,
+      "max_tile_count": 2792,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8833.JPG",
+      "pairs": 1284271,
+      "max_tile_count": 2447,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8834.JPG",
+      "pairs": 1648707,
+      "max_tile_count": 2567,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8835.JPG",
+      "pairs": 1280722,
+      "max_tile_count": 1974,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8836.JPG",
+      "pairs": 1665240,
+      "max_tile_count": 2248,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8837.JPG",
+      "pairs": 1392012,
+      "max_tile_count": 2105,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8838.JPG",
+      "pairs": 1698143,
+      "max_tile_count": 2027,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8839.JPG",
+      "pairs": 1341565,
+      "max_tile_count": 1912,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8840.JPG",
+      "pairs": 1696847,
+      "max_tile_count": 2081,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8841.JPG",
+      "pairs": 1226723,
+      "max_tile_count": 1568,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8842.JPG",
+      "pairs": 1667350,
+      "max_tile_count": 1856,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8843.JPG",
+      "pairs": 1270805,
+      "max_tile_count": 1372,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8844.JPG",
+      "pairs": 1716858,
+      "max_tile_count": 1810,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8845.JPG",
+      "pairs": 1405728,
+      "max_tile_count": 1699,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8846.JPG",
+      "pairs": 1713611,
+      "max_tile_count": 2011,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8847.JPG",
+      "pairs": 1267269,
+      "max_tile_count": 1540,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8848.JPG",
+      "pairs": 1616237,
+      "max_tile_count": 2513,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8849.JPG",
+      "pairs": 1383388,
+      "max_tile_count": 2380,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8850.JPG",
+      "pairs": 1577172,
+      "max_tile_count": 3497,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8851.JPG",
+      "pairs": 1215416,
+      "max_tile_count": 2809,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8852.JPG",
+      "pairs": 1626549,
+      "max_tile_count": 3458,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8853.JPG",
+      "pairs": 1078766,
+      "max_tile_count": 2607,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8854.JPG",
+      "pairs": 1665086,
+      "max_tile_count": 3401,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8855.JPG",
+      "pairs": 1082232,
+      "max_tile_count": 1835,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8856.JPG",
+      "pairs": 1736562,
+      "max_tile_count": 2793,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8857.JPG",
+      "pairs": 1067369,
+      "max_tile_count": 1403,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8858.JPG",
+      "pairs": 1750716,
+      "max_tile_count": 2458,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8859.JPG",
+      "pairs": 1220228,
+      "max_tile_count": 1976,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8860.JPG",
+      "pairs": 1660186,
+      "max_tile_count": 2747,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8861.JPG",
+      "pairs": 1668036,
+      "max_tile_count": 2264,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8862.JPG",
+      "pairs": 1652610,
+      "max_tile_count": 2619,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8863.JPG",
+      "pairs": 1567566,
+      "max_tile_count": 2878,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8864.JPG",
+      "pairs": 1606377,
+      "max_tile_count": 1777,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8865.JPG",
+      "pairs": 1637432,
+      "max_tile_count": 1402,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8866.JPG",
+      "pairs": 1630372,
+      "max_tile_count": 1403,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8867.JPG",
+      "pairs": 1661190,
+      "max_tile_count": 1666,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8868.JPG",
+      "pairs": 1660533,
+      "max_tile_count": 1774,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8869.JPG",
+      "pairs": 1592777,
+      "max_tile_count": 2142,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8870.JPG",
+      "pairs": 1519502,
+      "max_tile_count": 3025,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8871.JPG",
+      "pairs": 1639341,
+      "max_tile_count": 2906,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8872.JPG",
+      "pairs": 1646467,
+      "max_tile_count": 2760,
+      "overflow": false
+    },
+    {
+      "view": "_DSC8873.JPG",
+      "pairs": 1634624,
+      "max_tile_count": 2673,
+      "overflow": false
+    }
+  ],
+  "max_pairs_across_views": 2253838,
+  "projection": {
+    "median_ms": 0.24169599055312574,
+    "samples_ms": [
+      0.44089200673624873,
+      0.2981009893119335,
+      0.2754509914666414,
+      0.24798099184408784,
+      0.2464210265316069,
+      0.24726102128624916,
+      0.24219101760536432,
+      0.24171097902581096,
+      0.24052098160609603,
+      0.2417310024611652,
+      0.24346099235117435,
+      0.24133099941536784,
+      0.24168100208044052,
+      0.24098099675029516,
+      0.23974099894985557,
+      0.24113099789246917,
+      0.2410010201856494,
+      0.2398309879936278,
+      0.24149101227521896,
+      0.2407110296189785
+    ]
+  },
+  "binning": {
+    "median_ms": 1.77119200816378,
+    "samples_ms": [
+      1.8117770086973906,
+      1.7026170389726758,
+      1.9339380087330937,
+      1.6969270072877407,
+      1.7659370205365121,
+      1.9113669986836612,
+      1.6447270172648132,
+      1.6403869958594441,
+      1.7662070458754897,
+      1.670717028900981,
+      1.7517870292067528,
+      1.6768460045568645,
+      1.7521280096843839,
+      1.8073769751936197,
+      1.7970469780266285,
+      1.801717036869377,
+      1.814618008211255,
+      1.8362170085310936,
+      1.8093269900418818,
+      1.7761769704520702
+    ]
+  },
+  "forward": {
+    "median_ms": 0.9406490135006607,
+    "samples_ms": [
+      1.0525340330787003,
+      0.9458340355195105,
+      0.961603014729917,
+      0.998634030111134,
+      0.9496840066276491,
+      0.9955739951692522,
+      0.9474040125496686,
+      0.9380439878441393,
+      0.9519640007056296,
+      0.9250239818356931,
+      0.9143530041910708,
+      0.9260839433409274,
+      0.9198940242640674,
+      0.9345329599454999,
+      0.9429039782844484,
+      0.9404540178366005,
+      0.9161439957097173,
+      0.9408440091647208,
+      0.8895729552023113,
+      0.9059539879672229
+    ]
+  },
+  "train_step": {
+    "median_ms": 11.870997492223978,
+    "samples_ms": [
+      11.651466018520296,
+      11.634787020739168,
+      11.790147982537746,
+      12.157728953752667,
+      12.070088996551931,
+      12.193178990855813,
+      11.598236975260079,
+      11.911137960851192,
+      12.015348998829722,
+      11.830857023596764,
+      12.139128986746073,
+      12.25212903227657,
+      12.389639974571764,
+      11.960308998823166,
+      11.99821796035394,
+      11.783508001826704,
+      11.38103601988405,
+      11.739647015929222,
+      11.430306010879576,
+      11.757667001802474
+    ]
+  }
+}

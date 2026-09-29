@@ -1,0 +1,50 @@
+[
+  {
+    "name": "baseline",
+    "active": 54400,
+    "ms": 0.9485091804526746,
+    "same_buffers": true
+  },
+  {
+    "name": "prefix",
+    "active": 54400,
+    "ms": 1.0412372299470007,
+    "same_buffers": true
+  },
+  {
+    "name": "baseline",
+    "active": 250000,
+    "ms": 0.9480130899464712,
+    "same_buffers": true
+  },
+  {
+    "name": "prefix",
+    "active": 250000,
+    "ms": 1.1824643501313403,
+    "same_buffers": true
+  },
+  {
+    "name": "baseline",
+    "active": 500000,
+    "ms": 0.9489850903628394,
+    "same_buffers": true
+  },
+  {
+    "name": "prefix",
+    "active": 500000,
+    "ms": 1.4536978397518396,
+    "same_buffers": true
+  },
+  {
+    "name": "baseline",
+    "active": 975104,
+    "ms": 0.9475666802609339,
+    "same_buffers": true
+  },
+  {
+    "name": "prefix",
+    "active": 975104,
+    "ms": 0.9614737296942621,
+    "same_buffers": true
+  }
+]

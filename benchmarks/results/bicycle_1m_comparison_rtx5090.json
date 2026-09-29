@@ -1,0 +1,2022 @@
+{
+  "date": "2026-09-29",
+  "gpu": "NVIDIA GeForce RTX 5090 (32607 MiB)",
+  "scene": "MipNeRF360/bicycle",
+  "scene_dir": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "images": "images_4",
+  "litegs_image_shape": [
+    822,
+    1237
+  ],
+  "scene_staging": {
+    "litegs": "/tmp/jaxgs-litegs-bicycle has sparse/{cameras,images,points3D}.bin and images_4 symlinked from scene_dir",
+    "jaxgs": "/tmp/jaxgs-bicycle-images4 has sparse/0 symlinked from scene_dir and images symlinked to scene_dir/images_4"
+  },
+  "litegs": {
+    "source": "/home/lzc/Documents/LiteGS",
+    "command": ".venv/bin/python -u example_train.py -s /tmp/jaxgs-litegs-bicycle -i images_4 -m /tmp/jaxgs-litegs-full-1m --eval --sh_degree 3 --target_primitives 1000000 --iterations 10000 --position_lr_max_steps 10000 --position_lr_final 0.000016 --densification_interval 2",
+    "training_seconds_reported_by_trainer": 31.00664496421814,
+    "actual_updates": 9971,
+    "training_images": 169,
+    "final_gaussians": 975104,
+    "initial_tile_occupancy_same_54275_points": {
+      "tile_8x16_max": 406,
+      "tile_8x16_tiles_over_128": 2096,
+      "tile_16x16_max": 438,
+      "tile_16x16_tiles_over_128": 1235
+    },
+    "result": "completed",
+    "timing_scope": "trainer progress loop; excludes dataset/model initialization and final PLY write",
+    "git_commit": "004b95215c90c36cdaf4b354301132b700ac287b",
+    "held_out_mean_psnr": 25.046646796614855,
+    "evaluation_views": 25
+  },
+  "jaxgs": {
+    "source": "/home/lzc/Documents/jax-gs",
+    "implementation": "historical fixed-K tile table before the LiteGS-style pair-table change",
+    "historical_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute jaxgs-train /tmp/jaxgs-bicycle-images4 --backend cute --capacity 1000000 --initial-points 54275 --downsample 4 --steps 1 --densify-every 0 --cluster-size 128 --max-gaussians-per-tile 128 --tile-size 16 --sh-degree 3 --output /tmp/jaxgs-bicycle-images4-probe.npz",
+    "capacity": 1000000,
+    "initial_gaussians": 54275,
+    "training_images_if_run_to_completion": 194,
+    "result": "failed on first step: RuntimeError: tile capacity overflow; increase max_gaussians_per_tile",
+    "tile_occupancy_initial_first_camera": {
+      "visible_gaussians": 30771,
+      "max": 881,
+      "p50": 439,
+      "p90": 652,
+      "p99": 764.9,
+      "tiles_over_128": 4056,
+      "total_tiles": 4056
+    },
+    "tile_occupancy_litegs_final_first_camera": {
+      "source_gaussians": 975104,
+      "visible_gaussians": 476812,
+      "max": 10305,
+      "p50": 5756,
+      "p90": 7717.5,
+      "p99": 8971.7,
+      "tiles_over_128": 4056,
+      "total_tiles": 4056
+    },
+    "minimum_transmittance_cache_for_final_first_camera_gib": 39.003,
+    "tile_occupancy_method": "CuTe projection followed by a CPU rectangle difference array using the same tile footprint conditions as the CuTe visibility kernel",
+    "full_training_seconds": null,
+    "legacy_trainer_densification_births_at_most_in_10000_steps": 1600
+  },
+  "jaxgs_sorted_path": {
+    "implementation": "historical float32 16x16 global-pair probe before native AccuTile slices",
+    "benchmark_script": "benchmarks/sorted_pipeline.py",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "capacity": 1000000,
+    "pair_capacity": 4000000,
+    "initial_gaussians": 54275,
+    "initial_first_camera_pairs": 452281,
+    "initial_first_camera_max_tile_count": 436,
+    "initial_all_194_views_max_pairs": 487406,
+    "initial_probe_steady_step_median_ms": 6.484711484517902,
+    "litegs_final_imported_gaussians": 975104,
+    "litegs_final_imported_first_camera_pairs": 2180052,
+    "litegs_final_imported_first_camera_max_tile_count": 3695,
+    "litegs_final_imported_all_194_views_max_pairs": 2253838,
+    "final_import_probe_steady_step_median_ms": 11.870997492223978,
+    "repeats": 20,
+    "final_import_probe_note": "Fixed-state step on the first view, correct channel-major LiteGS PLY SH import, native image dimensions, warp-reduced CuTe backward; not full training",
+    "superseded_probe": "The earlier 13.683508 ms probe reshaped high-order SH incorrectly. Its geometry counts also predate the corrected conic validity check and LiteGS NDC culling.",
+    "initial_details": "benchmarks/results/bicycle_54275_sorted_rtx5090.json",
+    "final_details": "benchmarks/results/bicycle_975104_sorted_rtx5090.json",
+    "full_training_seconds": null
+  },
+  "comparison": {
+    "scope": "one full growth-training run per implementation; same resolution, image split, target, epochs and final count",
+    "jaxgs_training_time_over_litegs": 0.7848587781120957,
+    "held_out_psnr_difference_db": 0.03656271538524436,
+    "note": "Initialization, compilation, warmup, final checkpoint write and evaluation excluded. Independent random sampling and floating-point reductions prevent bitwise-equivalent trajectories. This full-training result is separate from the same-PLY fixed-count benchmark."
+  },
+  "historical_jaxgs_cli_camera_shape": [
+    822,
+    1236
+  ],
+  "matched_protocol_image_shape": [
+    822,
+    1237
+  ],
+  "jaxgs_litegs_protocol": {
+    "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute jaxgs-train-litegs /home/lzc/datasets/benchmarks/MipNerf360/bicycle --output /tmp/jaxgs-bicycle-litegs-protocol-1m.npz",
+    "result": "completed; no overflow or non-finite loss in all 9971 updates",
+    "initial_sparse_gaussians": 54275,
+    "initial_padded_gaussians": 54400,
+    "capacity": 1000000,
+    "pair_capacity": 8000000,
+    "actual_updates": 9971,
+    "training_images": 169,
+    "final_gaussians": 975104,
+    "full_training_seconds": 97.56332384300185,
+    "warmup_seconds": 7.9661522709648125,
+    "held_out_mean_psnr": 25.04931489851991,
+    "evaluation_views": 25,
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "remaining_implementation_differences": [
+      "float32 rasterization vs LiteGS packed half",
+      "16x16 vs 8x16 tiles",
+      "3-sigma cutoff in addition to opacity threshold",
+      "full-capacity projection rather than compact projection",
+      "per-fragment squared error vs LiteGS packed partial-sum squared error",
+      "independent RNG implementations"
+    ],
+    "training_history": "benchmarks/results/bicycle_jaxgs_protocol_training.json",
+    "jax_version": "0.11.2",
+    "cutlass_dsl_version": "4.8.0",
+    "implementation": "historical float32 16x16 protocol before packed kernels"
+  },
+  "historical_comparison": {
+    "scope": "one complete run per implementation, same scene, resolution, image split, target count, epoch count and final Gaussian count",
+    "jaxgs_training_time_over_litegs": 3.146529524738666,
+    "held_out_psnr_difference_db": 0.0026681019050549537,
+    "note": "Measured training protocols have similar held-out PSNR. They are not numerically identical; see remaining implementation differences. Initialization, JAX warmup and checkpoint writing are excluded from the training-loop comparison."
+  },
+  "jaxgs_packed_protocol": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "images": "images_4",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "training_images": 169,
+    "actual_updates": 9971,
+    "initial_sparse_gaussians": 54275,
+    "initial_padded_gaussians": 54400,
+    "target_gaussians": 1000000,
+    "final_gaussians": 975104,
+    "pair_capacity": 8000000,
+    "cluster_size": 128,
+    "tile_size": 16,
+    "tile_height": 8,
+    "warmup_seconds": 8.679371453996282,
+    "training_seconds": 31.96772035199683,
+    "densify_until": 41,
+    "seed": 0,
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "remaining_differences": [
+      "JAX world cluster bounds and frustum mask",
+      "fixed-capacity intermediates and original-slot gradient scatter",
+      "XLA prefix sums and stable sorting",
+      "float32 warp reductions vs LiteGS mixed half/integer reductions",
+      "independent RNG implementations"
+    ],
+    "result": "completed; no overflow or non-finite loss; checkpoint parameters finite",
+    "held_out_mean_psnr": 25.086887254329618,
+    "evaluation_views": 25,
+    "peak_pairs": 3323118,
+    "training_history": "benchmarks/results/bicycle_jaxgs_packed_training.json",
+    "quality_report": "benchmarks/results/bicycle_jaxgs_packed_quality.json",
+    "donation": true,
+    "overflow_check": "accumulated on device and checked at each epoch boundary"
+  },
+  "fixed_count_comparison": {
+    "scope": "same native final PLY with 975104 live points, one native 1237x822 view, SH degree 3, 10 warmup updates + 200 sequential timed updates; no densification; compilation excluded",
+    "jaxgs": {
+      "before": {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 2.173974868026562,
+        "warmup_seconds": 3.6390813490143046,
+        "initial_loss": 0.06079509109258652,
+        "final_loss": 0.01480862870812416,
+        "final_pairs": 1951870,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 10.86987434013281,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      "fused_loss": {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 1.8718830039724708,
+        "warmup_seconds": 3.7429677349864505,
+        "initial_loss": 0.06079468876123428,
+        "final_loss": 0.014832072891294956,
+        "final_pairs": 1951635,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 9.359415019862354,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      "packed": {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 1.3901830040267669,
+        "warmup_seconds": 3.863564266008325,
+        "initial_loss": 0.06096290796995163,
+        "final_loss": 0.014788057655096054,
+        "final_pairs": 1949523,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 6.950915020133834,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      "litegs_layout": {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.9774847569642588,
+        "warmup_seconds": 3.3222236529691145,
+        "initial_loss": 0.06100126728415489,
+        "final_loss": 0.014881016686558723,
+        "final_pairs": 2676544,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 4.887423784821294,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      },
+      "compact": {
+        "count": 975104,
+        "image": "_DSC8679.JPG",
+        "shape": [
+          822,
+          1237
+        ],
+        "seconds": 0.8852745079784654,
+        "warmup_seconds": 3.5997370749828406,
+        "initial_loss": 0.061001893132925034,
+        "final_loss": 0.014863453805446625,
+        "final_pairs": 2679840,
+        "jit_cache_size": 1,
+        "donation": true,
+        "backend": "jaxgs",
+        "steps": 200,
+        "warmup_steps": 10,
+        "mean_step_ms": 4.426372539892327,
+        "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+      }
+    },
+    "litegs": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7562189140007831,
+      "warmup_seconds": 0.13645335100591183,
+      "initial_loss": 0.059713855385780334,
+      "final_loss": 0.014070242643356323,
+      "backend": "litegs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.7810945700039156,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    }
+  },
+  "previous_packed_comparison": {
+    "scope": "one full growth-training run per implementation; same resolution, image split, target, epochs and final count",
+    "jaxgs_training_time_over_litegs": 1.0309957878025107,
+    "held_out_psnr_difference_db": 0.04024045771476281,
+    "note": "Initialization, compilation, warmup, final checkpoint write and evaluation excluded. Independent random sampling and floating-point reductions prevent bitwise-equivalent trajectories. This full-training result is separate from the same-PLY fixed-count benchmark."
+  },
+  "jaxgs_optimized_protocol": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "images": "images_4",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "training_images": 169,
+    "actual_updates": 9971,
+    "initial_sparse_gaussians": 54275,
+    "initial_padded_gaussians": 54400,
+    "target_gaussians": 1000000,
+    "final_gaussians": 975104,
+    "pair_capacity": 8000000,
+    "cluster_size": 128,
+    "tile_size": 16,
+    "tile_height": 8,
+    "warmup_seconds": 9.420595856034197,
+    "training_seconds": 27.138953392975964,
+    "densify_until": 41,
+    "seed": 0,
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "remaining_differences": [
+      "JAX world cluster bounds and frustum mask",
+      "fixed-capacity intermediates with valid compact prefixes",
+      "XLA prefix sums and stable sorting",
+      "reduction rounding and partial-tile masks",
+      "analytic SH view-direction gradient for xyz",
+      "independent RNG implementations"
+    ],
+    "result": "completed, no overflow or non-finite loss; all checkpoint parameters finite",
+    "held_out_mean_psnr": 25.089063897280607,
+    "evaluation_views": 25,
+    "peak_pairs": 3251354,
+    "training_history": "benchmarks/results/bicycle_jaxgs_optimized_training.json",
+    "quality_report": "benchmarks/results/bicycle_jaxgs_optimized_quality.json",
+    "donation": true
+  },
+  "fixed_count_optimized_comparison": {
+    "scope": "same PLY, 975104 Gaussians, 1237x822, one view, SH=3, 10 warmup updates and 200 timed updates per run; three sequential trials each with alternating backend order",
+    "gpu": "RTX 5090",
+    "counts_fixed": true,
+    "compilation_excluded": true,
+    "stage": "static SH specialization, half2 FMA/RGBA and scaled-integer geometry reductions, coalesced SH writes, compact projection gradients and CHW loss caches",
+    "jaxgs": {
+      "median_ms": 3.761152579972986,
+      "min_ms": 3.7530682049691677,
+      "max_ms": 3.781928609823808,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7506136409938335,
+          "warmup_seconds": 3.859897450020071,
+          "initial_loss": 0.06100182607769966,
+          "final_loss": 0.014879431575536728,
+          "final_pairs": 2682795,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7530682049691677,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7563857219647616,
+          "warmup_seconds": 3.827657913963776,
+          "initial_loss": 0.0610022097826004,
+          "final_loss": 0.01486159861087799,
+          "final_pairs": 2676901,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.781928609823808,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7522305159945972,
+          "warmup_seconds": 3.8636036930256523,
+          "initial_loss": 0.06100187078118324,
+          "final_loss": 0.01484703365713358,
+          "final_pairs": 2680611,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.761152579972986,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "litegs": {
+      "median_ms": 3.780988249927759,
+      "min_ms": 3.7565328148775734,
+      "max_ms": 3.7815597050939687,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7561976499855518,
+          "warmup_seconds": 0.1293470070231706,
+          "initial_loss": 0.059715982526540756,
+          "final_loss": 0.014071039855480194,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.780988249927759,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7563119410187937,
+          "warmup_seconds": 0.129247427044902,
+          "initial_loss": 0.05971682816743851,
+          "final_loss": 0.01411791518330574,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7815597050939687,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7513065629755147,
+          "warmup_seconds": 0.1313233039691113,
+          "initial_loss": 0.059715885668992996,
+          "final_loss": 0.014115601778030396,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7565328148775734,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "jaxgs_over_litegs": 0.9947538398313848,
+    "interpretation": "Effectively matched fixed-count performance: the ranges overlap; do not treat the small median difference as a robust speedup."
+  },
+  "optimization_experiments": {
+    "opt_baseline": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.884096727008,
+      "warmup_seconds": 3.619450568978209,
+      "initial_loss": 0.06100315600633621,
+      "final_loss": 0.014853010885417461,
+      "final_pairs": 2674713,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 4.42048363504,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "static_projection": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.8688599620363675,
+      "warmup_seconds": 3.5591277300263755,
+      "initial_loss": 0.06100139394402504,
+      "final_loss": 0.014861464500427246,
+      "final_pairs": 2680570,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 4.3442998101818375,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "raster_opt": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.8234403359820135,
+      "warmup_seconds": 3.6013142229639925,
+      "initial_loss": 0.06100161001086235,
+      "final_loss": 0.014877582900226116,
+      "final_pairs": 2676799,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 4.1172016799100675,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "sh_write": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7925845319987275,
+      "warmup_seconds": 3.869983323966153,
+      "initial_loss": 0.06100166216492653,
+      "final_loss": 0.014832704328000546,
+      "final_pairs": 2688145,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.9629226599936374,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "sh_io": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.8403262770152651,
+      "warmup_seconds": 4.141666066017933,
+      "initial_loss": 0.061000872403383255,
+      "final_loss": 0.014865734614431858,
+      "final_pairs": 2673240,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 4.201631385076325,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification",
+      "retained": false,
+      "reason": "Staging SH parameter reads through shared memory increased step time; reverted to coalesced gradient writes only."
+    },
+    "sparse_gradients": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7714594959979877,
+      "warmup_seconds": 3.8684884990216233,
+      "initial_loss": 0.0610002763569355,
+      "final_loss": 0.014852429740130901,
+      "final_pairs": 2675387,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.8572974799899384,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "loss_cache": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7563443410326727,
+      "warmup_seconds": 3.8232157029560767,
+      "initial_loss": 0.061000604182481766,
+      "final_loss": 0.01490747183561325,
+      "final_pairs": 2679946,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.7817217051633634,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "native_redux": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7484814929775894,
+      "warmup_seconds": 3.8294836499844678,
+      "initial_loss": 0.06100209802389145,
+      "final_loss": 0.014862852171063423,
+      "final_pairs": 2677907,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.742407464887947,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "adam_grid": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7528062090277672,
+      "warmup_seconds": 3.823878889961634,
+      "initial_loss": 0.06100144609808922,
+      "final_loss": 0.014875654131174088,
+      "final_pairs": 2676132,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.764031045138836,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification",
+      "retained": false,
+      "reason": "Changing block order did not improve step time; reverted."
+    },
+    "fused_pack": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7562626209692098,
+      "warmup_seconds": 3.8303252840414643,
+      "initial_loss": 0.061000972986221313,
+      "final_loss": 0.014852486550807953,
+      "final_pairs": 2679649,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.781313104846049,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification",
+      "retained": false,
+      "reason": "Projection and subsequent rasterization costs offset removal of the packing kernel; reverted."
+    },
+    "vector_params": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7471158350235783,
+      "warmup_seconds": 3.810169472009875,
+      "initial_loss": 0.06100079044699669,
+      "final_loss": 0.014877363108098507,
+      "final_pairs": 2675266,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.7355791751178913,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "half_splat": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7433235010248609,
+      "warmup_seconds": 3.8276084369863383,
+      "initial_loss": 0.061001989990472794,
+      "final_loss": 0.014889286831021309,
+      "final_pairs": 2678126,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.7166175051243044,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "tile_ranges": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7311230869963765,
+      "warmup_seconds": 3.8607486209948547,
+      "initial_loss": 0.061001721769571304,
+      "final_loss": 0.014879152178764343,
+      "final_pairs": 2677832,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.6556154349818826,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "vector_adam": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7315804249956273,
+      "warmup_seconds": 3.9055574579979293,
+      "initial_loss": 0.061001189053058624,
+      "final_loss": 0.014879262074828148,
+      "final_pairs": 2679068,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.6579021249781363,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification",
+      "retained": false,
+      "reason": "Four-component vectorized SH Adam did not reduce optimizer kernel time or full step time; reverted."
+    },
+    "vector_pack": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7304345640004613,
+      "warmup_seconds": 3.8476484619895928,
+      "initial_loss": 0.06100329011678696,
+      "final_loss": 0.014847535640001297,
+      "final_pairs": 2678416,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.6521728200023063,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "sh_padding": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.7229358020122163,
+      "warmup_seconds": 3.858413941983599,
+      "initial_loss": 0.0610022246837616,
+      "final_loss": 0.01486803125590086,
+      "final_pairs": 2681707,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.6146790100610815,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    },
+    "narrow_keys": {
+      "count": 975104,
+      "image": "_DSC8679.JPG",
+      "shape": [
+        822,
+        1237
+      ],
+      "seconds": 0.711818512994796,
+      "warmup_seconds": 3.964475511049386,
+      "initial_loss": 0.0610024593770504,
+      "final_loss": 0.014890262857079506,
+      "final_pairs": 2674868,
+      "jit_cache_size": 1,
+      "donation": true,
+      "backend": "jaxgs",
+      "steps": 200,
+      "warmup_steps": 10,
+      "mean_step_ms": 3.55909256497398,
+      "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+    }
+  },
+  "fixed_count_loads_comparison": {
+    "baseline": {
+      "median_ms": 3.7445377549738623,
+      "min_ms": 3.741245745040942,
+      "max_ms": 3.7641257350333035,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7528251470066607,
+          "warmup_seconds": 3.8394504690077156,
+          "initial_loss": 0.06100044026970863,
+          "final_loss": 0.01486988365650177,
+          "final_pairs": 2672419,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7641257350333035,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7489075509947725,
+          "warmup_seconds": 3.7759982850402594,
+          "initial_loss": 0.0610005147755146,
+          "final_loss": 0.014845319092273712,
+          "final_pairs": 2672059,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7445377549738623,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7482491490081884,
+          "warmup_seconds": 3.8063959580031224,
+          "initial_loss": 0.06100337579846382,
+          "final_loss": 0.014877183362841606,
+          "final_pairs": 2675843,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.741245745040942,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "vector_splat": {
+      "median_ms": 3.7132661399664357,
+      "min_ms": 3.7112201802665368,
+      "max_ms": 3.714276594982948,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7428553189965896,
+          "warmup_seconds": 3.8312871110392734,
+          "initial_loss": 0.06100209057331085,
+          "final_loss": 0.014877498149871826,
+          "final_pairs": 2675172,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.714276594982948,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7426532279932871,
+          "warmup_seconds": 3.8286759199691005,
+          "initial_loss": 0.061002884060144424,
+          "final_loss": 0.014861772768199444,
+          "final_pairs": 2680856,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7132661399664357,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7422440360533074,
+          "warmup_seconds": 3.827011864981614,
+          "initial_loss": 0.06100132688879967,
+          "final_loss": 0.014850296080112457,
+          "final_pairs": 2677972,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7112201802665368,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "litegs": {
+      "median_ms": 3.7756971700582653,
+      "min_ms": 3.77001710498007,
+      "max_ms": 3.7835321048623882,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7551394340116531,
+          "warmup_seconds": 0.13149754097685218,
+          "initial_loss": 0.05971555784344673,
+          "final_loss": 0.014088260009884834,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7756971700582653,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.754003420996014,
+          "warmup_seconds": 0.12918926199199632,
+          "initial_loss": 0.05971374735236168,
+          "final_loss": 0.014079850167036057,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.77001710498007,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7567064209724776,
+          "warmup_seconds": 0.12965978297870606,
+          "initial_loss": 0.05971529334783554,
+          "final_loss": 0.01414926815778017,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7835321048623882,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trial_order": [
+      [
+        "baseline",
+        "vector_splat",
+        "litegs"
+      ],
+      [
+        "vector_splat",
+        "litegs",
+        "baseline"
+      ],
+      [
+        "litegs",
+        "baseline",
+        "vector_splat"
+      ]
+    ],
+    "jaxgs_reduction_vs_baseline": 0.008351261772134189,
+    "jaxgs_reduction_vs_litegs": 0.016534967525180577,
+    "changes": [
+      "vector load of LiteGS 32-byte PackedParams",
+      "bitwise half2 component broadcast without float32 conversion"
+    ],
+    "interpretation": "Small improvement on this model and view; three interleaved repeats per version, excluding compilation. Full training is measured separately."
+  },
+  "jaxgs_vector_splat_protocol": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "images": "images_4",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "training_images": 169,
+    "actual_updates": 9971,
+    "initial_sparse_gaussians": 54275,
+    "initial_padded_gaussians": 54400,
+    "target_gaussians": 1000000,
+    "final_gaussians": 975104,
+    "pair_capacity": 8000000,
+    "cluster_size": 128,
+    "tile_size": 16,
+    "tile_height": 8,
+    "warmup_seconds": 9.376141249027569,
+    "training_seconds": 26.917896405037027,
+    "densify_until": 41,
+    "seed": 0,
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "remaining_differences": [
+      "JAX world cluster bounds and frustum mask",
+      "fixed-capacity intermediates with valid compact prefixes",
+      "XLA prefix sums and stable sorting",
+      "reduction rounding and partial-tile masks",
+      "analytic SH view-direction gradient for xyz",
+      "independent RNG implementations"
+    ],
+    "checkpoint_checks": {
+      "capacity": 1000000,
+      "all_parameters_finite": true,
+      "free_mask_complements_alive": true,
+      "alive_matches_n_active": true
+    },
+    "peak_pairs": 3299743,
+    "result": "completed, no overflow or non-finite loss; all checkpoint parameters finite",
+    "held_out_mean_psnr": 25.09724202183366,
+    "evaluation_views": 25,
+    "training_history": "benchmarks/results/bicycle_jaxgs_vector_splat_training.json",
+    "quality_report": "benchmarks/results/bicycle_jaxgs_vector_splat_quality.json",
+    "donation": true
+  },
+  "previous_optimized_comparison": {
+    "scope": "one full growth-training run per implementation; same resolution, image split, target, epochs and final count",
+    "jaxgs_training_time_over_litegs": 0.8752624937104444,
+    "held_out_psnr_difference_db": 0.04241710066575166,
+    "note": "Initialization, compilation, warmup, final checkpoint write and evaluation excluded. Independent random sampling and floating-point reductions prevent bitwise-equivalent trajectories. This full-training result is separate from the same-PLY fixed-count benchmark."
+  },
+  "fixed_count_pipeline_comparison": {
+    "baseline": {
+      "median_ms": 3.7207184699946083,
+      "min_ms": 3.713978540035896,
+      "max_ms": 3.7317074049497023,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7441436939989217,
+          "warmup_seconds": 3.8137582250055857,
+          "initial_loss": 0.06100074574351311,
+          "final_loss": 0.014880800619721413,
+          "final_pairs": 2677985,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7207184699946083,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7427957080071792,
+          "warmup_seconds": 3.8085517860017717,
+          "initial_loss": 0.06099919229745865,
+          "final_loss": 0.014857868663966656,
+          "final_pairs": 2680658,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.713978540035896,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7463414809899405,
+          "warmup_seconds": 3.816008944006171,
+          "initial_loss": 0.06100209802389145,
+          "final_loss": 0.01486261934041977,
+          "final_pairs": 2682423,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7317074049497023,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "pipeline": {
+      "median_ms": 3.6227259898441844,
+      "min_ms": 3.6115105348289944,
+      "max_ms": 3.637212954927236,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7274425909854472,
+          "warmup_seconds": 3.863333059998695,
+          "initial_loss": 0.06100079044699669,
+          "final_loss": 0.014873254112899303,
+          "final_pairs": 2675116,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.637212954927236,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7245451979688369,
+          "warmup_seconds": 3.861595292983111,
+          "initial_loss": 0.06100248172879219,
+          "final_loss": 0.014863858930766582,
+          "final_pairs": 2678986,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.6227259898441844,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7223021069657989,
+          "warmup_seconds": 3.8666274870047346,
+          "initial_loss": 0.06100154668092728,
+          "final_loss": 0.014863621443510056,
+          "final_pairs": 2680215,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.6115105348289944,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "litegs": {
+      "median_ms": 3.7716821051435545,
+      "min_ms": 3.7630080798408017,
+      "max_ms": 3.7820244950125925,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7526016159681603,
+          "warmup_seconds": 0.12232480599777773,
+          "initial_loss": 0.05971471592783928,
+          "final_loss": 0.014068183489143848,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7630080798408017,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7564048990025185,
+          "warmup_seconds": 0.12957762303994969,
+          "initial_loss": 0.059715013951063156,
+          "final_loss": 0.01408939715474844,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7820244950125925,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7543364210287109,
+          "warmup_seconds": 0.12969702400732785,
+          "initial_loss": 0.05971699208021164,
+          "final_loss": 0.014065248891711235,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7716821051435545,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trial_order": [
+      [
+        "baseline",
+        "pipeline",
+        "litegs"
+      ],
+      [
+        "pipeline",
+        "litegs",
+        "baseline"
+      ],
+      [
+        "litegs",
+        "baseline",
+        "pipeline"
+      ]
+    ],
+    "jaxgs_reduction_vs_baseline": 0.02633697790915257,
+    "jaxgs_reduction_vs_litegs": 0.03949328473262215,
+    "changes": [
+      "LiteGS tile boundary scan adapted to contiguous empty-tile offsets",
+      "vector writes of 32-byte PackedParams",
+      "SH shared-transpose padding from 128 to 129"
+    ],
+    "interpretation": "Three interleaved repeats per version, same PLY, one view; compilation excluded. Full growth training measured separately.",
+    "hardware_counters": "Nsight Compute could not collect hardware counters: ERR_NVGPUCTRPERM. Kernel timing comes from JAX GPU traces."
+  },
+  "jaxgs_pipeline_protocol": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "images": "images_4",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "training_images": 169,
+    "actual_updates": 9971,
+    "initial_sparse_gaussians": 54275,
+    "initial_padded_gaussians": 54400,
+    "target_gaussians": 1000000,
+    "final_gaussians": 975104,
+    "pair_capacity": 8000000,
+    "cluster_size": 128,
+    "tile_size": 16,
+    "tile_height": 8,
+    "warmup_seconds": 9.448500133003108,
+    "training_seconds": 26.202152255980764,
+    "densify_until": 41,
+    "seed": 0,
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "remaining_differences": [
+      "JAX world cluster bounds and frustum mask",
+      "fixed-capacity intermediates with valid compact prefixes",
+      "XLA prefix sums and stable sorting",
+      "reduction rounding and partial-tile masks",
+      "analytic SH view-direction gradient for xyz",
+      "independent RNG implementations"
+    ],
+    "checkpoint_checks": {
+      "capacity": 1000000,
+      "all_parameters_finite": true,
+      "free_mask_complements_alive": true,
+      "alive_matches_n_active": true
+    },
+    "peak_pairs": 3230639,
+    "result": "completed, no overflow or non-finite loss; all checkpoint parameters finite",
+    "held_out_mean_psnr": 25.065853126541555,
+    "evaluation_views": 25,
+    "training_history": "benchmarks/results/bicycle_jaxgs_pipeline_training.json",
+    "quality_report": "benchmarks/results/bicycle_jaxgs_pipeline_quality.json",
+    "donation": true
+  },
+  "previous_vector_splat_comparison": {
+    "scope": "one full growth-training run per implementation; same resolution, image split, target, epochs and final count",
+    "jaxgs_training_time_over_litegs": 0.8681331513325755,
+    "held_out_psnr_difference_db": 0.05059522521880666,
+    "note": "Initialization, compilation, warmup, final checkpoint write and evaluation excluded. Independent random sampling and floating-point reductions prevent bitwise-equivalent trajectories. This full-training result is separate from the same-PLY fixed-count benchmark."
+  },
+  "pipeline_validation": {
+    "gpu_test_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q",
+    "passed": 43,
+    "seconds": 77.06,
+    "parity_report": "benchmarks/results/packed_parity_pipeline.json",
+    "boundary_tests": "empty table, gaps, padding sentinels, partial thread blocks, fully occupied pair arena",
+    "hardware_counters": "Nsight Compute unavailable: ERR_NVGPUCTRPERM; timings use JAX GPU traces"
+  },
+  "fixed_count_keys_comparison": {
+    "baseline": {
+      "median_ms": 3.6336346101597883,
+      "min_ms": 3.6098079150542617,
+      "max_ms": 3.6343943150131963,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7267269220319577,
+          "warmup_seconds": 3.8557583559886552,
+          "initial_loss": 0.06100306287407875,
+          "final_loss": 0.014865710400044918,
+          "final_pairs": 2676496,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.6336346101597883,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7268788630026393,
+          "warmup_seconds": 3.862507343001198,
+          "initial_loss": 0.061001505702733994,
+          "final_loss": 0.014893727377057076,
+          "final_pairs": 2675340,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.6343943150131963,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7219615830108523,
+          "warmup_seconds": 3.867302032012958,
+          "initial_loss": 0.06099984794855118,
+          "final_loss": 0.014879981055855751,
+          "final_pairs": 2678406,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.6098079150542617,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "narrow_keys": {
+      "median_ms": 3.5537169899907894,
+      "min_ms": 3.54987277998589,
+      "max_ms": 3.5550568951293826,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7107433979981579,
+          "warmup_seconds": 3.878085704986006,
+          "initial_loss": 0.06100117787718773,
+          "final_loss": 0.014849375933408737,
+          "final_pairs": 2674226,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.5537169899907894,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7110113790258765,
+          "warmup_seconds": 3.8463738189893775,
+          "initial_loss": 0.06100025773048401,
+          "final_loss": 0.014867530204355717,
+          "final_pairs": 2681325,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.5550568951293826,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.709974555997178,
+          "warmup_seconds": 3.88277476397343,
+          "initial_loss": 0.061002086848020554,
+          "final_loss": 0.014890600927174091,
+          "final_pairs": 2678506,
+          "jit_cache_size": 1,
+          "donation": true,
+          "backend": "jaxgs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.54987277998589,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "litegs": {
+      "median_ms": 3.7739187249098904,
+      "min_ms": 3.7666553500457667,
+      "max_ms": 3.786145475169178,
+      "runs": [
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7572290950338356,
+          "warmup_seconds": 0.132496620004531,
+          "initial_loss": 0.059713538736104965,
+          "final_loss": 0.014143599197268486,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.786145475169178,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7533310700091533,
+          "warmup_seconds": 0.13274215097771958,
+          "initial_loss": 0.05971716344356537,
+          "final_loss": 0.014100169762969017,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7666553500457667,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "count": 975104,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7547837449819781,
+          "warmup_seconds": 0.1327217899961397,
+          "initial_loss": 0.05971372872591019,
+          "final_loss": 0.014096816070377827,
+          "backend": "litegs",
+          "steps": 200,
+          "warmup_steps": 10,
+          "mean_step_ms": 3.7739187249098904,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "trial_order": [
+      [
+        "baseline",
+        "narrow_keys",
+        "litegs"
+      ],
+      [
+        "narrow_keys",
+        "litegs",
+        "baseline"
+      ],
+      [
+        "litegs",
+        "baseline",
+        "narrow_keys"
+      ]
+    ],
+    "jaxgs_reduction_vs_baseline": 0.02199385154069866,
+    "jaxgs_reduction_vs_litegs": 0.058348298140511456,
+    "changes": [
+      "uint16 tile sort keys when tile count including sentinel fits; uint32 fallback",
+      "unsigned widening before tile boundary comparisons and arithmetic"
+    ],
+    "interpretation": "Three interleaved repeats per version, same PLY, one view; compilation excluded. Full growth training measured separately."
+  },
+  "keys_validation": {
+    "gpu_test_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q",
+    "passed": 47,
+    "seconds": 77.54,
+    "parity_report": "benchmarks/results/packed_parity_narrow_keys.json",
+    "boundary_tests": "empty/gapped/full tables; uint16 values above 32767; 65535/65536 tile key boundary; live points in highest tiles",
+    "conversion_fix": "Widen uint16 through uint32 before signed range arithmetic and comparisons to avoid CuTe sign extension."
+  },
+  "jaxgs_narrow_keys_protocol": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "images": "images_4",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "training_images": 169,
+    "actual_updates": 9971,
+    "initial_sparse_gaussians": 54275,
+    "initial_padded_gaussians": 54400,
+    "target_gaussians": 1000000,
+    "final_gaussians": 975104,
+    "pair_capacity": 8000000,
+    "cluster_size": 128,
+    "tile_size": 16,
+    "tile_height": 8,
+    "warmup_seconds": 9.429098801978398,
+    "training_seconds": 24.195953016984276,
+    "densify_until": 41,
+    "seed": 0,
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "remaining_differences": [
+      "JAX world cluster bounds and frustum mask",
+      "fixed-capacity intermediates with valid compact prefixes",
+      "XLA prefix sums and stable sorting",
+      "reduction rounding and partial-tile masks",
+      "analytic SH view-direction gradient for xyz",
+      "independent RNG implementations"
+    ],
+    "checkpoint_checks": {
+      "capacity": 1000000,
+      "all_parameters_finite": true,
+      "free_mask_complements_alive": true,
+      "alive_matches_n_active": true
+    },
+    "peak_pairs": 3280906,
+    "result": "completed, no overflow or non-finite loss; all checkpoint parameters finite",
+    "held_out_mean_psnr": 25.08163854857029,
+    "evaluation_views": 25,
+    "training_history": "benchmarks/results/bicycle_jaxgs_narrow_keys_training.json",
+    "quality_report": "benchmarks/results/bicycle_jaxgs_narrow_keys_quality.json",
+    "donation": true
+  },
+  "previous_pipeline_comparison": {
+    "scope": "one full growth-training run per implementation; same resolution, image split, target, epochs and final count",
+    "jaxgs_training_time_over_litegs": 0.8450495784441757,
+    "held_out_psnr_difference_db": 0.019206329926699794,
+    "note": "Initialization, compilation, warmup, final checkpoint write and evaluation excluded. Independent random sampling and floating-point reductions prevent bitwise-equivalent trajectories. This full-training result is separate from the same-PLY fixed-count benchmark."
+  },
+  "previous_narrow_keys_comparison": {
+    "scope": "one full growth-training run per implementation; same resolution, image split, target, epochs and final count",
+    "jaxgs_training_time_over_litegs": 0.7803473431229517,
+    "held_out_psnr_difference_db": 0.03499175195543458,
+    "note": "Initialization, compilation, warmup, final checkpoint write and evaluation excluded. Independent random sampling and floating-point reductions prevent bitwise-equivalent trajectories. This full-training result is separate from the same-PLY fixed-count benchmark."
+  },
+  "nnx_migration": {
+    "change": "Flax NNX model, nnx.jit tree mode, LiteGS directory layout",
+    "fixed_count": {
+      "before_nnx": {
+        "median_ms": 3.5424945599515922,
+        "min_ms": 3.528547460155096,
+        "max_ms": 3.5520621997420676
+      },
+      "nnx": {
+        "median_ms": 3.5393271999782883,
+        "min_ms": 3.535133039986249,
+        "max_ms": 3.549844349909108
+      },
+      "nnx_change_percent": -0.08941044000776444
+    },
+    "fixed_count_report": "benchmarks/results/bicycle_fixed_nnx_comparison.json",
+    "full_training": {
+      "before_nnx": {
+        "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+        "gpu": "NVIDIA GeForce RTX 5090",
+        "images": "images_4",
+        "image_shape": [
+          822,
+          1237
+        ],
+        "training_images": 169,
+        "actual_updates": 9971,
+        "initial_sparse_gaussians": 54275,
+        "initial_padded_gaussians": 54400,
+        "target_gaussians": 1000000,
+        "final_gaussians": 975104,
+        "pair_capacity": 8000000,
+        "cluster_size": 128,
+        "tile_size": 16,
+        "tile_height": 8,
+        "warmup_seconds": 9.426682184042875,
+        "training_seconds": 24.40346507896902,
+        "densify_until": 41,
+        "seed": 0,
+        "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+        "remaining_differences": [
+          "JAX world cluster bounds and frustum mask",
+          "fixed-capacity intermediates with valid compact prefixes",
+          "XLA prefix sums and stable sorting",
+          "reduction rounding and partial-tile masks",
+          "analytic SH view-direction gradient for xyz",
+          "independent RNG implementations"
+        ],
+        "held_out_mean_psnr": 25.054914544654004,
+        "evaluation_views": 25,
+        "checkpoint_checks": {
+          "parameters_finite": true,
+          "alive_matches_count": true,
+          "free_mask_complement": true,
+          "capacity": 1000000,
+          "n_active": 975104,
+          "losses_finite": true,
+          "peak_pairs": 3259482
+        },
+        "training_history": "benchmarks/results/bicycle_jaxgs_before_nnx_training.json",
+        "quality_report": "benchmarks/results/bicycle_jaxgs_before_nnx_quality.json"
+      },
+      "nnx": {
+        "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+        "gpu": "NVIDIA GeForce RTX 5090",
+        "images": "images_4",
+        "image_shape": [
+          822,
+          1237
+        ],
+        "training_images": 169,
+        "actual_updates": 9971,
+        "initial_sparse_gaussians": 54275,
+        "initial_padded_gaussians": 54400,
+        "target_gaussians": 1000000,
+        "final_gaussians": 975104,
+        "pair_capacity": 8000000,
+        "cluster_size": 128,
+        "tile_size": 16,
+        "tile_height": 8,
+        "warmup_seconds": 9.523113378963899,
+        "training_seconds": 24.335837479971815,
+        "densify_until": 41,
+        "seed": 0,
+        "model": "flax.nnx.Module",
+        "jit": "nnx.jit(graph=False)",
+        "jit_cache_size": 8,
+        "donation": true,
+        "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+        "remaining_differences": [
+          "JAX world cluster bounds and frustum mask",
+          "fixed-capacity intermediates with valid compact prefixes",
+          "XLA prefix sums and stable sorting",
+          "reduction rounding and partial-tile masks",
+          "analytic SH view-direction gradient for xyz",
+          "independent RNG implementations"
+        ],
+        "held_out_mean_psnr": 25.0832095120001,
+        "evaluation_views": 25,
+        "checkpoint_checks": {
+          "parameters_finite": true,
+          "alive_matches_count": true,
+          "free_mask_complement": true,
+          "capacity": 1000000,
+          "n_active": 975104,
+          "losses_finite": true,
+          "peak_pairs": 3292097
+        },
+        "training_history": "benchmarks/results/bicycle_jaxgs_nnx_training.json",
+        "quality_report": "benchmarks/results/bicycle_jaxgs_nnx_quality.json"
+      }
+    },
+    "full_training_time_change_percent": -0.2771229363468075,
+    "validation": {
+      "gpu_pytest_passed": 50,
+      "gpu_pytest_seconds": 83.18,
+      "cute_module_bodies_unchanged": true,
+      "checks": [
+        "NNX Param filtering and split/merge round trip",
+        "zero-copy pool views",
+        "fixed-shape occupancy updates reuse compiled step",
+        "array/NNX step parameter, moment, statistics and loss parity at SH0 and SH3",
+        "parameter and Adam donation buffer addresses",
+        "full 9971-step training and 25-view held-out evaluation"
+      ]
+    },
+    "interpretation": "No observed performance regression on bicycle/RTX 5090. Fixed-count timings use three interleaved repeats; each full-growth result is one run with independent floating-point reduction/densification trajectories."
+  },
+  "jaxgs_nnx_protocol": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "images": "images_4",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "training_images": 169,
+    "actual_updates": 9971,
+    "initial_sparse_gaussians": 54275,
+    "initial_padded_gaussians": 54400,
+    "target_gaussians": 1000000,
+    "final_gaussians": 975104,
+    "pair_capacity": 8000000,
+    "cluster_size": 128,
+    "tile_size": 16,
+    "tile_height": 8,
+    "warmup_seconds": 9.523113378963899,
+    "training_seconds": 24.335837479971815,
+    "densify_until": 41,
+    "seed": 0,
+    "model": "flax.nnx.Module",
+    "jit": "nnx.jit(graph=False)",
+    "jit_cache_size": 8,
+    "donation": true,
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "remaining_differences": [
+      "JAX world cluster bounds and frustum mask",
+      "fixed-capacity intermediates with valid compact prefixes",
+      "XLA prefix sums and stable sorting",
+      "reduction rounding and partial-tile masks",
+      "analytic SH view-direction gradient for xyz",
+      "independent RNG implementations"
+    ],
+    "held_out_mean_psnr": 25.0832095120001,
+    "evaluation_views": 25,
+    "checkpoint_checks": {
+      "parameters_finite": true,
+      "alive_matches_count": true,
+      "free_mask_complement": true,
+      "capacity": 1000000,
+      "n_active": 975104,
+      "losses_finite": true,
+      "peak_pairs": 3292097
+    },
+    "training_history": "benchmarks/results/bicycle_jaxgs_nnx_training.json",
+    "quality_report": "benchmarks/results/bicycle_jaxgs_nnx_quality.json"
+  },
+  "grain_migration": {
+    "dependency": "grain==0.2.18, added with uv add grain; existing dependency versions unchanged",
+    "loading": {
+      "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+      "views": 169,
+      "images": "images_4",
+      "image_shape": [
+        822,
+        1237
+      ],
+      "scope": "decode selected training RGB images and preload uint8 GPU arrays, synchronize; exclude COLMAP metadata, hashes and training",
+      "runs_seconds": {
+        "serial": [
+          0.8524969900026917,
+          0.8575481090229005,
+          0.8679235779563896
+        ],
+        "grain": [
+          0.44239794596796855,
+          0.4546050020144321,
+          0.4302307600155473
+        ]
+      },
+      "medians_seconds": {
+        "serial": 0.8575481090229005,
+        "grain": 0.44239794596796855
+      },
+      "all_images_byte_equal_in_order": true,
+      "protocol": "3 interleaved repeats in one process, no concurrent GPU work",
+      "grain_read_options": {
+        "num_threads": 4,
+        "prefetch_buffer_size": 8
+      }
+    },
+    "full_training": {
+      "before_grain": {
+        "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+        "gpu": "NVIDIA GeForce RTX 5090",
+        "images": "images_4",
+        "image_shape": [
+          822,
+          1237
+        ],
+        "training_images": 169,
+        "actual_updates": 9971,
+        "initial_sparse_gaussians": 54275,
+        "initial_padded_gaussians": 54400,
+        "target_gaussians": 1000000,
+        "final_gaussians": 975104,
+        "pair_capacity": 8000000,
+        "cluster_size": 128,
+        "tile_size": 16,
+        "tile_height": 8,
+        "warmup_seconds": 9.407726231962442,
+        "training_seconds": 24.338686097995378,
+        "densify_until": 41,
+        "seed": 0,
+        "model": "flax.nnx.Module",
+        "jit": "nnx.jit(graph=False)",
+        "jit_cache_size": 8,
+        "donation": true,
+        "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+        "remaining_differences": [
+          "JAX world cluster bounds and frustum mask",
+          "fixed-capacity intermediates with valid compact prefixes",
+          "XLA prefix sums and stable sorting",
+          "reduction rounding and partial-tile masks",
+          "analytic SH view-direction gradient for xyz",
+          "independent RNG implementations"
+        ],
+        "checkpoint_checks": {
+          "parameters_finite": true,
+          "capacity": 1000000,
+          "n_active": 975104,
+          "alive_matches_count": true,
+          "free_mask_complement": true
+        },
+        "losses_finite": true,
+        "peak_pairs": 3268949,
+        "history_report": "benchmarks/results/bicycle_jaxgs_before_grain_training.json"
+      },
+      "grain": {
+        "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+        "gpu": "NVIDIA GeForce RTX 5090",
+        "images": "images_4",
+        "image_shape": [
+          822,
+          1237
+        ],
+        "training_images": 169,
+        "actual_updates": 9971,
+        "initial_sparse_gaussians": 54275,
+        "initial_padded_gaussians": 54400,
+        "target_gaussians": 1000000,
+        "final_gaussians": 975104,
+        "pair_capacity": 8000000,
+        "cluster_size": 128,
+        "tile_size": 16,
+        "tile_height": 8,
+        "warmup_seconds": 9.448993488040287,
+        "image_load_seconds": 0.42972850799560547,
+        "data_loader": "grain.MapDataset, 4 decode threads, 8 prefetched images; GPU uint8 preload",
+        "training_seconds": 24.336941566027235,
+        "densify_until": 41,
+        "seed": 0,
+        "model": "flax.nnx.Module",
+        "jit": "nnx.jit(graph=False)",
+        "jit_cache_size": 8,
+        "donation": true,
+        "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+        "remaining_differences": [
+          "JAX world cluster bounds and frustum mask",
+          "fixed-capacity intermediates with valid compact prefixes",
+          "XLA prefix sums and stable sorting",
+          "reduction rounding and partial-tile masks",
+          "analytic SH view-direction gradient for xyz",
+          "independent RNG implementations"
+        ],
+        "checkpoint_checks": {
+          "parameters_finite": true,
+          "capacity": 1000000,
+          "n_active": 975104,
+          "alive_matches_count": true,
+          "free_mask_complement": true
+        },
+        "losses_finite": true,
+        "peak_pairs": 3246800,
+        "history_report": "benchmarks/results/bicycle_jaxgs_grain_training.json"
+      }
+    },
+    "loading_time_reduction_percent": 48.411297125703946,
+    "training_time_change_percent": -0.007167732724433495,
+    "validation": {
+      "targeted_gpu_tests_passed": 9,
+      "targeted_cpu_tests_passed": 8,
+      "targeted_cpu_tests_skipped": 1,
+      "all_169_training_images_byte_equal_in_order": true,
+      "production_train_step_and_epoch_sampling_unchanged": true
+    },
+    "scope": "RTX 5090 bicycle images_4. Loading uses three interleaved repeats. Full training uses one run per version, same seed, 9971 updates, 1000000-slot pool. Training time excludes loading, warmup and checkpoint writes."
+  },
+  "kernels_layout_migration": {
+    "old_package": "jaxgs.submodules.gaussian_raster",
+    "new_package": "jaxgs.kernels",
+    "rationale": "Local Python CuTe kernels and JAX bindings cover rendering, loss, sparse Adam and allocation; the package is maintained within jaxgs.",
+    "integration": [
+      "nnx.jit / JAX binding",
+      "cutlass.jax.cutlass_call",
+      "cute.jit launcher",
+      "cute.kernel GPU program"
+    ],
+    "upstream_references": [
+      "https://github.com/NVIDIA/cutlass/blob/main/examples/python/CuTeDSL/dsl_tutorials/jax/cutlass_call_basic.py",
+      "https://github.com/NVIDIA/cutlass/blob/main/examples/python/CuTeDSL/dsl_tutorials/jax/cute_dsl_jax_kernels.py",
+      "https://docs.jax.dev/en/latest/401/cute-dsl.html"
+    ],
+    "validation": {
+      "gpu_tests_passed": 54,
+      "gpu_tests_seconds": 84.61,
+      "kernel_and_binding_modules_with_identical_non_import_ast": 20,
+      "total_source_modules_with_identical_non_import_ast": 47,
+      "licenses_byte_identical": true,
+      "old_package_removed": true
+    },
+    "benchmark": "benchmarks/results/bicycle_fixed_kernels_layout_comparison.json",
+    "scope": "Only package paths, imports and documentation changed. NNX training, Grain loading, CuTe arithmetic, launch parameters, shapes and buffer aliases preserved.",
+    "fixed_count": {
+      "before_layout": {
+        "median_ms": 3.565959279949311,
+        "min_ms": 3.5560017099487595,
+        "max_ms": 3.572041250008624
+      },
+      "kernels_layout": {
+        "median_ms": 3.54833501012763,
+        "min_ms": 3.5446567449253052,
+        "max_ms": 3.5588661549263634
+      },
+      "time_change_percent": -0.49423642947296065,
+      "all_jit_cache_sizes_one": true
+    }
+  }
+}

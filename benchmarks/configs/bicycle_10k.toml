@@ -1,0 +1,13 @@
+# The historical 9,971-update comparison protocol, separate from training defaults.
+[model]
+images = "images_4"
+resolution = 1
+eval = true
+
+[optimization]
+iterations = 10000
+position_lr_final = 0.000016
+position_lr_max_steps = 10000
+
+[densify]
+densification_interval = 2

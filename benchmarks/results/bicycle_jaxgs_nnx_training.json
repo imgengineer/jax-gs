@@ -1,0 +1,569 @@
+{
+  "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "images": "images_4",
+  "image_shape": [
+    822,
+    1237
+  ],
+  "training_images": 169,
+  "actual_updates": 9971,
+  "initial_sparse_gaussians": 54275,
+  "initial_padded_gaussians": 54400,
+  "target_gaussians": 1000000,
+  "final_gaussians": 975104,
+  "pair_capacity": 8000000,
+  "cluster_size": 128,
+  "tile_size": 16,
+  "tile_height": 8,
+  "warmup_seconds": 9.523113378963899,
+  "training_seconds": 24.335837479971815,
+  "densify_until": 41,
+  "seed": 0,
+  "history": [
+    {
+      "epoch": 0,
+      "step": 169,
+      "active": 54400,
+      "loss": 0.1888047456741333,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1137030
+    },
+    {
+      "epoch": 1,
+      "step": 338,
+      "active": 54400,
+      "loss": 0.14743134379386902,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1072014
+    },
+    {
+      "epoch": 2,
+      "step": 507,
+      "active": 54400,
+      "loss": 0.18931962549686432,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 993289
+    },
+    {
+      "epoch": 3,
+      "step": 676,
+      "active": 54400,
+      "loss": 0.23629751801490784,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 946789
+    },
+    {
+      "epoch": 4,
+      "step": 845,
+      "active": 79104,
+      "loss": 0.2089812308549881,
+      "born": 24704,
+      "pruned": 0,
+      "peak_pairs": 914144
+    },
+    {
+      "epoch": 5,
+      "step": 1014,
+      "active": 79104,
+      "loss": 0.1637624055147171,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1146819
+    },
+    {
+      "epoch": 6,
+      "step": 1183,
+      "active": 129024,
+      "loss": 0.13429170846939087,
+      "born": 49920,
+      "pruned": 0,
+      "peak_pairs": 1080913
+    },
+    {
+      "epoch": 7,
+      "step": 1352,
+      "active": 129024,
+      "loss": 0.1773184835910797,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1559213
+    },
+    {
+      "epoch": 8,
+      "step": 1521,
+      "active": 178688,
+      "loss": 0.19700117409229279,
+      "born": 49920,
+      "pruned": 256,
+      "peak_pairs": 1347849
+    },
+    {
+      "epoch": 9,
+      "step": 1690,
+      "active": 178688,
+      "loss": 0.22089284658432007,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1686113
+    },
+    {
+      "epoch": 10,
+      "step": 1859,
+      "active": 228480,
+      "loss": 0.164760559797287,
+      "born": 50048,
+      "pruned": 256,
+      "peak_pairs": 1541322
+    },
+    {
+      "epoch": 11,
+      "step": 2028,
+      "active": 228480,
+      "loss": 0.15288138389587402,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1830671
+    },
+    {
+      "epoch": 12,
+      "step": 2197,
+      "active": 278272,
+      "loss": 0.15976403653621674,
+      "born": 53248,
+      "pruned": 3456,
+      "peak_pairs": 1757928
+    },
+    {
+      "epoch": 13,
+      "step": 2366,
+      "active": 278272,
+      "loss": 0.14314106106758118,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 1986933
+    },
+    {
+      "epoch": 14,
+      "step": 2535,
+      "active": 328064,
+      "loss": 0.1387021243572235,
+      "born": 50816,
+      "pruned": 1024,
+      "peak_pairs": 1918087
+    },
+    {
+      "epoch": 15,
+      "step": 2704,
+      "active": 328064,
+      "loss": 0.1275726556777954,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2082178
+    },
+    {
+      "epoch": 16,
+      "step": 2873,
+      "active": 377856,
+      "loss": 0.12140703201293945,
+      "born": 50304,
+      "pruned": 512,
+      "peak_pairs": 2019135
+    },
+    {
+      "epoch": 17,
+      "step": 3042,
+      "active": 377856,
+      "loss": 0.12501652538776398,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2212437
+    },
+    {
+      "epoch": 18,
+      "step": 3211,
+      "active": 427520,
+      "loss": 0.15513554215431213,
+      "born": 50176,
+      "pruned": 512,
+      "peak_pairs": 2175471
+    },
+    {
+      "epoch": 19,
+      "step": 3380,
+      "active": 427520,
+      "loss": 0.10377538949251175,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2330621
+    },
+    {
+      "epoch": 20,
+      "step": 3549,
+      "active": 477312,
+      "loss": 0.11598294228315353,
+      "born": 50176,
+      "pruned": 384,
+      "peak_pairs": 2283331
+    },
+    {
+      "epoch": 21,
+      "step": 3718,
+      "active": 477312,
+      "loss": 0.11302450299263,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2442953
+    },
+    {
+      "epoch": 22,
+      "step": 3887,
+      "active": 527232,
+      "loss": 0.13182425498962402,
+      "born": 59136,
+      "pruned": 9216,
+      "peak_pairs": 2366216
+    },
+    {
+      "epoch": 23,
+      "step": 4056,
+      "active": 527232,
+      "loss": 0.12431520968675613,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2601521
+    },
+    {
+      "epoch": 24,
+      "step": 4225,
+      "active": 576896,
+      "loss": 0.10068565607070923,
+      "born": 51968,
+      "pruned": 2304,
+      "peak_pairs": 2501609
+    },
+    {
+      "epoch": 25,
+      "step": 4394,
+      "active": 576896,
+      "loss": 0.11286300420761108,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2649059
+    },
+    {
+      "epoch": 26,
+      "step": 4563,
+      "active": 626688,
+      "loss": 0.16544385254383087,
+      "born": 50688,
+      "pruned": 896,
+      "peak_pairs": 2594947
+    },
+    {
+      "epoch": 27,
+      "step": 4732,
+      "active": 626688,
+      "loss": 0.12239214032888412,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2754766
+    },
+    {
+      "epoch": 28,
+      "step": 4901,
+      "active": 676480,
+      "loss": 0.0926905944943428,
+      "born": 50560,
+      "pruned": 768,
+      "peak_pairs": 2676200
+    },
+    {
+      "epoch": 29,
+      "step": 5070,
+      "active": 676480,
+      "loss": 0.09587034583091736,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2814443
+    },
+    {
+      "epoch": 30,
+      "step": 5239,
+      "active": 726272,
+      "loss": 0.20010018348693848,
+      "born": 50432,
+      "pruned": 640,
+      "peak_pairs": 2769054
+    },
+    {
+      "epoch": 31,
+      "step": 5408,
+      "active": 726272,
+      "loss": 0.1304517537355423,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 2916508
+    },
+    {
+      "epoch": 32,
+      "step": 5577,
+      "active": 776064,
+      "loss": 0.09669090062379837,
+      "born": 64000,
+      "pruned": 14208,
+      "peak_pairs": 2841513
+    },
+    {
+      "epoch": 33,
+      "step": 5746,
+      "active": 776064,
+      "loss": 0.12479455769062042,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3006019
+    },
+    {
+      "epoch": 34,
+      "step": 5915,
+      "active": 825856,
+      "loss": 0.09850596636533737,
+      "born": 52992,
+      "pruned": 3200,
+      "peak_pairs": 2974714
+    },
+    {
+      "epoch": 35,
+      "step": 6084,
+      "active": 825856,
+      "loss": 0.13822859525680542,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3076018
+    },
+    {
+      "epoch": 36,
+      "step": 6253,
+      "active": 875520,
+      "loss": 0.09928128868341446,
+      "born": 51072,
+      "pruned": 1408,
+      "peak_pairs": 3038081
+    },
+    {
+      "epoch": 37,
+      "step": 6422,
+      "active": 875520,
+      "loss": 0.08877215534448624,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3137872
+    },
+    {
+      "epoch": 38,
+      "step": 6591,
+      "active": 925312,
+      "loss": 0.1410955935716629,
+      "born": 50816,
+      "pruned": 1024,
+      "peak_pairs": 3115331
+    },
+    {
+      "epoch": 39,
+      "step": 6760,
+      "active": 925312,
+      "loss": 0.08738284558057785,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3207341
+    },
+    {
+      "epoch": 40,
+      "step": 6929,
+      "active": 975104,
+      "loss": 0.10393816977739334,
+      "born": 50688,
+      "pruned": 896,
+      "peak_pairs": 3186143
+    },
+    {
+      "epoch": 41,
+      "step": 7098,
+      "active": 975104,
+      "loss": 0.08837722986936569,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3292097
+    },
+    {
+      "epoch": 42,
+      "step": 7267,
+      "active": 975104,
+      "loss": 0.1533803641796112,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3225356
+    },
+    {
+      "epoch": 43,
+      "step": 7436,
+      "active": 975104,
+      "loss": 0.08165004104375839,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3195845
+    },
+    {
+      "epoch": 44,
+      "step": 7605,
+      "active": 975104,
+      "loss": 0.08761916309595108,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3171626
+    },
+    {
+      "epoch": 45,
+      "step": 7774,
+      "active": 975104,
+      "loss": 0.07926730066537857,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3159150
+    },
+    {
+      "epoch": 46,
+      "step": 7943,
+      "active": 975104,
+      "loss": 0.09839385747909546,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3149641
+    },
+    {
+      "epoch": 47,
+      "step": 8112,
+      "active": 975104,
+      "loss": 0.05650749057531357,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3127859
+    },
+    {
+      "epoch": 48,
+      "step": 8281,
+      "active": 975104,
+      "loss": 0.08194965124130249,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3128489
+    },
+    {
+      "epoch": 49,
+      "step": 8450,
+      "active": 975104,
+      "loss": 0.0833766832947731,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3123260
+    },
+    {
+      "epoch": 50,
+      "step": 8619,
+      "active": 975104,
+      "loss": 0.07267489284276962,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3107603
+    },
+    {
+      "epoch": 51,
+      "step": 8788,
+      "active": 975104,
+      "loss": 0.13360433280467987,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3100580
+    },
+    {
+      "epoch": 52,
+      "step": 8957,
+      "active": 975104,
+      "loss": 0.08098456263542175,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3092008
+    },
+    {
+      "epoch": 53,
+      "step": 9126,
+      "active": 975104,
+      "loss": 0.07005686312913895,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3088714
+    },
+    {
+      "epoch": 54,
+      "step": 9295,
+      "active": 975104,
+      "loss": 0.11541774123907089,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3089348
+    },
+    {
+      "epoch": 55,
+      "step": 9464,
+      "active": 975104,
+      "loss": 0.17854319512844086,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3079121
+    },
+    {
+      "epoch": 56,
+      "step": 9633,
+      "active": 975104,
+      "loss": 0.05694872885942459,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3076812
+    },
+    {
+      "epoch": 57,
+      "step": 9802,
+      "active": 975104,
+      "loss": 0.0653601586818695,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3072083
+    },
+    {
+      "epoch": 58,
+      "step": 9971,
+      "active": 975104,
+      "loss": 0.06707724183797836,
+      "born": 0,
+      "pruned": 0,
+      "peak_pairs": 3062734
+    }
+  ],
+  "model": "flax.nnx.Module",
+  "jit": "nnx.jit(graph=False)",
+  "jit_cache_size": 8,
+  "donation": true,
+  "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+  "remaining_differences": [
+    "JAX world cluster bounds and frustum mask",
+    "fixed-capacity intermediates with valid compact prefixes",
+    "XLA prefix sums and stable sorting",
+    "reduction rounding and partial-tile masks",
+    "analytic SH view-direction gradient for xyz",
+    "independent RNG implementations"
+  ]
+}

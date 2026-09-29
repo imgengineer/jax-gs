@@ -1,0 +1,41 @@
+{
+  "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "target_capacity": 1000000,
+  "optimizer": "optax",
+  "runs": {
+    "baseline": {
+      "training_seconds": 30.45923605101416,
+      "warmup_seconds": 9.36213714396581,
+      "actual_updates": 9971,
+      "jit_cache_size": 8,
+      "peak_pairs": 3246059,
+      "mean_psnr": 25.06246349363053,
+      "checkpoint_checks": {
+        "finite_parameters": true,
+        "capacity": 1000000,
+        "active": 975104,
+        "free_mask_matches": true
+      },
+      "training_report": "benchmarks/results/bicycle_optax_default_baseline_training.json",
+      "quality_report": "benchmarks/results/bicycle_optax_default_baseline_quality.json"
+    },
+    "current": {
+      "training_seconds": 30.097470495966263,
+      "warmup_seconds": 9.430224951996934,
+      "actual_updates": 9971,
+      "jit_cache_size": 8,
+      "peak_pairs": 3254501,
+      "mean_psnr": 25.088703621911268,
+      "checkpoint_checks": {
+        "finite_parameters": true,
+        "capacity": 1000000,
+        "active": 975104,
+        "free_mask_matches": true
+      },
+      "training_report": "benchmarks/results/bicycle_optax_default_current_training.json",
+      "quality_report": "benchmarks/results/bicycle_optax_default_current_quality.json"
+    }
+  },
+  "scope": "one full 9971-update run per version with growth/pruning/opacity resets; same seed, optimizer and scene; compilation/checkpoint write excluded",
+  "training_time_change_percent": -1.1877039674993761
+}

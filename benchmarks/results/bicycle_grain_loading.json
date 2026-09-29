@@ -1,0 +1,32 @@
+{
+  "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+  "views": 169,
+  "images": "images_4",
+  "image_shape": [
+    822,
+    1237
+  ],
+  "scope": "decode selected training RGB images and preload uint8 GPU arrays, synchronize; exclude COLMAP metadata, hashes and training",
+  "runs_seconds": {
+    "serial": [
+      0.8524969900026917,
+      0.8575481090229005,
+      0.8679235779563896
+    ],
+    "grain": [
+      0.44239794596796855,
+      0.4546050020144321,
+      0.4302307600155473
+    ]
+  },
+  "medians_seconds": {
+    "serial": 0.8575481090229005,
+    "grain": 0.44239794596796855
+  },
+  "all_images_byte_equal_in_order": true,
+  "protocol": "3 interleaved repeats in one process, no concurrent GPU work",
+  "grain_read_options": {
+    "num_threads": 4,
+    "prefetch_buffer_size": 8
+  }
+}

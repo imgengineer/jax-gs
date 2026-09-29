@@ -1,0 +1,141 @@
+{
+  "dependency": "grain==0.2.18, added with uv add grain; existing dependency versions unchanged",
+  "loading": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "views": 169,
+    "images": "images_4",
+    "image_shape": [
+      822,
+      1237
+    ],
+    "scope": "decode selected training RGB images and preload uint8 GPU arrays, synchronize; exclude COLMAP metadata, hashes and training",
+    "runs_seconds": {
+      "serial": [
+        0.8524969900026917,
+        0.8575481090229005,
+        0.8679235779563896
+      ],
+      "grain": [
+        0.44239794596796855,
+        0.4546050020144321,
+        0.4302307600155473
+      ]
+    },
+    "medians_seconds": {
+      "serial": 0.8575481090229005,
+      "grain": 0.44239794596796855
+    },
+    "all_images_byte_equal_in_order": true,
+    "protocol": "3 interleaved repeats in one process, no concurrent GPU work",
+    "grain_read_options": {
+      "num_threads": 4,
+      "prefetch_buffer_size": 8
+    }
+  },
+  "full_training": {
+    "before_grain": {
+      "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+      "gpu": "NVIDIA GeForce RTX 5090",
+      "images": "images_4",
+      "image_shape": [
+        822,
+        1237
+      ],
+      "training_images": 169,
+      "actual_updates": 9971,
+      "initial_sparse_gaussians": 54275,
+      "initial_padded_gaussians": 54400,
+      "target_gaussians": 1000000,
+      "final_gaussians": 975104,
+      "pair_capacity": 8000000,
+      "cluster_size": 128,
+      "tile_size": 16,
+      "tile_height": 8,
+      "warmup_seconds": 9.407726231962442,
+      "training_seconds": 24.338686097995378,
+      "densify_until": 41,
+      "seed": 0,
+      "model": "flax.nnx.Module",
+      "jit": "nnx.jit(graph=False)",
+      "jit_cache_size": 8,
+      "donation": true,
+      "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+      "remaining_differences": [
+        "JAX world cluster bounds and frustum mask",
+        "fixed-capacity intermediates with valid compact prefixes",
+        "XLA prefix sums and stable sorting",
+        "reduction rounding and partial-tile masks",
+        "analytic SH view-direction gradient for xyz",
+        "independent RNG implementations"
+      ],
+      "checkpoint_checks": {
+        "parameters_finite": true,
+        "capacity": 1000000,
+        "n_active": 975104,
+        "alive_matches_count": true,
+        "free_mask_complement": true
+      },
+      "losses_finite": true,
+      "peak_pairs": 3268949,
+      "history_report": "benchmarks/results/bicycle_jaxgs_before_grain_training.json"
+    },
+    "grain": {
+      "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+      "gpu": "NVIDIA GeForce RTX 5090",
+      "images": "images_4",
+      "image_shape": [
+        822,
+        1237
+      ],
+      "training_images": 169,
+      "actual_updates": 9971,
+      "initial_sparse_gaussians": 54275,
+      "initial_padded_gaussians": 54400,
+      "target_gaussians": 1000000,
+      "final_gaussians": 975104,
+      "pair_capacity": 8000000,
+      "cluster_size": 128,
+      "tile_size": 16,
+      "tile_height": 8,
+      "warmup_seconds": 9.448993488040287,
+      "image_load_seconds": 0.42972850799560547,
+      "data_loader": "grain.MapDataset, 4 decode threads, 8 prefetched images; GPU uint8 preload",
+      "training_seconds": 24.336941566027235,
+      "densify_until": 41,
+      "seed": 0,
+      "model": "flax.nnx.Module",
+      "jit": "nnx.jit(graph=False)",
+      "jit_cache_size": 8,
+      "donation": true,
+      "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+      "remaining_differences": [
+        "JAX world cluster bounds and frustum mask",
+        "fixed-capacity intermediates with valid compact prefixes",
+        "XLA prefix sums and stable sorting",
+        "reduction rounding and partial-tile masks",
+        "analytic SH view-direction gradient for xyz",
+        "independent RNG implementations"
+      ],
+      "checkpoint_checks": {
+        "parameters_finite": true,
+        "capacity": 1000000,
+        "n_active": 975104,
+        "alive_matches_count": true,
+        "free_mask_complement": true
+      },
+      "losses_finite": true,
+      "peak_pairs": 3246800,
+      "history_report": "benchmarks/results/bicycle_jaxgs_grain_training.json"
+    }
+  },
+  "loading_time_reduction_percent": 48.411297125703946,
+  "training_time_change_percent": -0.007167732724433495,
+  "validation": {
+    "targeted_gpu_tests_passed": 9,
+    "targeted_cpu_tests_passed": 8,
+    "targeted_cpu_tests_skipped": 1,
+    "all_169_training_images_byte_equal_in_order": true,
+    "production_train_step_and_epoch_sampling_unchanged": true
+  },
+  "scope": "RTX 5090 bicycle images_4. Loading uses three interleaved repeats. Full training uses one run per version, same seed, 9971 updates, 1000000-slot pool. Training time excludes loading, warmup and checkpoint writes."
+}
