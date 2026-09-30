@@ -1,7 +1,7 @@
 # jaxgs
 
 Fixed-capacity Gaussian splatting with Flax NNX models and CuTe DSL GPU kernels. The
-Gaussian pool, Adam moments, tile table and densification outputs keep static
+Gaussian model, Adam moments, tile table and densification outputs keep static
 shapes when the number of live Gaussians changes.
 
 ## Install
@@ -25,7 +25,7 @@ src/jaxgs/
 ├── data.py                     # image frames and Grain input pipeline
 ├── io_manager/                  # COLMAP readers and shared NPZ checkpoints
 ├── scene/
-│   ├── point.py                # GaussianModel (NNX) and GaussianPool array view
+│   ├── point.py                # GaussianModel (NNX) and GaussianArrays array view
 │   ├── types.py                # parameter order and fixed-shape cluster layouts
 │   ├── camera.py
 │   ├── cluster.py
@@ -51,8 +51,11 @@ src/jaxgs/
 `GaussianModel(nnx.Module)` owns `xyz`, `log_scale`, `rotation`, `opacity` and
 `sh` as `nnx.Param`; occupancy masks and the active count are `nnx.Variable`.
 `nnx.state(model, nnx.Param)` selects trainable parameters, and `nnx.split` /
-`nnx.merge` work normally. `model.as_pool()` provides a zero-copy array view
-for kernels and custom VJPs. The existing NPZ checkpoint format is unchanged.
+`nnx.merge` work normally. `model.as_arrays()` provides a zero-copy array view
+of type `GaussianArrays` for kernels and custom VJPs. `create_gaussians` and
+`seed_gaussians` initialize these arrays; `GaussianModel(arrays)` owns them in
+NNX. `model.update_from_arrays(arrays)` updates the existing Variables. The
+existing NPZ checkpoint format is unchanged.
 
 Both CLI trainers update NNX models through NNX JIT transforms. Production
 binds a fixed `TrainingState` once with `nnx.jit_partial(graph=False)`, caching
@@ -433,6 +436,13 @@ moment buffers keep fixed capacity; JIT buffer donation allows in-place GPU
 updates. The full trainer accumulates overflow on device and checks it at
 each epoch boundary, without synchronizing after every update.
 
+The Optax path stores only active SH coefficients in compact projection-gradient
+buffers. It restores a zero gradient tail before the update, so higher-order SH
+moments still decay and update visible parameters. Parameter and moment shapes
+remain unchanged. The packed training pullback combines the symmetric conic
+off-diagonal contributions into one atomic add; the general rasterizer VJP
+retains its matrix-gradient convention.
+
 Binning ports LiteGS's `binning.cu` and `speedy_splat.cuh`: count ellipse slices,
 sort Gaussians by depth, prefix-sum their counts, emit Gaussian/tile pairs,
 stably sort by tile, and build tile ranges. A fixed global pair arena preserves
@@ -440,6 +450,10 @@ JAX shapes without limiting the number of Gaussians in any individual tile.
 The count, emit and tile range kernels use CuTe; prefix sums and stable sorting
 use XLA. Tile sort keys use uint16 when the tile count and padding sentinel fit,
 otherwise uint32. Gaussian IDs and tile offsets stay int32.
+Production tile sorting uses the full fixed arena. Exclusive profiling found
+that runtime selection of a sorted prefix added a device-to-host counter copy
+on each update; that variant was withdrawn to retain asynchronous training.
+Gaussian depth sorting also retains the full Gaussian capacity.
 
 The packed rasterizer ports LiteGS's `raster.cu`: each warp processes one tile,
 with four warps per forward block and one per backward block. It uses
@@ -457,8 +471,18 @@ visibility table.
 `densify_step` stops their gradient, selects a fixed number of parents, and
 writes children into free slots while clearing those slots' Adam state.
 `prune_step` and `reset_opacity` also keep shapes unchanged.
-At initialization and after each densification interval, `reorder_pool`
+At initialization and after each densification interval, `reorder_gaussians`
 groups live Gaussians by Morton order and reorders their Adam state with them.
+Production densification keeps weighted parent sampling, then groups split and
+clone candidates with a stable CuTe partition. Child generation selects a static
+capacity bucket while returned model arrays and Adam state retain full capacity.
+Partitionable Threefry preserves the original random prefix; other PRNG settings
+use full-capacity generation. The
+[algorithm optimization validation](benchmarks/results/algorithm_optimization_20260930.md)
+records correctness, compiler memory plans and the limits of shared-GPU probes.
+The subsequent [exclusive GPU comparison](benchmarks/results/exclusive_performance_20260930.md)
+measured unchanged overall training throughput, 8–24% faster densification,
+and removed a runtime sorting branch that introduced a per-step counter read.
 The default near plane is 0.2 scene units. Binning applies LiteGS's opacity
 threshold of 1/255, NDC bounds of +/-1.3, and positive-definite conic check.
 

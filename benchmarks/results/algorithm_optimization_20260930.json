@@ -1,0 +1,360 @@
+{
+  "baseline_commit": "2aeb5c4046fb131ecc0c6e3c512059332558d40b",
+  "litegs_reference_commit": "004b95215c90c36cdaf4b354301132b700ac287b",
+  "environment": {
+    "gpu": "RTX 5090",
+    "gpu_exclusive": false,
+    "jax": "0.11.2",
+    "flax": "0.12.10",
+    "optax": "0.2.8",
+    "cutlass_dsl": "4.8.0"
+  },
+  "capacity": {
+    "max_gaussians": 1000000,
+    "cluster_size": 128,
+    "sh_degree": 3,
+    "max_visibility_pairs": 8000000,
+    "tile_size": [
+      8,
+      16
+    ]
+  },
+  "training_compilation": {
+    "image_shape": [
+      822,
+      1237,
+      3
+    ],
+    "scope": "XLA compiler memory plan, not measured peak memory or step timing",
+    "variants": [
+      {
+        "before": {
+          "degree": 0,
+          "collect_stats": false,
+          "stablehlo_sha256": "dfca7665f4e213d02eb033bcd07fdc2fa41388cd126e0276fce3b05190101afd",
+          "argument_size_in_bytes": 733245864,
+          "output_size_in_bytes": 730000197,
+          "alias_size_in_bytes": 730000004,
+          "temp_size_in_bytes": 293068344
+        },
+        "after": {
+          "degree": 0,
+          "collect_stats": false,
+          "stablehlo_sha256": "e6dc3d048d21db61303203b20f7d38527c81b24ecbafed81b38b23788bf282db",
+          "argument_size_in_bytes": 733245864,
+          "output_size_in_bytes": 730000197,
+          "alias_size_in_bytes": 730000004,
+          "temp_size_in_bytes": 202199608
+        },
+        "temp_reduction_bytes": 90868736
+      },
+      {
+        "before": {
+          "degree": 3,
+          "collect_stats": true,
+          "stablehlo_sha256": "95739473187a87c0a9ed2733bf5786adf3ee27aaa9f85bb061a6c12657e4ccff",
+          "argument_size_in_bytes": 733245864,
+          "output_size_in_bytes": 730000197,
+          "alias_size_in_bytes": 730000004,
+          "temp_size_in_bytes": 293068344
+        },
+        "after": {
+          "degree": 3,
+          "collect_stats": true,
+          "stablehlo_sha256": "1778258c4cdd7f6a7fa9da6379c157e028bc38711a14896340f4a6c8ee9ebf53",
+          "argument_size_in_bytes": 733245864,
+          "output_size_in_bytes": 730000197,
+          "alias_size_in_bytes": 730000004,
+          "temp_size_in_bytes": 293070904
+        },
+        "temp_reduction_bytes": -2560
+      }
+    ]
+  },
+  "array_view_rename": {
+    "model": "GaussianModel",
+    "previous_view": "GaussianPool",
+    "view": "GaussianArrays",
+    "stablehlo_and_memory_identical": true,
+    "compiled_variants": [
+      {
+        "degree": 0,
+        "collect_stats": false,
+        "stablehlo_sha256": "e6dc3d048d21db61303203b20f7d38527c81b24ecbafed81b38b23788bf282db",
+        "argument_size_in_bytes": 733245864,
+        "output_size_in_bytes": 730000197,
+        "alias_size_in_bytes": 730000004,
+        "temp_size_in_bytes": 202199608
+      },
+      {
+        "degree": 3,
+        "collect_stats": true,
+        "stablehlo_sha256": "1778258c4cdd7f6a7fa9da6379c157e028bc38711a14896340f4a6c8ee9ebf53",
+        "argument_size_in_bytes": 733245864,
+        "output_size_in_bytes": 730000197,
+        "alias_size_in_bytes": 730000004,
+        "temp_size_in_bytes": 293070904
+      }
+    ]
+  },
+  "densification_parity": [
+    {
+      "capacity": 257,
+      "active": 129,
+      "target": 257,
+      "prune_candidates": 0,
+      "births": 128,
+      "pruned": 0,
+      "max_abs_error": 0.0
+    },
+    {
+      "capacity": 257,
+      "active": 129,
+      "target": 129,
+      "prune_candidates": 128,
+      "births": 128,
+      "pruned": 128,
+      "max_abs_error": 0.0
+    },
+    {
+      "capacity": 4096,
+      "active": 2048,
+      "target": 3072,
+      "prune_candidates": 256,
+      "births": 1280,
+      "pruned": 256,
+      "max_abs_error": 0.0
+    },
+    {
+      "capacity": 4096,
+      "active": 4096,
+      "target": 4096,
+      "prune_candidates": 128,
+      "births": 128,
+      "pruned": 128,
+      "max_abs_error": 0.0
+    },
+    {
+      "capacity": 129,
+      "active": 0,
+      "target": 0,
+      "prune_candidates": 0,
+      "births": 0,
+      "pruned": 0,
+      "max_abs_error": 0.0
+    }
+  ],
+  "densification_probe": {
+    "capacity": 1000000,
+    "active": 500000,
+    "sh_degree": 3,
+    "argument_size_in_bytes": 729000020,
+    "output_size_in_bytes": 714000180,
+    "alias_size_in_bytes": 0,
+    "temp_size_in_bytes": {
+      "before": 3004472,
+      "after": 2008160
+    },
+    "records": [
+      {
+        "target": 500000,
+        "births": 0,
+        "scope": "shared GPU, interleaved probe, not an exclusive performance result",
+        "timings_ms": {
+          "baseline": [
+            1.9904179498553276,
+            3.829244989901781,
+            3.2879129284992814,
+            1.937628025189042,
+            3.793305018916726,
+            2.0572179928421974
+          ],
+          "optimized": [
+            16.278284951113164,
+            3.446964081376791,
+            1.4473049668595195,
+            2.724861027672887,
+            3.42760409694165,
+            3.430622979067266
+          ]
+        },
+        "median_ms": {
+          "baseline": 2.6725654606707394,
+          "optimized": 3.429113538004458
+        }
+      },
+      {
+        "target": 505000,
+        "births": 4992,
+        "scope": "shared GPU, interleaved probe, not an exclusive performance result",
+        "timings_ms": {
+          "baseline": [
+            1.938187051564455,
+            1.8191570416092873,
+            3.7858650321140885,
+            3.7781550781801343,
+            3.8474949542433023,
+            3.8348950911313295
+          ],
+          "optimized": [
+            1.463896012865007,
+            2.340318984352052,
+            3.4172229934483767,
+            3.506234032101929,
+            3.4464839845895767,
+            3.4508140524849296
+          ]
+        },
+        "median_ms": {
+          "baseline": 3.7820100551471114,
+          "optimized": 3.4318534890189767
+        }
+      },
+      {
+        "target": 550000,
+        "births": 49920,
+        "scope": "shared GPU, interleaved probe, not an exclusive performance result",
+        "timings_ms": {
+          "baseline": [
+            3.248303080908954,
+            1.8300970550626516,
+            3.1332019716501236,
+            3.8395560113713145,
+            3.842994919978082,
+            1.8195169977843761
+          ],
+          "optimized": [
+            3.5131139447912574,
+            2.9604820301756263,
+            1.5233670128509402,
+            3.5085829440504313,
+            1.7438969807699323,
+            1.9366979831829667
+          ]
+        },
+        "median_ms": {
+          "baseline": 3.190752526279539,
+          "optimized": 2.4485900066792965
+        }
+      },
+      {
+        "target": 750000,
+        "births": 249984,
+        "scope": "shared GPU, interleaved probe, not an exclusive performance result",
+        "timings_ms": {
+          "baseline": [
+            2.3262989707291126,
+            3.878195071592927,
+            3.891484928317368,
+            3.8983559934422374,
+            3.9349650032818317,
+            1.8741980893537402
+          ],
+          "optimized": [
+            3.7438650615513325,
+            3.7132049910724163,
+            3.759235027246177,
+            3.7254749331623316,
+            3.727105096913874,
+            3.1742220744490623
+          ]
+        },
+        "median_ms": {
+          "baseline": 3.8848399999551475,
+          "optimized": 3.726290015038103
+        }
+      }
+    ]
+  },
+  "densification_trace": [
+    {
+      "phase": "baseline",
+      "scope": "single shared-GPU trace; scheduling differs; not a speed comparison",
+      "wall_ms": 2.61692,
+      "gpu_kernel_count": 63,
+      "gpu_sum_ms": 1.528564,
+      "transfers": [
+        {
+          "name": "MemcpyD2D",
+          "us": 10.208
+        }
+      ],
+      "top_kernels": [
+        {
+          "name": "loop_select_fusion",
+          "us": 495.803
+        },
+        {
+          "name": "loop_gather_fusion_1",
+          "us": 259.71
+        },
+        {
+          "name": "memcpy128",
+          "us": 237.918
+        },
+        {
+          "name": "loop_select_fusion_1",
+          "us": 66.783
+        },
+        {
+          "name": "input_scatter_fusion_4",
+          "us": 51.103
+        }
+      ]
+    },
+    {
+      "phase": "optimized",
+      "scope": "single shared-GPU trace; scheduling differs; not a speed comparison",
+      "wall_ms": 3.520364,
+      "gpu_kernel_count": 93,
+      "gpu_sum_ms": 1.181043,
+      "transfers": [],
+      "top_kernels": [
+        {
+          "name": "loop_select_fusion_2",
+          "us": 493.627
+        },
+        {
+          "name": "memcpy128",
+          "us": 242.942
+        },
+        {
+          "name": "loop_select_fusion_3",
+          "us": 84.031
+        },
+        {
+          "name": "loop_select_fusion_4",
+          "us": 33.695
+        },
+        {
+          "name": "input_and_or_reduce_select_fusion",
+          "us": 25.632
+        }
+      ]
+    }
+  ],
+  "performance_conclusion": "The shared-GPU probes above remain historical observations. Exclusive measurements and the resulting prefix-sort rollback are recorded in exclusive_performance_20260930.md.",
+  "sanitizer": {
+    "tool": "synccheck",
+    "cases": 25,
+    "errors": 0
+  },
+  "verification": {
+    "pytest_passed": 270,
+    "python_coverage": {
+      "num_statements": 1704,
+      "covered_lines": 1704,
+      "missing_lines": 0,
+      "num_branches": 256,
+      "covered_branches": 256,
+      "missing_branches": 0,
+      "percent_covered": 100.0
+    },
+    "coverage_scope": "Python code; compiled CuTe kernel and jit bodies are excluded and validated with GPU tests and synccheck.",
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "git_diff_check": "passed"
+  },
+  "pair_prefix_sort_status": "Withdrawn after exclusive profiling found a 4-byte D2H copy on every training update; final production code uses one full-arena sort path.",
+  "exclusive_performance_report": "benchmarks/results/exclusive_performance_20260930.md"
+}

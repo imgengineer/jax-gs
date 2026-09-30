@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import Camera, CapacityConfig, create_pool, seed_pool
+from jaxgs import Camera, CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.render.projection import project
 from jaxgs.render.rasterizer import rasterize, rasterize_forward
 from jaxgs.render.visibility_table import build_visibility_table
@@ -23,8 +23,8 @@ requires_gpu = pytest.mark.skipif(
 def scene():
     config = CapacityConfig(4, 2, 4, 4, 1, 64)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.1, -0.1, 2.0], [-0.2, 0.2, 3.0]]),
         jnp.array([[0.7, 0.2, 0.3], [0.2, 0.5, 0.1]]),
         scale=0.2,

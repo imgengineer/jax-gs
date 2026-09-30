@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from ..config import CapacityConfig
 from ..render.types import ProjectedGaussians
 from ..scene.camera import Camera
-from ..scene.point import GaussianPool
+from ..scene.point import GaussianArrays
 from ..scene.types import ParameterGradients, VisibleClusters
 
 
@@ -90,7 +90,9 @@ def _project_gaussian_arrays(
     )
 
 
-def project_cute(pool: GaussianPool, camera: Camera, config: CapacityConfig) -> ProjectedGaussians:
+def project_cute(
+    pool: GaussianArrays, camera: Camera, config: CapacityConfig
+) -> ProjectedGaussians:
     intrinsics = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
     return ProjectedGaussians(
         *_project_gaussian_arrays(
@@ -113,7 +115,7 @@ def project_cute(pool: GaussianPool, camera: Camera, config: CapacityConfig) -> 
 
 
 def project_cute_vjp(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     camera: Camera,
     config: CapacityConfig,
     active_degree: int | None = None,
@@ -239,20 +241,30 @@ def _compute_projection_gradients(
     visible_clusters: VisibleClusters | None,
     compact_gradients: bool,
     rgb_only: bool = False,
+    active_sh_only: bool = False,
 ) -> ParameterGradients:
     """Compute parameter gradients from projected-field cotangents in CuTe."""
     from cutlass.jax import cutlass_call
 
     from .projection_backward import launch_projection_backward
 
-    output_shapes = tuple(jax.ShapeDtypeStruct((value.size,), jnp.float32) for value in parameters)
+    degree = config.sh_degree if active_degree is None else active_degree
+    sh_gradient_dim = (degree + 1) ** 2 if active_sh_only else config.sh_dim
+    output_shapes = tuple(
+        jax.ShapeDtypeStruct(
+            (config.max_gaussians * sh_gradient_dim * 3 if index == 4 else value.size,),
+            jnp.float32,
+        )
+        for index, value in enumerate(parameters)
+    )
     backward_kernel = cutlass_call(
         launch_projection_backward,
         output_shape_dtype=output_shapes,
         use_static_tensors=True,
         capacity=config.max_gaussians,
         sh_dim=config.sh_dim,
-        degree=config.sh_degree if active_degree is None else active_degree,
+        sh_gradient_dim=sh_gradient_dim,
+        degree=degree,
         near=camera.near,
         cluster_size=config.cluster_size,
         compacted=visible_clusters is not None,
@@ -282,13 +294,14 @@ def _compute_projection_gradients(
 
 
 def project_with_compact_pullback(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     camera: Camera,
     config: CapacityConfig,
     active_degree: int,
     clusters: VisibleClusters,
     *,
     rgb_only: bool = False,
+    active_sh_only: bool = False,
 ) -> tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients]]:
     """CuTe projection and a pullback producing gradients in visible-cluster order.
 
@@ -297,6 +310,8 @@ def project_with_compact_pullback(
     gradients follow xyz, log_scale, rotation, opacity and SH order; the tail
     is undefined. Ordinary autodiff uses project_cute_vjp instead.
     rgb_only specializes the pullback for zero depth and radius cotangents.
+    active_sh_only returns only (active_degree + 1)**2 SH gradient coefficients;
+    parameter storage remains unchanged. Optax restores the zero gradient tail.
     """
     if not 0 <= active_degree <= config.sh_degree:
         raise ValueError("active_degree must fit the pool's SH coefficients")
@@ -340,9 +355,15 @@ def project_with_compact_pullback(
             clusters,
             True,
             rgb_only,
+            active_sh_only,
         )
         return tuple(
-            array.reshape(value.shape) for array, value in zip(arrays, parameters, strict=True)
+            array.reshape(
+                (config.max_gaussians, (active_degree + 1) ** 2, 3)
+                if active_sh_only and index == 4
+                else value.shape
+            )
+            for index, (array, value) in enumerate(zip(arrays, parameters, strict=True))
         )
 
     return projected, pullback

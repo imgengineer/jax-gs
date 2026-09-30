@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import create_pool, seed_pool
+from jaxgs import create_gaussians, seed_gaussians
 from jaxgs.config import CapacityConfig, load_config
 from jaxgs.training.optimizer import create_adam_state, optax_adam_update
 
@@ -118,8 +118,8 @@ def test_invalid_static_capacity(overrides):
 
 @pytest.mark.parametrize("step", [0, 15000, 30000, 45000])
 def test_default_position_schedule_reaches_native_endpoints(step):
-    pool = seed_pool(
-        create_pool(CapacityConfig(1, sh_degree=1)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(1, sh_degree=1)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
     )
     grads = tuple(
         jnp.ones_like(getattr(pool, name))
@@ -132,8 +132,8 @@ def test_default_position_schedule_reaches_native_endpoints(step):
 
 
 def test_each_property_uses_configured_rate_and_zero_xyz_schedule():
-    pool = seed_pool(
-        create_pool(CapacityConfig(1, sh_degree=1)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(1, sh_degree=1)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
     )
     op = replace(
         load_config().optimization,

@@ -30,6 +30,7 @@ def _projection_backward_kernel(
     out_sh: cute.Tensor,
     capacity: int,
     sh_dim: cutlass.Constexpr,
+    sh_gradient_dim: cutlass.Constexpr,
     degree: cutlass.Constexpr,
     near: float,
     cluster_size: cutlass.Constexpr,
@@ -44,7 +45,7 @@ def _projection_backward_kernel(
     # gradient writes. Pad the coefficient stride to avoid bank conflicts
     # when neighboring lanes read different coefficients of the same point.
     sh_cache = SmemAllocator().allocate_tensor(
-        cute.Float32, cute.make_layout((sh_dim * 3, 128), stride=(129, 1))
+        cute.Float32, cute.make_layout((sh_gradient_dim * 3, 128), stride=(129, 1))
     )
     gid = bidx * bdx + tidx
     valid = gid < capacity
@@ -74,7 +75,7 @@ def _projection_backward_kernel(
             for component in cutlass.range_constexpr(4):
                 out_rotation[output_index * 4 + component] = cute.Float32(0)
             out_opacity[output_index] = cute.Float32(0)
-            for component in cutlass.range_constexpr(sh_dim * 3):
+            for component in cutlass.range_constexpr(sh_gradient_dim * 3):
                 sh_cache[component, tidx] = cute.Float32(0)
     if has_gradient:
         wx, wy, wz = xyz[gid * 3], xyz[gid * 3 + 1], xyz[gid * 3 + 2]
@@ -243,7 +244,9 @@ def _projection_backward_kernel(
         gdz = cute.Float32(0.0)
         for channel in cutlass.range_constexpr(3):
             base = gid * sh_dim * 3 + channel
-            for coefficient in cutlass.range_constexpr((degree + 1) * (degree + 1), sh_dim):
+            for coefficient in cutlass.range_constexpr(
+                (degree + 1) * (degree + 1), sh_gradient_dim
+            ):
                 sh_cache[coefficient * 3 + channel, tidx] = cute.Float32(0.0)
             gc = cute.Float32(0.0)
             if color[gid * 3 + channel] > 0.0:
@@ -332,10 +335,10 @@ def _projection_backward_kernel(
     # thread reach the barrier before reading other threads' SH gradients.
     if active_block:
         cute.arch.sync_threads()
-        for offset in cutlass.range_constexpr(sh_dim * 3):
+        for offset in cutlass.range_constexpr(sh_gradient_dim * 3):
             flat = offset * 128 + tidx
-            point = bidx * 128 + flat // (sh_dim * 3)
-            coefficient = flat % (sh_dim * 3)
+            point = bidx * 128 + flat // (sh_gradient_dim * 3)
+            coefficient = flat % (sh_gradient_dim * 3)
             write = point < capacity
             if cutlass.const_expr(compacted):
                 write = write and point < cluster_count[0] * cluster_size
@@ -343,13 +346,13 @@ def _projection_backward_kernel(
                     point = cluster_ids[point // cluster_size] * cluster_size + point % cluster_size
                     write = point < capacity
             output_point = (
-                bidx * 128 + flat // (sh_dim * 3)
+                bidx * 128 + flat // (sh_gradient_dim * 3)
                 if cutlass.const_expr(compact_gradients)
                 else point
             )
             if write:
-                out_sh[output_point * sh_dim * 3 + coefficient] = sh_cache[
-                    coefficient, flat // (sh_dim * 3)
+                out_sh[output_point * sh_gradient_dim * 3 + coefficient] = sh_cache[
+                    coefficient, flat // (sh_gradient_dim * 3)
                 ]
 
 
@@ -381,6 +384,7 @@ def launch_projection_backward(
     *,
     capacity: int,
     sh_dim: cutlass.Constexpr,
+    sh_gradient_dim: cutlass.Constexpr,
     degree: cutlass.Constexpr,
     near: float,
     cluster_size: cutlass.Constexpr,
@@ -393,9 +397,9 @@ def launch_projection_backward(
         from .cluster_compact import _clear_parameter_grads
 
         _clear_parameter_grads(
-            out_xyz, out_log_scale, out_rotation, out_opacity, out_sh, capacity, sh_dim
+            out_xyz, out_log_scale, out_rotation, out_opacity, out_sh, capacity, sh_gradient_dim
         ).launch(
-            grid=[(capacity * max(sh_dim * 3, 4) + 255) // 256, 1, 1],
+            grid=[(capacity * max(sh_gradient_dim * 3, 4) + 255) // 256, 1, 1],
             block=[256, 1, 1],
             stream=stream,
         )
@@ -424,6 +428,7 @@ def launch_projection_backward(
         out_sh,
         capacity,
         sh_dim,
+        sh_gradient_dim,
         degree,
         near,
         cluster_size,

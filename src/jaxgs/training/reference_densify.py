@@ -3,12 +3,12 @@ import jax
 import jax.numpy as jnp
 
 from ..render.projection import quaternion_to_matrix
-from ..scene.point import GaussianPool
+from ..scene.point import GaussianArrays
 from .optimizer import AdamState, reset_adam_slots
 
 
 def densify_step(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     state: AdamState,
     gradient_stats: chex.Array,
     key: chex.Array,
@@ -17,7 +17,7 @@ def densify_step(
     threshold: float,
     split_scale: float = 0.05,
     allocator: str = "jax",
-) -> tuple[GaussianPool, AdamState, chex.Array]:
+) -> tuple[GaussianArrays, AdamState, chex.Array]:
     """Clone small Gaussians and split large ones into free fixed-capacity slots."""
     capacity = pool.xyz.shape[0]
     if not 0 < max_new <= capacity:
@@ -76,8 +76,8 @@ def densify_step(
 
 
 def reset_opacity(
-    pool: GaussianPool, state: AdamState, max_alpha: float = 0.01
-) -> tuple[GaussianPool, AdamState]:
+    pool: GaussianArrays, state: AdamState, max_alpha: float = 0.01
+) -> tuple[GaussianArrays, AdamState]:
     alpha = jax.nn.sigmoid(pool.opacity)
     logit = jnp.log(max_alpha / (1 - max_alpha))
     reset = pool.alive & (alpha[:, 0] > max_alpha)

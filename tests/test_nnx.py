@@ -6,28 +6,30 @@ import numpy as np
 import pytest
 from flax import nnx
 
-from jaxgs import Camera, CapacityConfig, GaussianModel, create_pool, seed_pool
+from jaxgs import Camera, CapacityConfig, GaussianModel, create_gaussians, seed_gaussians
 
 
 def test_model_parameters_pool_views_and_fixed_shape_updates():
-    pool = seed_pool(
-        create_pool(CapacityConfig(4, 1, 4, 4, 1)), jnp.array([[0.0, 0.0, 2.0]]), jnp.ones((1, 3))
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(4, 1, 4, 4, 1)),
+        jnp.array([[0.0, 0.0, 2.0]]),
+        jnp.ones((1, 3)),
     )
     model = GaussianModel(pool)
     assert set(nnx.state(model, nnx.Param)) == {"xyz", "log_scale", "rotation", "opacity", "sh"}
     for name in pool.__dataclass_fields__:
-        assert getattr(model.as_pool(), name) is getattr(pool, name)
+        assert getattr(model.as_arrays(), name) is getattr(pool, name)
     graph, state = nnx.split(model)
     restored = nnx.merge(graph, state)
     for actual, expected in zip(
-        jax.tree.leaves(restored.as_pool()), jax.tree.leaves(pool), strict=True
+        jax.tree.leaves(restored.as_arrays()), jax.tree.leaves(pool), strict=True
     ):
         np.testing.assert_array_equal(actual, expected)
 
     @nnx.jit(graph=False)
     def activate(model, slot):
-        pool = model.as_pool()
-        model.update_from_pool(
+        pool = model.as_arrays()
+        model.update_from_arrays(
             pool.replace(
                 alive=pool.alive.at[slot].set(True),
                 free_mask=pool.free_mask.at[slot].set(False),
@@ -62,8 +64,8 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
 
     config = CapacityConfig(128, 128, 128, 16, 3, 512, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 24, 24, 16, 8, 32, 16)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.1, 0.0, 2.0], [0.2, 0.1, 3.0]]),
         jnp.array([[0.4, 0.3, 0.2], [0.2, 0.5, 0.6]]),
         scale=jnp.array([[0.15, 0.2, 0.3], [0.18, 0.25, 0.22]]),
@@ -82,7 +84,7 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
     bounds = world_cluster_bounds(pool, config.cluster_size)
     target = jnp.full((16, 32, 3), 32, jnp.uint8)
     model = GaussianModel(jax.tree.map(lambda x: x.copy(), pool))
-    nnx_state = create_adam_state(model.as_pool())
+    nnx_state = create_adam_state(model.as_arrays())
     nnx_stats = stats.copy()
     training = TrainingState(model, nnx_state, nnx_stats)
     update = bind_train_step(training) if bound else train_step
@@ -90,7 +92,7 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
     overflow, peak = jnp.array(False), jnp.array(0, jnp.int32)
     old_xyz = model.xyz.get_value()
     fields = ("xyz", "log_scale", "rotation", "opacity", "sh")
-    buffers = [getattr(model.as_pool(), name) for name in fields]
+    buffers = [getattr(model.as_arrays(), name) for name in fields]
     buffers += [getattr(moment, name) for moment in (nnx_state.m, nnx_state.v) for name in fields]
     pointers = [value.unsafe_buffer_pointer() for value in buffers]
     assert len(set(pointers)) == len(pointers)
@@ -129,12 +131,12 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
             nnx_stats = training.fragments.get_value()
         else:
             nnx_state, nnx_stats, loss, overflow, peak = update(nnx_state, nnx_stats, model, *args)
-        actual = (model.as_pool(), nnx_state, nnx_stats, loss)
+        actual = (model.as_arrays(), nnx_state, nnx_stats, loss)
         expected = (pool, state, stats, metrics["loss"])
         for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
             np.testing.assert_allclose(a, b, rtol=2e-5, atol=2e-6)
         assert not bool(overflow)
-        buffers = [getattr(model.as_pool(), name) for name in fields]
+        buffers = [getattr(model.as_arrays(), name) for name in fields]
         buffers += [
             getattr(moment, name) for moment in (nnx_state.m, nnx_state.v) for name in fields
         ]

@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 from plyfile import PlyData
 
-from jaxgs import CapacityConfig, create_pool, estimate_initial_scales, seed_pool
+from jaxgs import CapacityConfig, create_gaussians, estimate_initial_scales, seed_gaussians
 from jaxgs.io_manager.colmap import load_colmap_images, load_colmap_points
 from jaxgs.kernels.projector import project_cute
 from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
@@ -33,7 +33,7 @@ def load_gaussian_ply(path: Path, config: CapacityConfig):
     def fields(names):
         return np.stack([vertices[name] for name in names], axis=-1).astype(np.float32)
 
-    pool = create_pool(config)
+    pool = create_gaussians(config)
     sh = np.zeros((count, config.sh_dim, 3), np.float32)
     sh[:, 0] = fields([f"f_dc_{i}" for i in range(3)])
     if config.sh_dim > 1:
@@ -88,8 +88,8 @@ def main():
         xyz, rgb = load_colmap_points(args.scene)
         if len(xyz) > args.capacity:
             parser.error("sparse point cloud exceeds --capacity")
-        pool = seed_pool(
-            create_pool(config), xyz, rgb, scale=estimate_initial_scales(xyz), opacity=0.1
+        pool = seed_gaussians(
+            create_gaussians(config), xyz, rgb, scale=estimate_initial_scales(xyz), opacity=0.1
         )
     state = create_adam_state(pool)
     frame = frames[0]

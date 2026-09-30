@@ -11,7 +11,7 @@ import pytest
 from PIL import Image
 
 from jaxgs.config import load_config
-from jaxgs.io_manager.checkpoint import load_pool, save_pool
+from jaxgs.io_manager.checkpoint import load_gaussians, save_gaussians
 from jaxgs.training.trainer import load_training_frames, train
 
 
@@ -75,7 +75,7 @@ def test_training_rejects_incomplete_epoch_and_invalid_cloud(scene):
     ],
 )
 def test_training_report_preserves_checkpoint(tmp_path, filename, report_name):
-    from jaxgs.scene.point import create_pool, seed_pool
+    from jaxgs.scene.point import create_gaussians, seed_gaussians
     from jaxgs.training.trainer import _write_training_report
 
     settings = load_config()
@@ -84,8 +84,8 @@ def test_training_report_preserves_checkpoint(tmp_path, filename, report_name):
         densify=replace(settings.densify, target_primitives=2),
         runtime=replace(settings.runtime, max_gaussians=2),
     )
-    pool = seed_pool(
-        create_pool(settings.capacity), jnp.array([[0.1, 0.2, 2.0]]), jnp.full((1, 3), 0.4)
+    pool = seed_gaussians(
+        create_gaussians(settings.capacity), jnp.array([[0.1, 0.2, 2.0]]), jnp.full((1, 3), 0.4)
     )
     metrics = {
         "scene": str(tmp_path),
@@ -104,7 +104,7 @@ def test_training_report_preserves_checkpoint(tmp_path, filename, report_name):
     output = tmp_path / "output" / filename
     report = _write_training_report(output, pool, settings, metrics)
     for actual, expected in zip(
-        jax.tree.leaves(load_pool(output)), jax.tree.leaves(pool), strict=True
+        jax.tree.leaves(load_gaussians(output)), jax.tree.leaves(pool), strict=True
     ):
         np.testing.assert_array_equal(actual, expected)
     assert json.loads((output.parent / report_name).read_text()) == json.loads(json.dumps(report))
@@ -179,7 +179,7 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
     for value, snapshot in zip(originals, snapshots, strict=True):
         np.testing.assert_array_equal(value, snapshot)
     restored = jax.tree.leaves(
-        (training.model.as_pool(), training.adam.get_value(), training.fragments.get_value())
+        (training.model.as_arrays(), training.adam.get_value(), training.fragments.get_value())
     )
     assert all(value is original for value, original in zip(restored, originals, strict=True))
     if not fail:
@@ -252,7 +252,7 @@ def test_complete_training_schedule_and_checkpoint(scene, monkeypatch):
     assert any(row["born"] > 0 for row in history)
     assert all(row["born"] == 0 for row in history if row["epoch"] not in (5, 10))
     assert all(np.isfinite(row["loss"]) and row["peak_pairs"] <= 4096 for row in history)
-    pool = load_pool(scene / "output" / "pool.npz")
+    pool = load_gaussians(scene / "output" / "pool.npz")
     assert pool.xyz.shape == (512, 3) and pool.sh.shape == (512, 4, 3)
     assert int(pool.n_active) == report["final_gaussians"]
     np.testing.assert_array_equal(pool.free_mask, ~pool.alive)
@@ -260,9 +260,9 @@ def test_complete_training_schedule_and_checkpoint(scene, monkeypatch):
     # Shared checkpoint helpers preserve occupancy and every parameter, even
     # when the caller chooses a suffix other than .npz.
     copy = scene / "copy.checkpoint"
-    save_pool(copy, pool)
+    save_gaussians(copy, pool)
     for actual, expected in zip(
-        jax.tree.leaves(load_pool(copy)), jax.tree.leaves(pool), strict=True
+        jax.tree.leaves(load_gaussians(copy)), jax.tree.leaves(pool), strict=True
     ):
         np.testing.assert_array_equal(actual, expected)
     assert json.loads((scene / "output" / "pool.json").read_text())["config"] == json.loads(
@@ -360,6 +360,6 @@ def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch):
     assert report["config"]["optimization"]["iterations"] == 3
     assert report["config"]["optimization"]["position_lr_max_steps"] == 30000
     assert report["config"]["model"]["sh_degree"] == 0
-    pool = load_pool(output)
+    pool = load_gaussians(output)
     assert pool.xyz.shape == (256, 3) and pool.sh.shape == (256, 1, 3)
     assert int(pool.n_active) == 256

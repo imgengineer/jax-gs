@@ -10,7 +10,7 @@ from ..config import CapacityConfig
 
 
 @struct.dataclass
-class GaussianPool:
+class GaussianArrays:
     """Gaussian parameters, live slots and free slots in one fixed-capacity tree."""
 
     xyz: chex.Array  # [C, 3]
@@ -24,40 +24,43 @@ class GaussianPool:
 
 
 class GaussianModel(nnx.Module):
-    """Fixed-capacity NNX parameters and occupancy; pool views share buffers."""
+    """Fixed-capacity NNX parameters and occupancy; array views share buffers."""
 
-    def __init__(self, pool: GaussianPool):
-        capacity = pool.xyz.shape[0]
-        chex.assert_shape([pool.xyz, pool.log_scale], (capacity, 3))
-        chex.assert_shape(pool.rotation, (capacity, 4))
-        chex.assert_shape(pool.opacity, (capacity, 1))
-        chex.assert_shape(pool.sh, (capacity, None, 3))
-        chex.assert_shape([pool.alive, pool.free_mask], (capacity,))
-        chex.assert_shape(pool.n_active, ())
-        chex.assert_type([pool.alive, pool.free_mask], jnp.bool_)
-        self.xyz = nnx.Param(pool.xyz)
-        self.log_scale = nnx.Param(pool.log_scale)
-        self.rotation = nnx.Param(pool.rotation)
-        self.opacity = nnx.Param(pool.opacity)
-        self.sh = nnx.Param(pool.sh)
-        self.alive = nnx.Variable(pool.alive)
-        self.free_mask = nnx.Variable(pool.free_mask)
-        self.n_active = nnx.Variable(pool.n_active)
+    def __init__(self, arrays: GaussianArrays):
+        capacity = arrays.xyz.shape[0]
+        chex.assert_shape([arrays.xyz, arrays.log_scale], (capacity, 3))
+        chex.assert_shape(arrays.rotation, (capacity, 4))
+        chex.assert_shape(arrays.opacity, (capacity, 1))
+        chex.assert_shape(arrays.sh, (capacity, None, 3))
+        chex.assert_shape([arrays.alive, arrays.free_mask], (capacity,))
+        chex.assert_shape(arrays.n_active, ())
+        chex.assert_type([arrays.alive, arrays.free_mask], jnp.bool_)
+        self.xyz = nnx.Param(arrays.xyz)
+        self.log_scale = nnx.Param(arrays.log_scale)
+        self.rotation = nnx.Param(arrays.rotation)
+        self.opacity = nnx.Param(arrays.opacity)
+        self.sh = nnx.Param(arrays.sh)
+        self.alive = nnx.Variable(arrays.alive)
+        self.free_mask = nnx.Variable(arrays.free_mask)
+        self.n_active = nnx.Variable(arrays.n_active)
 
-    def as_pool(self) -> GaussianPool:
+    def as_arrays(self) -> GaussianArrays:
         """Expose arrays to the CuTe/custom-VJP kernels without copying them."""
-        return GaussianPool(
-            **{name: getattr(self, name).get_value() for name in GaussianPool.__dataclass_fields__}
+        return GaussianArrays(
+            **{
+                name: getattr(self, name).get_value()
+                for name in GaussianArrays.__dataclass_fields__
+            }
         )
 
-    def update_from_pool(self, pool: GaussianPool) -> None:
-        for name in GaussianPool.__dataclass_fields__:
-            getattr(self, name).set_value(getattr(pool, name))
+    def update_from_arrays(self, arrays: GaussianArrays) -> None:
+        for name in GaussianArrays.__dataclass_fields__:
+            getattr(self, name).set_value(getattr(arrays, name))
 
 
-def create_pool(config: CapacityConfig) -> GaussianPool:
+def create_gaussians(config: CapacityConfig) -> GaussianArrays:
     capacity = config.max_gaussians
-    return GaussianPool(
+    return GaussianArrays(
         xyz=jnp.zeros((capacity, 3), jnp.float32),
         log_scale=jnp.zeros((capacity, 3), jnp.float32),
         rotation=jnp.tile(jnp.array([1.0, 0.0, 0.0, 0.0], jnp.float32), (capacity, 1)),
@@ -69,14 +72,14 @@ def create_pool(config: CapacityConfig) -> GaussianPool:
     )
 
 
-def seed_pool(
-    pool: GaussianPool,
+def seed_gaussians(
+    pool: GaussianArrays,
     xyz: chex.Array,
     rgb: chex.Array,
     scale: float | chex.Array = 0.01,
     opacity: float = 0.1,
-) -> GaussianPool:
-    """Seed a new pool once; subsequent births use fixed-size slot allocation."""
+) -> GaussianArrays:
+    """Seed fixed arrays once; subsequent births use fixed-size slot allocation."""
     from ..reference.sh import C0
 
     point_count = xyz.shape[0]

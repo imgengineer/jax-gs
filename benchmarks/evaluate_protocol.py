@@ -13,13 +13,13 @@ def evaluate_jax(args):
     from flax import nnx
 
     from jaxgs import CapacityConfig, GaussianModel
-    from jaxgs.io_manager.checkpoint import load_pool
+    from jaxgs.io_manager.checkpoint import load_gaussians
     from jaxgs.io_manager.colmap import load_colmap_images
     from jaxgs.kernels.packed_rasterizer import packed_forward
     from jaxgs.kernels.projector import project_cute
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
 
-    pool = load_pool(args.model)
+    pool = load_gaussians(args.model)
     sh_dims = (1, 4, 9, 16)
     if pool.sh.shape[1] not in sh_dims:
         raise ValueError("checkpoint SH dimension must be 1, 4, 9 or 16")
@@ -29,7 +29,7 @@ def evaluate_jax(args):
 
     @nnx.jit(graph=False)
     def render(model, camera):
-        projected = project_cute(model.as_pool(), camera, config)
+        projected = project_cute(model.as_arrays(), camera, config)
         table = build_sorted_visibility_table_cute(projected, camera, config)
         image, _, _ = packed_forward(projected, table, camera, config)
         return jnp.clip(image, 0, 1), table.overflow

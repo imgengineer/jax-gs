@@ -171,6 +171,7 @@ def _backward(
     tiles_x: int,
     tiles: int,
     collect_stats: cutlass.Constexpr,
+    symmetric_conic: cutlass.Constexpr,
 ):
     tid, _, _ = cute.arch.thread_idx()
     block, _, _ = cute.arch.block_idx()
@@ -301,8 +302,11 @@ def _backward(
                     cute.arch.atomic_add(gmean.iterator + g * 2, gx)
                     cute.arch.atomic_add(gmean.iterator + g * 2 + 1, gy)
                     cute.arch.atomic_add(gconic.iterator + g * 4, gc00)
-                    cute.arch.atomic_add(gconic.iterator + g * 4 + 1, gc01)
-                    cute.arch.atomic_add(gconic.iterator + g * 4 + 2, gc01)
+                    if cutlass.const_expr(symmetric_conic):
+                        cute.arch.atomic_add(gconic.iterator + g * 4 + 1, gc01 * 2)
+                    else:
+                        cute.arch.atomic_add(gconic.iterator + g * 4 + 1, gc01)
+                        cute.arch.atomic_add(gconic.iterator + g * 4 + 2, gc01)
                     cute.arch.atomic_add(gconic.iterator + g * 4 + 3, gc11)
                     cute.arch.atomic_add(gcolor.iterator + g * 3, h.get(rg_sum) * norm)
                     cute.arch.atomic_add(gcolor.iterator + g * 3 + 1, h.get(rg_sum, True) * norm)
@@ -387,6 +391,7 @@ def launch_backward(
     tile_height: cutlass.Constexpr,
     capacity: int,
     collect_stats: cutlass.Constexpr,
+    symmetric_conic: cutlass.Constexpr = False,
 ):
     tiles_x = (width + tile_size - 1) // tile_size
     tiles = tiles_x * ((height + tile_height - 1) // tile_height)
@@ -417,4 +422,5 @@ def launch_backward(
         tiles_x,
         tiles,
         collect_stats,
+        symmetric_conic,
     ).launch(grid=[tiles, 1, 1], block=[32, 1, 1], stream=stream)

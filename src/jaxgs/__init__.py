@@ -3,19 +3,19 @@
 from .config import CapacityConfig
 from .scene.camera import Camera
 from .scene.point import (
+    GaussianArrays,
     GaussianModel,
-    GaussianPool,
-    create_pool,
+    create_gaussians,
     estimate_initial_scales,
-    seed_pool,
+    seed_gaussians,
 )
 
 __all__ = [
     "Camera",
     "CapacityConfig",
     "GaussianModel",
-    "GaussianPool",
-    "create_pool",
+    "GaussianArrays",
+    "create_gaussians",
     "estimate_initial_scales",
-    "seed_pool",
+    "seed_gaussians",
 ]

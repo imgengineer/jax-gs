@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from ..training.optimizer import AdamState
-from .point import GaussianPool
+from .point import GaussianArrays
 
 
 def _spread_bits(value: chex.Array) -> chex.Array:
@@ -16,7 +16,7 @@ def _spread_bits(value: chex.Array) -> chex.Array:
 
 
 @jax.jit
-def reorder_pool(pool: GaussianPool, state: AdamState) -> tuple[GaussianPool, AdamState]:
+def reorder_gaussians(pool: GaussianArrays, state: AdamState) -> tuple[GaussianArrays, AdamState]:
     """Group live slots by 3D Morton order without changing pool or Adam shapes."""
     lower = jnp.min(jnp.where(pool.alive[:, None], pool.xyz, jnp.inf), axis=0)
     upper = jnp.max(jnp.where(pool.alive[:, None], pool.xyz, -jnp.inf), axis=0)

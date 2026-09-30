@@ -7,7 +7,7 @@ import optax
 from flax import struct
 
 from ..config import OptimizationConfig, load_config
-from ..scene.point import GaussianPool
+from ..scene.point import GaussianArrays
 from ..scene.types import PARAMETER_NAMES, ParameterArrays, ParameterGradients, VisibleClusters
 
 _DEFAULT_OPTIMIZATION = load_config().optimization
@@ -20,21 +20,21 @@ class AdamState:
     step: chex.Array  # [C], reset when a slot is reused
 
 
-def create_adam_state(pool: GaussianPool) -> AdamState:
+def create_adam_state(pool: GaussianArrays) -> AdamState:
     """Initialize independent first and second moments for every pool slot."""
     parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))
     return _ADAM_TRANSFORM.init(parameters)
 
 
 def masked_adam_update(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     state: AdamState,
     gradients: ParameterGradients,
     learning_rate: float = 1e-3,
     beta1: float = 0.9,
     beta2: float = 0.999,
     eps: float = 1e-8,
-) -> tuple[GaussianPool, AdamState]:
+) -> tuple[GaussianArrays, AdamState]:
     """Reference Adam with bias correction, restricted to live pool slots."""
     update_counts = state.step + pool.alive.astype(jnp.int32)
     updated_pool = pool
@@ -171,7 +171,7 @@ _ADAM_TRANSFORM = create_adam_transform()
 
 
 def optax_adam_update(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     state: AdamState,
     gradients: ParameterGradients,
     visible: chex.Array,
@@ -182,8 +182,19 @@ def optax_adam_update(
     cluster_size: int = 128,
     compact_gradients: bool = False,
     optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
-) -> tuple[GaussianPool, AdamState]:
-    """Apply the Optax transformation to fixed pool slots under nnx.jit."""
+    active_degree: int | None = None,
+) -> tuple[GaussianArrays, AdamState]:
+    """Apply Optax to fixed pool slots, preserving momentum in every SH band.
+
+    active_degree declares that higher-order projection gradients are zero.
+    Their moments still decay and update parameters when slots are visible.
+    """
+    sh_dim = pool.sh.shape[1]
+    active_sh_dim = sh_dim if active_degree is None else (active_degree + 1) ** 2
+    if active_degree is not None and (active_degree < 0 or active_sh_dim > sh_dim):
+        raise ValueError("active_degree must fit the pool's SH coefficients")
+    if active_sh_dim < sh_dim:
+        gradients = (*gradients[:-1], gradients[-1][:, :active_sh_dim])
     active_slots = visible & pool.alive
     if compact_gradients:
         # compact_visible_clusters preserves cluster order. Invert that order
@@ -201,6 +212,13 @@ def optax_adam_update(
             jnp.take(gradient, compact_indices, axis=0, mode="fill", fill_value=0)
             for gradient in gradients
         )
+    if active_sh_dim < sh_dim:
+        # XLA broadcasts the constant tail in the update fusion. No full-size
+        # compact-gradient gather is needed for unused SH coefficients.
+        gradients = (
+            *gradients[:-1],
+            jnp.pad(gradients[-1], ((0, 0), (0, sh_dim - active_sh_dim), (0, 0))),
+        )
     parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))
     learning_rates = _parameter_learning_rates(
         pool.sh.shape[1], step, spatial_scale, max_steps, optimization
@@ -213,7 +231,7 @@ def optax_adam_update(
 
 
 def sparse_adam_update(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     state: AdamState,
     gradients: ParameterGradients,
     visible: chex.Array,
@@ -225,7 +243,7 @@ def sparse_adam_update(
     cluster_size: int = 128,
     compact_gradients: bool = False,
     optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
-) -> tuple[GaussianPool, AdamState]:
+) -> tuple[GaussianArrays, AdamState]:
     """LiteGS sparse Adam: per-field rates, no bias correction, eps=1e-15.
 
     Matches litegs/training/optimizer.py and compact.cu::adamUpdate. The

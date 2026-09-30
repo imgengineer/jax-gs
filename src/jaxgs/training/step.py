@@ -1,6 +1,7 @@
 """Compiled array and NNX training steps, independent of host orchestration."""
 
 from collections.abc import Callable
+from functools import partial
 
 import chex
 import jax
@@ -11,7 +12,7 @@ from ..config import CapacityConfig, OptimizationConfig, load_config
 from ..render.types import FragmentStatistics
 from ..scene.camera import Camera
 from ..scene.cluster import frustum_cluster_mask
-from ..scene.point import GaussianModel, GaussianPool
+from ..scene.point import GaussianArrays, GaussianModel
 from ..scene.types import WorldClusterBounds
 from .optimizer import AdamState, optax_adam_update, sparse_adam_update
 from .state import TrainingState
@@ -28,7 +29,7 @@ _STATIC_ARGUMENTS = (
 
 
 def compute_training_step(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     state: AdamState,
     stats: FragmentStatistics,
     bounds: WorldClusterBounds,
@@ -42,7 +43,7 @@ def compute_training_step(
     max_steps: int | None = None,
     optimizer: str = "optax",
     optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
-) -> tuple[GaussianPool, AdamState, FragmentStatistics, dict[str, chex.Array]]:
+) -> tuple[GaussianArrays, AdamState, FragmentStatistics, dict[str, chex.Array]]:
     """Pure array computation shared by the JAX and NNX compilation boundaries."""
     from ..kernels.cluster_compact import compact_visible_clusters
     from ..kernels.packed_rasterizer import packed_loss_and_grad
@@ -61,13 +62,18 @@ def compute_training_step(
         active_degree,
         visible_clusters,
         rgb_only=True,
+        active_sh_only=optimizer == "optax",
     )
     visibility_table = build_sorted_visibility_table_cute(
         jax.lax.stop_gradient(projected_gaussians), camera, config
     )
     # LiteGS's half2 kernel needs at least 64 pixels per tile. Small diagnostic
     # scenes retain the float32 path; production uses LiteGS's packed path.
-    loss_and_grad = packed_loss_and_grad if config.tile_size in (8, 16) else rasterize_loss_and_grad
+    loss_and_grad = (
+        partial(packed_loss_and_grad, symmetric_conic=True)
+        if config.tile_size in (8, 16)
+        else rasterize_loss_and_grad
+    )
     loss, projected_gradients, fragment_stats = loss_and_grad(
         projected_gaussians,
         visibility_table,
@@ -89,6 +95,7 @@ def compute_training_step(
             cluster_size=config.cluster_size,
             compact_gradients=True,
             optimization=optimization,
+            active_degree=active_degree,
         )
     elif optimizer == "cute":
         pool, state = sparse_adam_update(
@@ -142,7 +149,7 @@ def _update_model(
     # NNX appends mutated Variables after explicit outputs. Keep state/stats
     # before the model so XLA pairs each donated buffer with its own output.
     pool, state, stats, metrics = compute_training_step(
-        model.as_pool(),
+        model.as_arrays(),
         state,
         stats,
         bounds,
@@ -157,7 +164,7 @@ def _update_model(
         optimizer,
         optimization,
     )
-    model.update_from_pool(pool)
+    model.update_from_arrays(pool)
     return (
         state,
         stats,

@@ -16,18 +16,18 @@ import numpy as np
 from ..config import CapacityConfig, TrainingConfig, load_config
 from ..config.training import ModelConfig
 from ..data import Frame, image_dataset
-from ..io_manager.checkpoint import save_pool
+from ..io_manager.checkpoint import save_gaussians
 from ..io_manager.colmap import load_colmap_images, load_colmap_points
 from ..scene.camera import Camera
 from ..scene.cluster import world_cluster_bounds
 from ..scene.point import (
+    GaussianArrays,
     GaussianModel,
-    GaussianPool,
-    create_pool,
+    create_gaussians,
     estimate_initial_scales,
-    seed_pool,
+    seed_gaussians,
 )
-from ..scene.spatial_refine import reorder_pool
+from ..scene.spatial_refine import reorder_gaussians
 from ..scene.types import WorldClusterBounds
 from .densify import decay_opacity, densify_step
 from .optimizer import AdamState, create_adam_state
@@ -58,7 +58,7 @@ def load_training_frames(scene: str | Path, model_config: ModelConfig) -> list[F
 
 def _initialize_pool(
     scene: str | Path, config: CapacityConfig
-) -> tuple[GaussianPool, AdamState, int, int]:
+) -> tuple[GaussianArrays, AdamState, int, int]:
     """Create the fixed pool; return sparse and cluster-padded initial counts."""
     xyz, rgb = load_colmap_points(scene)
     initial_point_count = len(xyz)
@@ -74,8 +74,8 @@ def _initialize_pool(
     )
     if len(point_indices) > config.max_gaussians:
         raise ValueError("initial cloud including cluster padding exceeds capacity")
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         xyz[point_indices],
         rgb[point_indices],
         scale=initial_scales[point_indices],
@@ -103,7 +103,7 @@ def _precompile_training(
     optimization, densification = settings.optimization, settings.densify
     optimizer = settings.runtime.optimizer
     warmup_start = perf_counter()
-    pool = training_state.model.as_pool()
+    pool = training_state.model.as_arrays()
     adam_state = training_state.adam.get_value()
     fragment_stats = training_state.fragments.get_value()
     # Donation consumes only this working copy; reuse its returned buffers
@@ -111,7 +111,7 @@ def _precompile_training(
     warm_pool, warm_adam_state, warm_fragment_stats = jax.tree.map(
         jnp.copy, (pool, adam_state, fragment_stats)
     )
-    training_state.model.update_from_pool(warm_pool)
+    training_state.model.update_from_arrays(warm_pool)
     training_state.adam.set_value(warm_adam_state)
     training_state.fragments.set_value(warm_fragment_stats)
     try:
@@ -143,11 +143,11 @@ def _precompile_training(
                             step_result,
                             training_state.adam.get_value(),
                             training_state.fragments.get_value(),
-                            training_state.model.as_pool(),
+                            training_state.model.as_arrays(),
                         )
                     )
     finally:
-        training_state.model.update_from_pool(pool)
+        training_state.model.update_from_arrays(pool)
         training_state.adam.set_value(adam_state)
         training_state.fragments.set_value(fragment_stats)
     densify_step.lower(
@@ -161,19 +161,19 @@ def _precompile_training(
         percent_dense=densification.percent_dense,
     ).compile()
     jax.block_until_ready(decay_opacity(pool, adam_state))
-    jax.block_until_ready(reorder_pool(pool, adam_state))
+    jax.block_until_ready(reorder_gaussians(pool, adam_state))
     return perf_counter() - warmup_start
 
 
 def _write_training_report(
     output: str | Path,
-    pool: GaussianPool,
+    pool: GaussianArrays,
     settings: TrainingConfig,
     metrics: dict[str, object],
 ) -> dict[str, object]:
     """Save the final pool and preserve the training report schema."""
     output = Path(output)
-    save_pool(output, pool)
+    save_gaussians(output, pool)
     capacity_config = settings.capacity
     report = {
         "scene": metrics["scene"],
@@ -315,8 +315,8 @@ def train(
     step = 0
     for epoch in range(num_epochs):
         if (epoch - 1) % densify_interval == 0:
-            pool, adam_state = reorder_pool(model.as_pool(), adam_state)
-            model.update_from_pool(pool)
+            pool, adam_state = reorder_gaussians(model.as_arrays(), adam_state)
+            model.update_from_arrays(pool)
             training_state.adam.set_value(adam_state)
             cluster_bounds = world_cluster_bounds(pool, capacity_config.cluster_size)
         collect_stats = densify_from <= epoch < densify_until and epoch % densify_interval == 0
@@ -343,7 +343,7 @@ def train(
         if bool(overflow):
             raise RuntimeError(f"epoch {epoch}: {int(peak_pairs)} pairs exceed {pair_capacity}")
         born_count, pruned_count = 0, 0
-        pool = model.as_pool()
+        pool = model.as_arrays()
         if collect_stats:
             target_count = int(
                 (target_points - initial_sparse_count)
@@ -366,7 +366,7 @@ def train(
         if densify_from <= epoch < densify_until and epoch % opacity_reset_interval == 0:
             pool, adam_state = decay_opacity(pool, adam_state)
             adam_state = adam_state.replace(v=jax.tree.map(jnp.copy, adam_state.v))
-        model.update_from_pool(pool)
+        model.update_from_arrays(pool)
         training_state.adam.set_value(adam_state)
         training_state.fragments.set_value(fragment_stats)
         row = {

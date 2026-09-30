@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import Camera, CapacityConfig, GaussianModel, create_pool, seed_pool
+from jaxgs import Camera, CapacityConfig, GaussianModel, create_gaussians, seed_gaussians
 from jaxgs.training.optimizer import create_adam_state, optax_adam_update
 
 
@@ -22,7 +22,7 @@ from jaxgs.training.optimizer import create_adam_state, optax_adam_update
     ],
 )
 def test_model_rejects_inconsistent_pool_layout(field, shape, dtype):
-    pool = create_pool(CapacityConfig(2, sh_degree=0))
+    pool = create_gaussians(CapacityConfig(2, sh_degree=0))
     pool = pool.replace(**{field: jnp.zeros(shape, dtype)})
     with pytest.raises(AssertionError, match="Chex"):
         GaussianModel(pool)
@@ -56,8 +56,8 @@ def test_camera_numeric_input_types_share_one_compilation():
 
 @pytest.mark.parametrize("invalid", ["mask", "moment_shape", "gradient_dtype", "step_rank"])
 def test_optimizer_rejects_incompatible_state_at_trace_time(invalid):
-    pool = seed_pool(
-        create_pool(CapacityConfig(2, sh_degree=0)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(2, sh_degree=0)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
     )
     state = create_adam_state(pool)
     fields = ("xyz", "log_scale", "rotation", "opacity", "sh")
@@ -77,8 +77,8 @@ def test_optimizer_rejects_incompatible_state_at_trace_time(invalid):
 
 
 def test_static_checks_do_not_add_device_work_or_retrace(monkeypatch):
-    pool = seed_pool(
-        create_pool(CapacityConfig(2, sh_degree=0)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(2, sh_degree=0)), jnp.ones((1, 3)), jnp.full((1, 3), 0.5)
     )
     state = create_adam_state(pool)
     gradients = tuple(

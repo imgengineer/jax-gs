@@ -80,7 +80,7 @@ def benchmark_jax(args):
 
     def update(training, seen_overflow, step):
         pool, state, stats, metrics = compute_training_step(
-            training.model.as_pool(),
+            training.model.as_arrays(),
             training.adam.get_value(),
             training.fragments.get_value(),
             bounds,
@@ -94,7 +94,7 @@ def benchmark_jax(args):
             optimizer=args.optimizer,
             optimization=optimization,
         )
-        training.model.update_from_pool(pool)
+        training.model.update_from_arrays(pool)
         training.adam.set_value(state)
         training.fragments.set_value(stats)
         return seen_overflow | metrics["overflow"], metrics

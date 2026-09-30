@@ -72,6 +72,7 @@ def build_sorted_visibility_table_cute(
         projected.visible.astype(jnp.int8),
         offsets,
     )
+    # One sort path keeps the training update asynchronous.
     tile_ids, gaussian_ids = jax.lax.sort(
         (tile_ids, gaussian_ids), dimension=0, num_keys=1, is_stable=True
     )

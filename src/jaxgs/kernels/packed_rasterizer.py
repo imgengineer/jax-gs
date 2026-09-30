@@ -65,8 +65,15 @@ def packed_backward(
     camera: Camera,
     config: CapacityConfig,
     collect_stats: bool = False,
+    *,
+    symmetric_conic: bool = False,
 ) -> tuple[ProjectedGaussians, chex.Array]:
-    """Return projected-field cotangents and per-Gaussian squared alpha gradients."""
+    """Return field cotangents and per-Gaussian squared alpha gradients.
+
+    symmetric_conic stores both off-diagonal contributions in [0, 1] for
+    the analytic parameter pullback; [1, 0] remains zero. General VJPs use
+    the default matrix-gradient convention.
+    """
     from cutlass.jax import cutlass_call
 
     from .packed_rasterize import launch_backward
@@ -86,6 +93,7 @@ def packed_backward(
         tile_height=config.raster_tile_height,
         capacity=config.max_gaussians,
         collect_stats=int(collect_stats),
+        symmetric_conic=symmetric_conic,
     )
     params, trans, last = cache
     grads = call(
@@ -110,6 +118,8 @@ def packed_loss_and_grad(
     config: CapacityConfig,
     target: chex.Array,
     collect_stats: bool,
+    *,
+    symmetric_conic: bool = False,
 ) -> tuple[chex.Array, ProjectedGaussians, FragmentStatistics]:
     """Loss, projected-field gradients and detached [C, 4] fragment statistics."""
     from .fused_loss import fused_loss_and_grad
@@ -117,7 +127,14 @@ def packed_loss_and_grad(
     image, cache, fragments = packed_forward(projected, table, camera, config, collect_stats)
     loss, image_grad = fused_loss_and_grad(image, target)
     gradients, alpha_grad_sq_sum = packed_backward(
-        projected, table, cache, image_grad, camera, config, collect_stats
+        projected,
+        table,
+        cache,
+        image_grad,
+        camera,
+        config,
+        collect_stats,
+        symmetric_conic=symmetric_conic,
     )
     stats = (
         jnp.stack((fragments[0::2], fragments[1::2], gradients.alpha, alpha_grad_sq_sum), axis=1)

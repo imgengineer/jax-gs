@@ -5,15 +5,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import Camera, CapacityConfig, create_pool, seed_pool
+from jaxgs import Camera, CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.training.densify import compute_densification_scores, decay_opacity, densify_step
 from jaxgs.training.optimizer import create_adam_state, sparse_adam_update
 
 
 def test_fragment_score_and_append_only_split():
     config = CapacityConfig(4, 1, 4, 4, 0)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
         jnp.ones((2, 3)),
         scale=0.2,
@@ -51,8 +51,8 @@ def test_fragment_score_and_append_only_split():
 
 
 def test_percent_dense_controls_clone_versus_split():
-    pool = seed_pool(
-        create_pool(CapacityConfig(2, 1, 2, 4, 0)),
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(2, 1, 2, 4, 0)),
         jnp.array([[1.0, 2.0, 3.0]]),
         jnp.ones((1, 3)),
         scale=0.2,
@@ -80,9 +80,141 @@ def test_percent_dense_controls_clone_versus_split():
             assert not np.array_equal(updated.xyz[1], pool.xyz[0])
 
 
+@pytest.mark.parametrize("pattern", ["split", "clone", "mixed"])
+@pytest.mark.parametrize(
+    "capacity,active_count,target_count,cluster_size",
+    [(1, 0, 0, 1), (9, 9, 9, 2), (17, 7, 10, 1), (257, 129, 257, 128)],
+)
+def test_densification_preserves_sampled_parent_order(
+    pattern, capacity, active_count, target_count, cluster_size
+):
+    config = CapacityConfig(capacity, cluster_size, 4, 4, 0)
+    pool = seed_gaussians(
+        create_gaussians(config),
+        jnp.zeros((active_count, 3)),
+        jnp.full((active_count, 3), 0.5),
+    )
+    indices = np.arange(capacity)
+    split = (indices % 2 == 0) if pattern == "mixed" else np.full(capacity, pattern == "split")
+    pool = pool.replace(
+        log_scale=jnp.asarray(np.repeat(np.log(np.where(split, 0.2, 0.001))[:, None], 3, axis=1)),
+        sh=pool.sh.at[:, 0, 0].set(jnp.arange(capacity)),
+    )
+    stats = jnp.tile(jnp.array([3.0, 1.0, 2.0, 4.0]), (capacity, 1))
+    key = jax.random.key(23)
+    scores, _ = compute_densification_scores(pool, stats)
+    priorities = jnp.where(
+        pool.alive,
+        jnp.log(jnp.maximum(scores, 1e-30))
+        + jax.random.gumbel(jax.random.split(key)[0], (capacity,)),
+        -jnp.inf,
+    )
+    candidate_count = min(max(target_count - active_count, 1), active_count)
+    sampled = np.argsort(-np.asarray(priorities), kind="stable")[:candidate_count]
+    parents = np.concatenate((sampled[split[sampled]], sampled[~split[sampled]]))
+    birth_count = min(
+        candidate_count // cluster_size * cluster_size,
+        (capacity - active_count) // cluster_size * cluster_size,
+    )
+    state = create_adam_state(pool)
+    state = state.replace(
+        m=jax.tree.map(jnp.ones_like, state.m), v=jax.tree.map(jnp.ones_like, state.v)
+    )
+    updated, next_state, born, pruned = densify_step(
+        pool,
+        state,
+        stats,
+        key,
+        jnp.array(target_count),
+        jnp.array(1.0),
+        cluster_size=cluster_size,
+        allocator="jax",
+    )
+    assert int(born) == birth_count and int(pruned) == 0
+    child_slots = slice(active_count, active_count + birth_count)
+    np.testing.assert_array_equal(updated.sh[child_slots, 0, 0], parents[:birth_count])
+    np.testing.assert_allclose(
+        updated.log_scale[child_slots],
+        np.asarray(pool.log_scale)[parents[:birth_count]]
+        - np.where(split[parents[:birth_count], None], np.log(1.6), 0),
+        atol=2e-7,
+    )
+    np.testing.assert_array_equal(updated.xyz[:active_count], pool.xyz[:active_count])
+    for values in jax.tree.leaves((next_state.m, next_state.v, next_state.step)):
+        np.testing.assert_array_equal(values[child_slots], 0)
+    assert updated.xyz.shape == pool.xyz.shape
+    np.testing.assert_array_equal(updated.free_mask, ~updated.alive)
+
+
+@pytest.mark.parametrize("partitionable", [True, False])
+def test_densification_preserves_normal_random_prefix_and_compilation(partitionable):
+    config = CapacityConfig(257, 1, 4, 4, 0)
+    pool = seed_gaussians(
+        create_gaussians(config), jnp.zeros((129, 3)), jnp.full((129, 3), 0.5), scale=0.2
+    )
+    state = create_adam_state(pool)
+    stats = jnp.tile(jnp.array([3.0, 1.0, 2.0, 4.0]), (257, 1))
+    key = jax.random.key(37)
+    with jax.threefry_partitionable(partitionable):
+        expected = jax.random.normal(jax.random.split(key)[1], (257, 3)) * 0.2
+        cache_sizes = []
+        for births in (1, 16, 64, 128):
+            updated, _, born, _ = densify_step(
+                pool,
+                state,
+                stats,
+                key,
+                jnp.array(129 + births),
+                jnp.array(1.0),
+                cluster_size=1,
+                allocator="jax",
+            )
+            assert int(born) == births
+            np.testing.assert_allclose(
+                updated.xyz[129 : 129 + births], expected[:births], atol=1e-7
+            )
+            cache_sizes.append(densify_step._cache_size())
+        assert len(set(cache_sizes)) == 1
+
+
+@pytest.mark.skipif(
+    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
+    reason="CuTe partition requires JAX CUDA",
+)
+@pytest.mark.parametrize("capacity", [1, 257, 1025])
+@pytest.mark.parametrize("pattern", ["split", "clone", "mixed"])
+def test_cute_partition_preserves_stable_groups_and_unused_tail(capacity, pattern):
+    from jaxgs.kernels.partitioner import stable_split_partition_cute
+
+    indices = np.arange(capacity)
+    split = (indices % 3 == 0) if pattern == "mixed" else np.full(capacity, pattern == "split")
+    partition = jax.jit(lambda mask, count: stable_split_partition_cute(mask, count))
+    for candidate_count in sorted({0, min(31, capacity), min(256, capacity), capacity}):
+        selected = indices[:candidate_count]
+        expected = np.concatenate(
+            (
+                selected[split[:candidate_count]],
+                selected[~split[:candidate_count]],
+                indices[candidate_count:],
+            )
+        )
+        actual = partition(jnp.asarray(split), jnp.array(candidate_count))
+        np.testing.assert_array_equal(actual, expected)
+        assert partition._cache_size() == 1
+
+
+@pytest.mark.skipif(importlib.util.find_spec("cutlass") is None, reason="CuTe is not installed")
+def test_cute_partition_requires_cuda(monkeypatch):
+    from jaxgs.kernels.partitioner import stable_split_partition_cute
+
+    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
+    with pytest.raises(RuntimeError, match="CuTe partition requires"):
+        stable_split_partition_cute(jnp.array([True]), jnp.array(1))
+
+
 def test_adam_rates_mask_and_opacity_decay():
     config = CapacityConfig(2, 1, 2, 4, 1)
-    pool = seed_pool(create_pool(config), jnp.ones((2, 3)), jnp.ones((2, 3)))
+    pool = seed_gaussians(create_gaussians(config), jnp.ones((2, 3)), jnp.ones((2, 3)))
     state = create_adam_state(pool)
     fields = ("xyz", "log_scale", "rotation", "opacity", "sh")
     gradients = tuple(jnp.ones_like(getattr(pool, name)) for name in fields)
@@ -124,8 +256,8 @@ def test_fragment_statistics_and_full_step():
 
     config = CapacityConfig(2, 1, 2, 4, 1, 16)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.1, 0.0, 2.0]]),
         jnp.array([[0.4, 0.3, 0.2]]),
         scale=0.2,

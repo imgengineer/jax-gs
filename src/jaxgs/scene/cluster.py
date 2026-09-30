@@ -8,12 +8,12 @@ import jax.numpy as jnp
 
 from ..render.projection import quaternion_to_matrix
 from .camera import Camera
-from .point import GaussianPool
+from .point import GaussianArrays
 from .types import WorldClusterBounds
 
 
 @partial(jax.jit, static_argnames=("cluster_size",))
-def world_cluster_bounds(pool: GaussianPool, cluster_size: int) -> WorldClusterBounds:
+def world_cluster_bounds(pool: GaussianArrays, cluster_size: int) -> WorldClusterBounds:
     transform = quaternion_to_matrix(pool.rotation) * jnp.exp(pool.log_scale)[:, None, :]
     extent = jnp.sum(jnp.abs(transform), axis=-1) * jnp.sqrt(2 * jnp.log(255.0))
     padding = (-pool.xyz.shape[0]) % cluster_size

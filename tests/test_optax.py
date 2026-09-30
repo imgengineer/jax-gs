@@ -4,7 +4,7 @@ import numpy as np
 import optax
 import pytest
 
-from jaxgs import CapacityConfig, create_pool, seed_pool
+from jaxgs import CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.training.optimizer import (
     create_adam_state,
     create_adam_transform,
@@ -17,8 +17,8 @@ from jaxgs.training.optimizer import (
 @pytest.mark.parametrize("compact", [False, True])
 def test_optax_matches_sparse_adam_with_visibility_changes_and_slot_reuse(compact):
     capacity, cluster_size = 9, 2  # Include a partial final cluster.
-    pool = seed_pool(
-        create_pool(CapacityConfig(capacity, cluster_size, 8, 4, 3)),
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(capacity, cluster_size, 8, 4, 3)),
         jnp.ones((capacity, 3)),
         jnp.full((capacity, 3), 0.4),
     )
@@ -99,3 +99,65 @@ def test_optax_matches_sparse_adam_with_visibility_changes_and_slot_reuse(compac
                     np.asarray(actual)[inactive], np.asarray(previous)[inactive]
                 )
         assert update._cache_size() == 1
+
+
+@pytest.mark.parametrize("degree", [0, 1, 2, 3])
+@pytest.mark.parametrize("compact", [False, True])
+def test_active_sh_gradients_preserve_existing_higher_order_momentum(degree, compact):
+    capacity, cluster_size = 9, 2
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(capacity, cluster_size, 8, 4, 3)),
+        jnp.ones((capacity, 3)),
+        jnp.full((capacity, 3), 0.4),
+    )
+    state = create_adam_state(pool)
+    state = state.replace(
+        m=jax.tree.map(lambda x: x + 0.2, state.m),
+        v=jax.tree.map(lambda x: x + 0.1, state.v),
+    )
+    visible = jnp.repeat(jnp.array([True, False, True, False, True]), cluster_size)[:capacity]
+    gradients = tuple(
+        jnp.ones_like(getattr(pool, name))
+        for name in ("xyz", "log_scale", "rotation", "opacity", "sh")
+    )
+    gradients = (*gradients[:-1], gradients[-1].at[:, (degree + 1) ** 2 :].set(0))
+    supplied = gradients
+    if compact:
+        ids = np.flatnonzero(visible)
+        supplied = tuple(jnp.full_like(g, jnp.nan).at[: len(ids)].set(g[ids]) for g in gradients)
+    expected = sparse_adam_update(pool, state, gradients, visible, jnp.array(7), 2.0)
+    update = jax.jit(
+        lambda p, s, g: optax_adam_update(
+            p,
+            s,
+            g,
+            visible,
+            jnp.array(7),
+            2.0,
+            cluster_size=cluster_size,
+            compact_gradients=compact,
+            active_degree=degree,
+        )
+    )
+    actual = update(pool, state, supplied)
+    for result, reference in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
+        np.testing.assert_allclose(result, reference, rtol=2e-6, atol=2e-7)
+    if degree < 3:
+        higher_order = np.asarray(actual[1].m.sh)[:, (degree + 1) ** 2 :]
+        np.testing.assert_allclose(higher_order[np.asarray(visible)], 0.18, atol=2e-7)
+        np.testing.assert_array_equal(
+            higher_order[~np.asarray(visible)],
+            np.asarray(state.m.sh)[~np.asarray(visible), (degree + 1) ** 2 :],
+        )
+
+
+@pytest.mark.parametrize("degree", [-1, 4])
+def test_optax_rejects_invalid_active_sh_degree(degree):
+    pool = create_gaussians(CapacityConfig(1, 1, 1, 4, 3))
+    gradients = tuple(
+        getattr(pool, name) for name in ("xyz", "log_scale", "rotation", "opacity", "sh")
+    )
+    with pytest.raises(ValueError, match="active_degree"):
+        optax_adam_update(
+            pool, create_adam_state(pool), gradients, pool.alive, 0, 1.0, active_degree=degree
+        )

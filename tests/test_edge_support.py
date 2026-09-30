@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import Camera, CapacityConfig, create_pool, seed_pool
+from jaxgs import Camera, CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.reference.rasterizer_jax import rasterize_jax
 from jaxgs.render.cluster_culling import build_cluster_tile_mask
 from jaxgs.render.projection import project
@@ -30,8 +30,8 @@ def edge_scene(edge="left", anisotropic=False):
     pixel = mean.astype(int)
     pixel[axis] = 0 if edge in ("left", "top") else 255
     scale = np.sqrt(np.array([64.0, 36.0 if anisotropic else 64.0]) - 0.3) / 64
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[(mean[0] - width / 2) / 64, (mean[1] - height / 2) / 64, 2.0]]),
         jnp.array([[0.3, 0.5, 0.7]]),
         scale=jnp.array([[scale[0], scale[1], 1e-6]]),
@@ -74,7 +74,7 @@ def test_projection_uses_native_coarse_bounds(backend):
     config, camera, pool, _ = edge_scene()
     means = np.array([[-38.3, 64], [-38.5, 64], [294.3, 64], [294.5, 64], [128, 64]])
     xyz = np.c_[(means - [128, 64]) / 64, np.full(5, 2)]
-    pool = seed_pool(create_pool(config), jnp.array(xyz), jnp.full((5, 3), 0.5), scale=2)
+    pool = seed_gaussians(create_gaussians(config), jnp.array(xyz), jnp.full((5, 3), 0.5), scale=2)
     pool = pool.replace(opacity=pool.opacity.at[4, 0].set(jnp.log(0.001 / 0.999)))
     projector = project
     if backend == "cute":

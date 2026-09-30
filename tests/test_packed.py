@@ -6,12 +6,126 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import Camera, CapacityConfig, create_pool, seed_pool
+from jaxgs import Camera, CapacityConfig, create_gaussians, seed_gaussians
 
 pytestmark = pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
     reason="Packed rasterizer requires JAX CUDA and CuTe",
 )
+
+
+@pytest.mark.parametrize("degree", [0, 1, 2, 3])
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("cluster_size", [65, 128])
+def test_active_sh_prefix_pullback_matches_full_coefficients(degree, empty, cluster_size):
+    from jaxgs.kernels.cluster_compact import compact_visible_clusters
+    from jaxgs.kernels.projector import project_with_compact_pullback
+
+    capacity = 257
+    config = CapacityConfig(capacity, cluster_size, 16, 16, 3, 4096, tile_height=8)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
+    visible = (
+        jnp.zeros(capacity, jnp.bool_) if empty else (jnp.arange(capacity) // cluster_size) % 2 == 0
+    )
+    pool = seed_gaussians(
+        create_gaussians(config),
+        jnp.tile(jnp.array([[0.1, -0.2, 2.0]]), (capacity, 1)),
+        jnp.full((capacity, 3), 0.4),
+        scale=0.1,
+    ).replace(alive=visible)
+    pool = pool.replace(sh=jax.random.normal(jax.random.key(5), pool.sh.shape) * 0.2)
+    clusters = compact_visible_clusters(visible, cluster_size)
+    projected, full_pullback = project_with_compact_pullback(
+        pool, camera, config, degree, clusters, rgb_only=True
+    )
+    cotangents = projected.replace(
+        mean=jnp.ones_like(projected.mean),
+        conic=jnp.ones_like(projected.conic) * 0.01,
+        color=jnp.ones_like(projected.color),
+        alpha=jnp.ones_like(projected.alpha),
+        depth=jnp.zeros_like(projected.depth),
+        radius=jnp.zeros_like(projected.radius),
+    )
+    _, narrow_pullback = project_with_compact_pullback(
+        pool,
+        camera,
+        config,
+        degree,
+        clusters,
+        rgb_only=True,
+        active_sh_only=True,
+    )
+    actual, expected = narrow_pullback(cotangents), full_pullback(cotangents)
+    valid_count = int(jnp.sum(visible))
+    sh_dim = (degree + 1) ** 2
+    assert actual[-1].shape == (capacity, sh_dim, 3)
+    for index, (result, reference) in enumerate(zip(actual, expected, strict=True)):
+        if index == 4:
+            reference = reference[:, :sh_dim]
+        np.testing.assert_allclose(
+            result[:valid_count], reference[:valid_count], rtol=2e-5, atol=2e-6
+        )
+
+
+@pytest.mark.parametrize("degree", [0, 3])
+@pytest.mark.parametrize("collect_stats", [False, True])
+def test_symmetric_conic_accumulation_preserves_parameter_pullback(degree, collect_stats):
+    from jaxgs.kernels.cluster_compact import compact_visible_clusters
+    from jaxgs.kernels.packed_rasterizer import packed_backward, packed_forward
+    from jaxgs.kernels.projector import project_with_compact_pullback
+    from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
+
+    config = CapacityConfig(17, 2, 16, 16, 3, 1024, tile_height=8)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
+    pool = seed_gaussians(
+        create_gaussians(config),
+        jnp.stack(
+            (jnp.linspace(-0.3, 0.3, 17), jnp.linspace(0.1, -0.1, 17), jnp.linspace(2.0, 3.0, 17)),
+            axis=1,
+        ),
+        jnp.full((17, 3), 0.4),
+        scale=jnp.tile(jnp.array([0.1, 0.2, 0.3]), (17, 1)),
+        opacity=0.3,
+    )
+    pool = pool.replace(
+        sh=jax.random.normal(jax.random.key(5), pool.sh.shape) * 0.2,
+        rotation=jnp.tile(jnp.array([0.9, 0.1, 0.2, 0.05]), (17, 1)),
+    )
+    clusters = compact_visible_clusters(pool.alive, config.cluster_size)
+    projected, pullback = project_with_compact_pullback(
+        pool, camera, config, degree, clusters, rgb_only=True
+    )
+    table = build_sorted_visibility_table_cute(projected, camera, config)
+    image, cache, _ = packed_forward(projected, table, camera, config, collect_stats)
+    image_grad = jax.random.normal(jax.random.key(11), image.shape) * 0.1
+    matrix, matrix_stats = packed_backward(
+        projected, table, cache, image_grad, camera, config, collect_stats
+    )
+    symmetric, symmetric_stats = packed_backward(
+        projected,
+        table,
+        cache,
+        image_grad,
+        camera,
+        config,
+        collect_stats,
+        symmetric_conic=True,
+    )
+    np.testing.assert_array_equal(symmetric.conic[:, 1, 0], 0)
+    np.testing.assert_allclose(
+        symmetric.conic[:, 0, 1],
+        matrix.conic[:, 0, 1] + matrix.conic[:, 1, 0],
+        rtol=2e-5,
+        atol=2e-6,
+    )
+    for field in ("mean", "depth", "color", "alpha"):
+        np.testing.assert_allclose(
+            getattr(symmetric, field), getattr(matrix, field), rtol=2e-5, atol=2e-6
+        )
+    if collect_stats:
+        np.testing.assert_allclose(symmetric_stats, matrix_stats, rtol=2e-5, atol=2e-6)
+    for actual, expected in zip(pullback(symmetric), pullback(matrix), strict=True):
+        np.testing.assert_allclose(actual, expected, rtol=3e-5, atol=3e-6)
 
 
 @pytest.mark.parametrize("tile_height,tile_width", [(8, 8), (8, 16), (12, 16), (16, 16)])
@@ -29,8 +143,8 @@ def test_packed_partial_tiles_and_parameter_pullback(tile_height, tile_width):
 
     config = CapacityConfig(4, 1, 4, tile_width, 1, 128, tile_height=tile_height)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.15, 0.1, 2.0], [-0.2, -0.1, 3.0]]),
         jnp.array([[0.3, 0.6, 0.4], [0.7, 0.3, 0.2]]),
         scale=0.25,
@@ -111,7 +225,7 @@ def test_compacted_projection_and_sparse_adam_preserve_invisible_slots():
 
     config = CapacityConfig(10, 2, 16, 16, 2, 128, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
-    pool = seed_pool(create_pool(config), jnp.ones((9, 3)) * 2.0, jnp.ones((9, 3)) * 0.4)
+    pool = seed_gaussians(create_gaussians(config), jnp.ones((9, 3)) * 2.0, jnp.ones((9, 3)) * 0.4)
     visible = jnp.repeat(jnp.array([False, True, False, True, True]), 2)
     clusters = compact_visible_clusters(visible, 2)
     np.testing.assert_array_equal(clusters[0][:3], [1, 3, 4])
@@ -174,8 +288,8 @@ def test_compact_gradient_prefix_matches_dense_pullback(cluster_size, capacity, 
 
     config = CapacityConfig(capacity, cluster_size, 16, 16, 3, 4096, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
-    pool = seed_pool(
-        create_pool(config), jnp.full((capacity, 3), 2.0), jnp.full((capacity, 3), 0.4)
+    pool = seed_gaussians(
+        create_gaussians(config), jnp.full((capacity, 3), 2.0), jnp.full((capacity, 3), 0.4)
     )
     pool = pool.replace(sh=jax.random.normal(jax.random.key(5), pool.sh.shape) * 0.2)
     visible = (jnp.arange(capacity) // cluster_size) % 2 == 0
@@ -244,8 +358,8 @@ def test_rgb_projection_pullback_matches_general_and_reference(cluster_size, deg
     capacity = 257
     config = CapacityConfig(capacity, cluster_size, 16, 16, 3, 4096, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.tile(jnp.array([[0.1, -0.2, 2.0]]), (capacity, 1)),
         jnp.full((capacity, 3), 0.4),
         scale=jnp.tile(jnp.array([0.1, 0.2, 0.3]), (capacity, 1)),
@@ -305,7 +419,7 @@ def test_empty_compact_projection_pullback_preserves_parameters(rgb_only):
 
     config = CapacityConfig(257, 65, 16, 16, 3, 4096, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
-    pool = create_pool(config)
+    pool = create_gaussians(config)
     state = create_adam_state(pool)
     visible = jnp.zeros(257, bool)
     clusters = compact_visible_clusters(visible, config.cluster_size)

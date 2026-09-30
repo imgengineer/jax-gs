@@ -4,13 +4,13 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from ..scene.point import GaussianPool
+from ..scene.point import GaussianArrays
 from .optimizer import AdamState, reset_adam_slots
 
 
 def prune_step(
-    pool: GaussianPool, state: AdamState, remove: chex.Array
-) -> tuple[GaussianPool, AdamState]:
+    pool: GaussianArrays, state: AdamState, remove: chex.Array
+) -> tuple[GaussianArrays, AdamState]:
     """Release masked live slots and reset their optimizer state without resizing."""
     remove = jax.lax.stop_gradient(remove) & pool.alive
     alive = pool.alive & ~remove

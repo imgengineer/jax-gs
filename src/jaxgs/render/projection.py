@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from ..config import CapacityConfig
 from ..reference.sh import eval_sh
 from ..scene.camera import Camera
-from ..scene.point import GaussianPool
+from ..scene.point import GaussianArrays
 from .types import ProjectedGaussians
 
 
@@ -30,7 +30,7 @@ def quaternion_to_matrix(q: chex.Array) -> chex.Array:
     )
 
 
-def project(pool: GaussianPool, camera: Camera, config: CapacityConfig) -> ProjectedGaussians:
+def project(pool: GaussianArrays, camera: Camera, config: CapacityConfig) -> ProjectedGaussians:
     rotation = camera.world_to_camera[:3, :3]
     points = pool.xyz @ rotation.T + camera.world_to_camera[:3, 3]
     x, y, z = points[:, 0], points[:, 1], points[:, 2]

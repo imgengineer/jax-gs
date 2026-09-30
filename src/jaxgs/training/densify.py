@@ -12,13 +12,13 @@ import jax.numpy as jnp
 
 from ..render.projection import quaternion_to_matrix
 from ..render.types import FragmentStatistics
-from ..scene.point import GaussianPool
+from ..scene.point import GaussianArrays
 from .optimizer import AdamState, create_adam_state, reset_adam_slots
 from .pool_ops import prune_step
 
 
 def compute_densification_scores(
-    pool: GaussianPool, fragment_stats: FragmentStatistics
+    pool: GaussianArrays, fragment_stats: FragmentStatistics
 ) -> tuple[chex.Array, chex.Array]:
     """Return opacity-weighted gradient scores and an unused-slot prune mask."""
     fragment_count, compositing_weight, alpha_grad_sum, alpha_grad_sq_sum = jax.lax.stop_gradient(
@@ -38,7 +38,7 @@ def compute_densification_scores(
 
 @partial(jax.jit, static_argnames=("cluster_size", "allocator", "percent_dense"))
 def densify_step(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     state: AdamState,
     stats: FragmentStatistics,
     key: chex.Array,
@@ -47,7 +47,7 @@ def densify_step(
     cluster_size: int = 128,
     allocator: str = "cute",
     percent_dense: float = 0.01,
-) -> tuple[GaussianPool, AdamState, chex.Array, chex.Array]:
+) -> tuple[GaussianArrays, AdamState, chex.Array, chex.Array]:
     """Keep parents unchanged; append split/clone children into reusable slots."""
     capacity = pool.xyz.shape[0]
     scores, prune_mask = compute_densification_scores(pool, stats)
@@ -72,10 +72,27 @@ def densify_step(
     )
     candidates = jnp.argsort(-priorities, stable=True)
     split_mask = jnp.max(jnp.exp(pool.log_scale[candidates]), axis=1) > percent_dense * scene_radius
-    candidate_mask = jnp.arange(capacity) < candidate_count
-    candidate_order = jnp.argsort(
-        jnp.where(candidate_mask, jnp.where(split_mask, 0, 1), 2), stable=True
-    )
+    if allocator == "cute":
+        from ..kernels.partitioner import stable_split_partition_cute
+
+        candidate_order = stable_split_partition_cute(split_mask, candidate_count)
+    else:
+        candidate_indices = jnp.arange(capacity, dtype=jnp.int32)
+        candidate_mask = candidate_indices < candidate_count
+        split_prefix = jnp.cumsum(candidate_mask & split_mask, dtype=jnp.int32)
+        # Stable partition: selected splits, selected clones, then the unused tail.
+        destinations = jnp.where(
+            candidate_mask,
+            jnp.where(
+                split_mask, split_prefix - 1, split_prefix[-1] + candidate_indices - split_prefix
+            ),
+            candidate_indices,
+        )
+        candidate_order = (
+            jnp.zeros_like(candidate_indices)
+            .at[destinations]
+            .set(candidate_indices, unique_indices=True)
+        )
     candidates, split_mask = candidates[candidate_order], split_mask[candidate_order]
     if allocator == "cute":
         from ..kernels.allocator import allocate_free_slots_cute
@@ -84,29 +101,53 @@ def densify_step(
     else:
         free_slots = jnp.argsort(~updated_pool.free_mask, stable=True)
         slot_available = jnp.arange(capacity) < jnp.sum(updated_pool.free_mask)
-    child_valid = (jnp.arange(capacity) < max_births) & slot_available & pool.alive[candidates]
-    child_slots = jnp.where(child_valid, free_slots, capacity)
-    local_jitter = jax.random.normal(jitter_key, (capacity, 3)) * jnp.exp(
-        pool.log_scale[candidates]
-    )
-    rotation_matrices = quaternion_to_matrix(pool.rotation[candidates])
-    world_offsets = jnp.einsum(
-        "nij,nj->ni", rotation_matrices, local_jitter, precision=jax.lax.Precision.HIGHEST
-    )
-    child_parameters = {
-        "xyz": pool.xyz[candidates] + jnp.where(split_mask[:, None], world_offsets, 0),
-        "log_scale": pool.log_scale[candidates] - jnp.where(split_mask[:, None], jnp.log(1.6), 0),
-        "rotation": pool.rotation[candidates],
-        "opacity": pool.opacity[candidates],
-        "sh": pool.sh[candidates],
-    }
-    updated_pool = updated_pool.replace(
-        **{
-            name: getattr(updated_pool, name).at[child_slots].set(value, mode="drop")
-            for name, value in child_parameters.items()
+
+    def generate_children(width):
+        parents, split = candidates[:width], split_mask[:width]
+        child_valid = (
+            (jnp.arange(width) < max_births) & slot_available[:width] & pool.alive[parents]
+        )
+        child_slots = jnp.where(child_valid, free_slots[:width], capacity)
+        local_jitter = jax.random.normal(jitter_key, (width, 3)) * jnp.exp(pool.log_scale[parents])
+        rotation_matrices = quaternion_to_matrix(pool.rotation[parents])
+        world_offsets = jnp.einsum(
+            "nij,nj->ni", rotation_matrices, local_jitter, precision=jax.lax.Precision.HIGHEST
+        )
+        child_parameters = {
+            "xyz": pool.xyz[parents] + jnp.where(split[:, None], world_offsets, 0),
+            "log_scale": pool.log_scale[parents] - jnp.where(split[:, None], jnp.log(1.6), 0),
+            "rotation": pool.rotation[parents],
+            "opacity": pool.opacity[parents],
+            "sh": pool.sh[parents],
         }
-    )
-    newborn_mask = jnp.zeros_like(pool.alive).at[child_slots].set(True, mode="drop")
+        # Read parents from the original pool before writing released slots.
+        child_pool = updated_pool.replace(
+            **{
+                name: getattr(updated_pool, name).at[child_slots].set(value, mode="drop")
+                for name, value in child_parameters.items()
+            }
+        )
+        newborn_mask = jnp.zeros_like(pool.alive).at[child_slots].set(True, mode="drop")
+        return child_pool, newborn_mask
+
+    if (
+        str(jax.random.key_impl(jitter_key)) == "threefry2x32"
+        and jax.config.jax_threefry_partitionable
+    ):
+        # Partitionable Threefry preserves the random prefix across shapes.
+        # All buckets compile in this JIT; device budgets do not change shapes.
+        widths = [0]
+        width = min(cluster_size, capacity)
+        while width < capacity:
+            widths.append(width)
+            width = min(width * 4, capacity)
+        widths.append(capacity)
+        bucket = jnp.searchsorted(jnp.asarray(widths), max_births, side="left")
+        updated_pool, newborn_mask = jax.lax.switch(
+            bucket, tuple(partial(generate_children, width) for width in widths)
+        )
+    else:
+        updated_pool, newborn_mask = generate_children(capacity)
     alive_mask = updated_pool.alive | newborn_mask
     updated_pool = updated_pool.replace(
         alive=alive_mask, free_mask=~alive_mask, n_active=jnp.sum(alive_mask, dtype=jnp.int32)
@@ -115,7 +156,7 @@ def densify_step(
 
 
 @jax.jit
-def decay_opacity(pool: GaussianPool, state: AdamState) -> tuple[GaussianPool, AdamState]:
+def decay_opacity(pool: GaussianArrays, state: AdamState) -> tuple[GaussianArrays, AdamState]:
     """LiteGS decay halves alpha, clamps at 1/128, and clears all Adam moments."""
     alpha = jnp.maximum(jax.nn.sigmoid(pool.opacity) * 0.5, 1 / 128)
     pool = pool.replace(

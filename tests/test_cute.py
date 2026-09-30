@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import Camera, CapacityConfig, create_pool, seed_pool
+from jaxgs import Camera, CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.reference.rasterizer_jax import rasterize_jax
 from jaxgs.render.projection import project
 from jaxgs.render.visibility_table import build_visibility_table
@@ -24,8 +24,8 @@ def test_cute_forward_and_backward_match_reference():
 
     config = CapacityConfig(2, 2, 2, 4, 0)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.1, 0.0, 2.0], [-0.2, 0.1, 3.0]], jnp.float32),
         jnp.array([[1.0, 0.2, 0.1], [0.1, 0.5, 0.9]], jnp.float32),
         scale=0.2,
@@ -110,15 +110,15 @@ def test_sorted_binning_tile_key_width_preserves_padding_sentinel(tiles_x):
     camera = Camera.from_colmap(
         [1, 0, 0, 0], [0, 0, 0], 20, 20, width - 4, height - 4, width, height
     )
-    projected = project(create_pool(config), camera, config)
+    projected = project(create_gaussians(config), camera, config)
     table = build_sorted_visibility_table_cute(projected, camera, config)
     np.testing.assert_array_equal(table.tile_offsets, 0)
     assert int(table.pair_count) == 0
     assert not bool(table.overflow)
     # A live point in the last tile exercises IDs above the signed-16 limit,
     # as well as the uint32 fallback when the padding sentinel is 65536.
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.0, 0.0, 2.0]]),
         jnp.full((1, 3), 0.5),
         scale=0.02,
@@ -142,8 +142,8 @@ def test_sorted_binning_keeps_more_than_one_gaussian_per_tile():
 
     config = CapacityConfig(4, 2, 1, 4, 0, 16)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.0, 0.0, 3.0], [0.1, 0.0, 2.0], [0.0, 0.1, 2.0]]),
         jnp.ones((3, 3)) * 0.5,
         scale=0.2,
@@ -194,8 +194,8 @@ def test_sorted_binning_keeps_large_ellipses_and_handles_empty_scene():
 
     config = CapacityConfig(1, 1, 1, 16, 0, 4)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 8, 9, 17, 19)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.0, 0.0, 2.0]]),
         jnp.ones((1, 3)) * 0.5,
         scale=0.2,
@@ -300,8 +300,8 @@ def test_cute_projection_binning_and_parameter_gradients(pipeline):
 
     config = CapacityConfig(2, 2, 2, 4, 3)
     camera = Camera.from_colmap([0.98, 0.02, -0.1, 0.15], [0.01, 0.02, 0.0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.1, -0.1, 2.0]], jnp.float32),
         jnp.array([[0.8, 0.2, 0.1]], jnp.float32),
         scale=0.2,
@@ -374,8 +374,8 @@ def test_projection_pullback_zero_and_individual_cotangents():
 
     config = CapacityConfig(9, 1, 16, 16, 3)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 16, 16, 32, 32)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.tile(jnp.array([[0.1, 0.2, 2.0]]), (9, 1)),
         jnp.full((9, 3), 0.4),
         scale=jnp.tile(jnp.array([[0.1, 0.2, 0.3]]), (9, 1)),
@@ -414,7 +414,7 @@ def test_cute_projection_pullback_matches_reference_all_fields():
     config = CapacityConfig(4, 2, 4, 4, 3)
     camera = Camera.from_colmap([0.97, 0.1, -0.08, 0.18], [0.02, -0.03, 0.01], 9, 8, 4, 4, 8, 8)
     keys = jax.random.split(jax.random.key(9), 7)
-    pool = create_pool(config).replace(
+    pool = create_gaussians(config).replace(
         xyz=jax.random.uniform(keys[0], (4, 3), minval=-0.3, maxval=0.3)
         .at[:, 2]
         .set(jax.random.uniform(keys[1], (4,), minval=1.5, maxval=3.0)),
@@ -463,7 +463,7 @@ def test_cute_projection_pullback_clipped_color_and_near_plane(degree):
 
     config = CapacityConfig(2, 2, 2, 4, degree)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = create_pool(config).replace(
+    pool = create_gaussians(config).replace(
         xyz=jnp.array([[0.005, -0.003, 0.1], [0.1, 0.2, 2.0]], jnp.float32),
         log_scale=jnp.log(jnp.array([[0.1, 0.2, 0.3], [0.2, 0.15, 0.1]])),
         rotation=jnp.array([[0.9, 0.2, -0.1, 0.15], [0.8, -0.1, 0.25, 0.2]]),
@@ -505,8 +505,8 @@ def test_cute_projection_pullback_clipped_color_and_near_plane(degree):
 def test_cute_training_with_symmetric_covariance_stays_finite():
     config = CapacityConfig(2, 2, 2, 4, 0)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.0, 0.0, 2.0]], jnp.float32),
         jnp.array([[1.0, 0.0, 0.0]], jnp.float32),
         scale=0.01,
@@ -528,7 +528,7 @@ def test_cute_training_with_symmetric_covariance_stays_finite():
 )
 def test_cute_allocator_resets_reused_slot_with_padded_indices():
     config = CapacityConfig(3, 2, 2, 4, 0)
-    pool = create_pool(config).replace(
+    pool = create_gaussians(config).replace(
         xyz=jnp.zeros((3, 3)).at[1, 2].set(2.0),
         alive=jnp.array([False, True, False]),
         free_mask=jnp.array([True, False, True]),
@@ -566,7 +566,7 @@ def test_cute_pipeline_matches_reference_with_multiple_clusters():
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 12, 11, 8, 8, 16, 16)
     keys = jax.random.split(jax.random.key(7), 5)
     alive = jnp.arange(16) < 12
-    pool = create_pool(config).replace(
+    pool = create_gaussians(config).replace(
         xyz=jax.random.normal(keys[0], (16, 3))
         .at[:, 2]
         .set(jax.random.uniform(keys[1], (16,), minval=1.5, maxval=3.5)),

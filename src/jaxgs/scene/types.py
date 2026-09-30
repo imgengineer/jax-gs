@@ -19,6 +19,7 @@ class ParameterArrays:
 
 # Gradient buffers preserve PARAMETER_NAMES order. Compact gradients use the
 # visible-cluster prefix; inactive tails must not be read.
+# SH gradients may contain only the statically enabled coefficients.
 type ParameterGradients = tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]
 
 # Stable cluster IDs [num_clusters] and valid count [1]. IDs beyond count[0]

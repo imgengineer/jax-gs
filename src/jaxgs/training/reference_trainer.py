@@ -12,7 +12,7 @@ from flax import nnx
 
 from ..config import CapacityConfig
 from ..data import image_dataset
-from ..io_manager.checkpoint import save_pool
+from ..io_manager.checkpoint import save_gaussians
 from ..io_manager.colmap import load_colmap, load_colmap_points
 from ..reference.loss import photometric_loss
 from ..render.cluster_culling import build_cluster_tile_mask
@@ -21,27 +21,27 @@ from ..render.rasterizer import rasterize
 from ..render.visibility_table import build_visibility_table
 from ..scene.camera import Camera
 from ..scene.point import (
+    GaussianArrays,
     GaussianModel,
-    GaussianPool,
-    create_pool,
+    create_gaussians,
     estimate_initial_scales,
-    seed_pool,
+    seed_gaussians,
 )
-from ..scene.spatial_refine import reorder_pool
+from ..scene.spatial_refine import reorder_gaussians
 from .optimizer import AdamState, create_adam_state, masked_adam_update
 from .pool_ops import prune_step
 from .reference_densify import densify_step, reset_opacity
 
 
 def _compute_training_step(
-    pool: GaussianPool,
+    pool: GaussianArrays,
     state: AdamState,
     camera: Camera,
     target: chex.Array,
     config: CapacityConfig,
     learning_rate: float = 1e-3,
     backend: str = "cute",
-) -> tuple[GaussianPool, AdamState, dict[str, chex.Array]]:
+) -> tuple[GaussianArrays, AdamState, dict[str, chex.Array]]:
     """Fixed-capacity step; JAX binning remains a small-scene reference path."""
     if backend not in ("reference", "cute"):
         raise ValueError(f"unknown backend: {backend}")
@@ -129,9 +129,9 @@ def nnx_train_step(
     backend: str = "cute",
 ) -> tuple[AdamState, dict[str, chex.Array]]:
     pool, state, metrics = _compute_training_step(
-        model.as_pool(), state, camera, target, config, learning_rate, backend
+        model.as_arrays(), state, camera, target, config, learning_rate, backend
     )
-    model.update_from_pool(pool)
+    model.update_from_arrays(pool)
     return state, metrics
 
 
@@ -153,7 +153,7 @@ def train_colmap(
     sh_degree: int = 3,
     initial_points: int | None = None,
     max_visibility_pairs: int | None = None,
-) -> GaussianPool:
+) -> GaussianArrays:
     """Small-scene training loop for undistorted COLMAP reconstructions."""
     frames = load_colmap(scene_dir, downsample)
     xyz, rgb = load_colmap_points(scene_dir)
@@ -171,11 +171,11 @@ def train_colmap(
     seed_indices = np.linspace(0, xyz.shape[0] - 1, initial_points, dtype=np.int32)
     initial_xyz, initial_rgb = xyz[seed_indices], rgb[seed_indices]
     initial_scales = estimate_initial_scales(xyz)[seed_indices]
-    pool = seed_pool(
-        create_pool(config), initial_xyz, initial_rgb, scale=initial_scales, opacity=0.1
+    pool = seed_gaussians(
+        create_gaussians(config), initial_xyz, initial_rgb, scale=initial_scales, opacity=0.1
     )
     adam_state = create_adam_state(pool)
-    pool, adam_state = reorder_pool(pool, adam_state)
+    pool, adam_state = reorder_gaussians(pool, adam_state)
     model = GaussianModel(pool)
     gradient_sums = jnp.zeros((capacity,), jnp.float32)
     visibility_counts = jnp.zeros((capacity,), jnp.int32)
@@ -188,7 +188,7 @@ def train_colmap(
             adam_state, metrics = nnx_train_step(
                 model, adam_state, frame.camera, target, config, learning_rate, backend
             )
-            pool = model.as_pool()
+            pool = model.as_arrays()
             if bool(metrics["overflow"]):
                 if backend == "cute":
                     raise RuntimeError(
@@ -215,17 +215,17 @@ def train_colmap(
                 pool, adam_state = prune_step(
                     pool, adam_state, jax.nn.sigmoid(pool.opacity[:, 0]) < 0.005
                 )
-                pool, adam_state = reorder_pool(pool, adam_state)
+                pool, adam_state = reorder_gaussians(pool, adam_state)
             if step % 3000 == 0:
                 pool, adam_state = reset_opacity(pool, adam_state)
-            model.update_from_pool(pool)
+            model.update_from_arrays(pool)
             if step == 1 or step % 100 == 0 or step == steps:
                 print(
                     f"step {step}: loss={float(metrics['loss']):.6f}, active={int(pool.n_active)}"
                 )
 
     output = Path(output)
-    save_pool(output, pool)
+    save_gaussians(output, pool)
     return pool
 
 

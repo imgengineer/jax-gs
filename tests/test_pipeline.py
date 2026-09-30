@@ -5,14 +5,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxgs import Camera, CapacityConfig, create_pool, estimate_initial_scales, seed_pool
+from jaxgs import Camera, CapacityConfig, create_gaussians, estimate_initial_scales, seed_gaussians
 from jaxgs.reference.rasterizer_jax import rasterize_jax
 from jaxgs.render.cluster_compact import compact_clusters
 from jaxgs.render.cluster_culling import build_cluster_tile_mask
 from jaxgs.render.projection import project
 from jaxgs.render.types import ProjectedGaussians, VisibilityTable
 from jaxgs.render.visibility_table import build_visibility_table
-from jaxgs.scene.spatial_refine import reorder_pool
+from jaxgs.scene.spatial_refine import reorder_gaussians
 from jaxgs.training.optimizer import create_adam_state, masked_adam_update
 from jaxgs.training.pool_ops import prune_step
 from jaxgs.training.reference_densify import densify_step, reset_opacity
@@ -34,13 +34,13 @@ def test_reference_compaction_keeps_stable_visible_prefix_under_jit():
 
 
 def test_seed_validation_preserves_fixed_capacity():
-    pool = create_pool(CapacityConfig(2))
+    pool = create_gaussians(CapacityConfig(2))
     with pytest.raises(ValueError, match="capacity or RGB"):
-        seed_pool(pool, jnp.zeros((3, 3)), jnp.zeros((3, 3)))
+        seed_gaussians(pool, jnp.zeros((3, 3)), jnp.zeros((3, 3)))
     with pytest.raises(ValueError, match="capacity or RGB"):
-        seed_pool(pool, jnp.zeros((2, 3)), jnp.zeros((2, 4)))
+        seed_gaussians(pool, jnp.zeros((2, 3)), jnp.zeros((2, 4)))
     with pytest.raises(ValueError, match="scale must be"):
-        seed_pool(pool, jnp.zeros((2, 3)), jnp.zeros((2, 3)), scale=jnp.ones((1, 3)))
+        seed_gaussians(pool, jnp.zeros((2, 3)), jnp.zeros((2, 3)), scale=jnp.ones((1, 3)))
     with pytest.raises(ValueError, match="xyz must have shape"):
         estimate_initial_scales(jnp.ones((2, 4)))
 
@@ -75,8 +75,8 @@ def scene(capacity=4, k=2):
         capacity, cluster_size=2, max_gaussians_per_tile=k, tile_size=4, sh_degree=0
     )
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.1, -0.1, 2.0]], jnp.float32),
         jnp.array([[0.8, 0.2, 0.1]], jnp.float32),
         scale=0.2,
@@ -91,8 +91,8 @@ def test_point_spacing_initializes_per_gaussian_scale():
     )
     scales = estimate_initial_scales(xyz)
     np.testing.assert_allclose(scales, [np.sqrt(14 / 3), np.sqrt(2), np.sqrt(2), np.sqrt(14 / 3)])
-    pool = seed_pool(
-        create_pool(CapacityConfig(4, 2, 2, 4, 0)), xyz, jnp.full((4, 3), 0.5), scale=scales
+    pool = seed_gaussians(
+        create_gaussians(CapacityConfig(4, 2, 2, 4, 0)), xyz, jnp.full((4, 3), 0.5), scale=scales
     )
     np.testing.assert_allclose(jnp.exp(pool.log_scale[:, 0]), scales)
     np.testing.assert_allclose(jnp.exp(pool.log_scale[:, 1]), scales)
@@ -101,10 +101,10 @@ def test_point_spacing_initializes_per_gaussian_scale():
 def test_spatial_refine_keeps_adam_slots_attached():
     config = CapacityConfig(4, 2, 2, 4, 0)
     xyz = jnp.array([[2.0, 0.0, 2.0], [0.0, 0.0, 2.0], [3.0, 0.0, 2.0]])
-    pool = seed_pool(create_pool(config), xyz, jnp.full((3, 3), 0.5))
+    pool = seed_gaussians(create_gaussians(config), xyz, jnp.full((3, 3), 0.5))
     state = create_adam_state(pool)
     state = state.replace(step=jnp.array([1, 2, 3, 0]))
-    next_pool, next_state = reorder_pool(pool, state)
+    next_pool, next_state = reorder_gaussians(pool, state)
     np.testing.assert_array_equal(next_pool.xyz[:3, 0], [0.0, 2.0, 3.0])
     np.testing.assert_array_equal(next_state.step, [2, 1, 3, 0])
     np.testing.assert_array_equal(next_pool.alive, [True, True, True, False])
@@ -231,8 +231,8 @@ def test_raster_alpha_cutoff_and_cap():
 def test_projection_culls_near_and_transparent_points():
     config = CapacityConfig(2, 2, 2, 4, 0)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.0, 0.0, 0.1], [0.0, 0.0, 2.0]]),
         jnp.full((2, 3), 0.5),
         opacity=0.5,
@@ -249,8 +249,8 @@ def test_projection_culls_near_and_transparent_points():
 
 def test_overflow_is_reported():
     config, camera, pool = scene(capacity=3, k=1)
-    pool = seed_pool(
-        create_pool(config),
+    pool = seed_gaussians(
+        create_gaussians(config),
         jnp.array([[0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]),
         jnp.ones((2, 3)) * 0.5,
         scale=0.2,
@@ -272,7 +272,7 @@ def test_slot_reuse_resets_moments():
     _, state = masked_adam_update(pool, state, gradients)
     pool, state = prune_step(pool, state, jnp.array([True, False, False, False]))
     np.testing.assert_array_equal(state.step, [0, 0, 0, 0])
-    pool = seed_pool(pool, jnp.array([[0.1, 0.0, 2.0]]), jnp.ones((1, 3)) * 0.5)
+    pool = seed_gaussians(pool, jnp.array([[0.1, 0.0, 2.0]]), jnp.ones((1, 3)) * 0.5)
     pool, state, count = densify_step(
         pool, state, jnp.array([1.0, 0.0, 0.0, 0.0]), jax.random.key(1), max_new=1, threshold=0.5
     )
