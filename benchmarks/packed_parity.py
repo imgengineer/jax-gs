@@ -121,8 +121,7 @@ def compare(args):
     from jaxgs import Camera, CapacityConfig
     from jaxgs.kernels.packed_rasterizer import packed_backward, packed_forward
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
-    from jaxgs.render.projection import ProjectedGaussians
-    from jaxgs.render.visibility_table import SortedVisibilityTable
+    from jaxgs.render.types import ProjectedGaussians, SortedVisibilityTable
 
     rng = np.random.default_rng(47)
     width, height, capacity = 48, 32, 48

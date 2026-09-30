@@ -16,7 +16,7 @@ from jaxgs.io_manager.colmap import load_colmap, load_colmap_points
 from jaxgs.kernels.binning import build_visibility_table_cute
 from jaxgs.kernels.projector import project_cute, project_cute_vjp
 from jaxgs.kernels.rasterizer import rasterize_cute, rasterize_cute_vjp
-from jaxgs.scene.spatial_refine import spatial_refine
+from jaxgs.scene.spatial_refine import reorder_pool
 from jaxgs.training.optimizer import create_adam_state
 
 
@@ -72,7 +72,7 @@ def main() -> None:
             config = CapacityConfig(args.capacity, cluster_size, k_max, 16, args.sh_degree)
             pool = seed_pool(create_pool(config), xyz, rgb, scale=scales, opacity=0.1)
             if args.scene:
-                pool, _ = spatial_refine(pool, create_adam_state(pool))
+                pool, _ = reorder_pool(pool, create_adam_state(pool))
             projection = jax.jit(lambda: project_cute(pool, camera, config))
             projected = projection()
             binning = jax.jit(lambda: build_visibility_table_cute(projected, camera, config))

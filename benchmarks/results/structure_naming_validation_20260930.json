@@ -1,0 +1,1234 @@
+{
+  "date": "2026-09-30",
+  "baseline": "Workspace after the screen-edge fix, before this structure/naming refactor; includes uncommitted edge changes",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "scope": "Correctness and compiler validation on shared GPU; no speed measurement",
+  "default_renderer": "cute",
+  "default_optimizer": "optax",
+  "cases": {
+    "train-optax-0-0": {
+      "stablehlo_sha256": "3cc60219be46f9fe682e86f3fbddf38378d0516ecec4dbc64275fb8b7a7a8782",
+      "memory_bytes": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 71352
+      },
+      "output_shapes_and_dtypes": [
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "int32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [],
+          "float32"
+        ],
+        [
+          [],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ]
+      ]
+    },
+    "train-optax-3-1": {
+      "stablehlo_sha256": "00e0bd7a3dfa01f90e9e3941252ab7077c477c8ffe56d519814f66b0946fd6b6",
+      "memory_bytes": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 72376
+      },
+      "output_shapes_and_dtypes": [
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "int32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [],
+          "float32"
+        ],
+        [
+          [],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ]
+      ]
+    },
+    "train-cute-0-0": {
+      "stablehlo_sha256": "61ef127e9fbb45d22dbdaf8bef3b797990e50d81466566263468e1c4cdb9a6bd",
+      "memory_bytes": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 69816
+      },
+      "output_shapes_and_dtypes": [
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "int32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [],
+          "float32"
+        ],
+        [
+          [],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ]
+      ]
+    },
+    "train-cute-3-1": {
+      "stablehlo_sha256": "0aa31048efaaa670db7a3b8d1a9b7ce4deab3da5bbbf249e01df58a5884ab9f4",
+      "memory_bytes": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 70072
+      },
+      "output_shapes_and_dtypes": [
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "int32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [],
+          "float32"
+        ],
+        [
+          [],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ]
+      ]
+    },
+    "optimizer": {
+      "stablehlo_sha256": "68c24df000a5426d788cfc6aa8f053c78f7a4ccc299c9659d3011ded037a72a7",
+      "memory_bytes": {
+        "argument_size_in_bytes": 243464,
+        "output_size_in_bytes": 182940,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 1176
+      },
+      "output_shapes_and_dtypes": [
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "int32"
+        ]
+      ]
+    },
+    "densify": {
+      "stablehlo_sha256": "e4736db405be8fc357246c4d21badf8fb48561c886133b59182209b8f1cd904a",
+      "memory_bytes": {
+        "argument_size_in_bytes": 186644,
+        "output_size_in_bytes": 182964,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 3640
+      },
+      "output_shapes_and_dtypes": [
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [
+            256
+          ],
+          "bool"
+        ],
+        [
+          [],
+          "int32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            4
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            1
+          ],
+          "float32"
+        ],
+        [
+          [
+            256,
+            16,
+            3
+          ],
+          "float32"
+        ],
+        [
+          [
+            256
+          ],
+          "int32"
+        ],
+        [
+          [],
+          "int32"
+        ],
+        [
+          [],
+          "int32"
+        ]
+      ]
+    }
+  },
+  "all_six_stablehlo_modules_identical": true,
+  "compiled_memory_identical": true,
+  "output_arrays_compared": 132,
+  "output_tolerance": {
+    "rtol": 2e-05,
+    "atol": 2e-06
+  },
+  "output_max_absolute_error": 1.1920928955078125e-07,
+  "output_errors": {
+    "train-optax-0-0_0": 0.0,
+    "train-optax-0-0_1": 0.0,
+    "train-optax-0-0_2": 3.725290298461914e-09,
+    "train-optax-0-0_3": 0.0,
+    "train-optax-0-0_4": 0.0,
+    "train-optax-0-0_5": 0.0,
+    "train-optax-0-0_6": 0.0,
+    "train-optax-0-0_7": 0.0,
+    "train-optax-0-0_8": 5.684341886080802e-14,
+    "train-optax-0-0_9": 0.0,
+    "train-optax-0-0_10": 5.684341886080802e-14,
+    "train-optax-0-0_11": 0.0,
+    "train-optax-0-0_12": 1.4210854715202004e-14,
+    "train-optax-0-0_13": 3.3881317890172014e-21,
+    "train-optax-0-0_14": 0.0,
+    "train-optax-0-0_15": 1.3552527156068805e-20,
+    "train-optax-0-0_16": 0.0,
+    "train-optax-0-0_17": 6.352747104407253e-22,
+    "train-optax-0-0_18": 0.0,
+    "train-optax-0-0_19": 0.0,
+    "train-optax-0-0_20": 0.0,
+    "train-optax-0-0_21": 0.0,
+    "train-optax-0-0_22": 0.0,
+    "train-optax-3-1_0": 0.0,
+    "train-optax-3-1_1": 0.0,
+    "train-optax-3-1_2": 3.725290298461914e-09,
+    "train-optax-3-1_3": 0.0,
+    "train-optax-3-1_4": 1.7462298274040222e-10,
+    "train-optax-3-1_5": 0.0,
+    "train-optax-3-1_6": 0.0,
+    "train-optax-3-1_7": 0.0,
+    "train-optax-3-1_8": 1.4551915228366852e-11,
+    "train-optax-3-1_9": 1.1368683772161603e-12,
+    "train-optax-3-1_10": 1.4779288903810084e-12,
+    "train-optax-3-1_11": 4.547473508864641e-13,
+    "train-optax-3-1_12": 3.637978807091713e-12,
+    "train-optax-3-1_13": 6.661338147750939e-16,
+    "train-optax-3-1_14": 6.505213034913027e-19,
+    "train-optax-3-1_15": 8.673617379884035e-19,
+    "train-optax-3-1_16": 6.505213034913027e-19,
+    "train-optax-3-1_17": 4.163336342344337e-17,
+    "train-optax-3-1_18": 0.0,
+    "train-optax-3-1_19": 0.0,
+    "train-optax-3-1_20": 0.0,
+    "train-optax-3-1_21": 0.0,
+    "train-optax-3-1_22": 0.0,
+    "train-cute-0-0_0": 0.0,
+    "train-cute-0-0_1": 0.0,
+    "train-cute-0-0_2": 0.0,
+    "train-cute-0-0_3": 0.0,
+    "train-cute-0-0_4": 0.0,
+    "train-cute-0-0_5": 0.0,
+    "train-cute-0-0_6": 0.0,
+    "train-cute-0-0_7": 0.0,
+    "train-cute-0-0_8": 3.637978807091713e-12,
+    "train-cute-0-0_9": 0.0,
+    "train-cute-0-0_10": 3.552713678800501e-15,
+    "train-cute-0-0_11": 0.0,
+    "train-cute-0-0_12": 2.2737367544323206e-13,
+    "train-cute-0-0_13": 8.326672684688674e-17,
+    "train-cute-0-0_14": 0.0,
+    "train-cute-0-0_15": 2.6469779601696886e-23,
+    "train-cute-0-0_16": 0.0,
+    "train-cute-0-0_17": 8.131516293641283e-20,
+    "train-cute-0-0_18": 0.0,
+    "train-cute-0-0_19": 0.0,
+    "train-cute-0-0_20": 0.0,
+    "train-cute-0-0_21": 0.0,
+    "train-cute-0-0_22": 0.0,
+    "train-cute-3-1_0": 0.0,
+    "train-cute-3-1_1": 0.0,
+    "train-cute-3-1_2": 3.725290298461914e-09,
+    "train-cute-3-1_3": 0.0,
+    "train-cute-3-1_4": 1.7462298274040222e-10,
+    "train-cute-3-1_5": 0.0,
+    "train-cute-3-1_6": 0.0,
+    "train-cute-3-1_7": 0.0,
+    "train-cute-3-1_8": 1.9326762412674725e-12,
+    "train-cute-3-1_9": 3.637978807091713e-12,
+    "train-cute-3-1_10": 1.4779288903810084e-12,
+    "train-cute-3-1_11": 3.637978807091713e-12,
+    "train-cute-3-1_12": 1.8189894035458565e-12,
+    "train-cute-3-1_13": 4.0657581468206416e-19,
+    "train-cute-3-1_14": 1.734723475976807e-17,
+    "train-cute-3-1_15": 1.734723475976807e-18,
+    "train-cute-3-1_16": 1.0408340855860843e-17,
+    "train-cute-3-1_17": 6.938893903907228e-18,
+    "train-cute-3-1_18": 0.0,
+    "train-cute-3-1_19": 1.1920928955078125e-07,
+    "train-cute-3-1_20": 0.0,
+    "train-cute-3-1_21": 0.0,
+    "train-cute-3-1_22": 0.0,
+    "optimizer_0": 0.0,
+    "optimizer_1": 0.0,
+    "optimizer_2": 0.0,
+    "optimizer_3": 0.0,
+    "optimizer_4": 0.0,
+    "optimizer_5": 0.0,
+    "optimizer_6": 0.0,
+    "optimizer_7": 0.0,
+    "optimizer_8": 0.0,
+    "optimizer_9": 0.0,
+    "optimizer_10": 0.0,
+    "optimizer_11": 0.0,
+    "optimizer_12": 0.0,
+    "optimizer_13": 0.0,
+    "optimizer_14": 0.0,
+    "optimizer_15": 0.0,
+    "optimizer_16": 0.0,
+    "optimizer_17": 0.0,
+    "optimizer_18": 0.0,
+    "densify_0": 0.0,
+    "densify_1": 0.0,
+    "densify_2": 0.0,
+    "densify_3": 0.0,
+    "densify_4": 0.0,
+    "densify_5": 0.0,
+    "densify_6": 0.0,
+    "densify_7": 0.0,
+    "densify_8": 0.0,
+    "densify_9": 0.0,
+    "densify_10": 0.0,
+    "densify_11": 0.0,
+    "densify_12": 0.0,
+    "densify_13": 0.0,
+    "densify_14": 0.0,
+    "densify_15": 0.0,
+    "densify_16": 0.0,
+    "densify_17": 0.0,
+    "densify_18": 0.0,
+    "densify_19": 0.0,
+    "densify_20": 0.0
+  },
+  "cute_kernel_launcher_and_dsl_functions_unchanged": 65,
+  "kernel_ast_sha256": {
+    "allocation.py:_clear_slots": "c724410785b0f5cb6b088d0fc7f586302c0b8ae0e5dae64b94586141099e3dc5",
+    "allocation.py:_allocate_free": "a7b346479ceb154a428920079b9f1b06fb7365afb22fbd483f860cc036904d00",
+    "allocation.py:launch_allocate_free": "ff0ff28073ccbe170d7189ac06302d3be15de4a302de9b2826062e87cbbfb0dc",
+    "cluster_compact.py:_scatter": "b4061f4366c87d349fb0731f631afe361ef471f9b8363bbad471cb4ba665e985",
+    "cluster_compact.py:_launch": "1f49538ad211330c18957a0ca7f428bb6f336b5cf34c433e6390e8ca76bb6e79",
+    "cluster_compact.py:_clear_projected": "0fc461ab2686b531f0f854c40e400f7d021841d0912359da2d54500603b67bde",
+    "cluster_compact.py:_clear_parameter_grads": "1b1f9c95b4dc7b5a5969d852fd26eb2c71c3c1c4ec22dd34351b6c8b7c58306e",
+    "fused_loss.py:_forward": "f4a184e15b7f9ef0e437b05c364ed3966e3b37f861a77872caf4ae6ac4c9d9c3",
+    "fused_loss.py:_backward": "5d430ed0265cb76c9947278711f4627942a7f7b0b6a0e39f714f78cdefe8716d",
+    "fused_loss.py:_launch": "42635fbf1608ec4035b67faf3fddfb5e75b6fbe686e3d8bd82f695aceee7b8a4",
+    "half2.py:pack": "c199d6a8883d2000ba9ef9ecde38c7f80f2ccddf2aee700f3f808a800b7865cc",
+    "half2.py:get": "5a13d4b99cc894cff9fc75fd9fa0ce9ad372c7cfbdfc2c0a825f70b4c5b25a5b",
+    "half2.py:splat": "246ba15ab1e6bcaec65d5b719efeaeeb88e6b441251bf74073c5030b707040e1",
+    "half2.py:binary": "0358728ea1903537a6d0bd2c99b9069e01e4b51b85ff2320240b17cca4ad65a8",
+    "half2.py:exp2": "01b0d42604f236bde86d40db39c5a915da111518efa16f375e385bfd794ef572",
+    "half2.py:add": "54163bd98f38ce6d6ccf9852bb2f73d338adc9215fef009b3240a9d1aee6c9d2",
+    "half2.py:sub": "75bb90eb3bb2957dc3d013d622a3c8bcf5032780005c91008c4678b52cb4a764",
+    "half2.py:mul": "e23c61394245d3f5ff85398a0d39933a28b4a724c56e0170353643889387295d",
+    "half2.py:minimum": "578168ed51c18ba3586492ea661a7de6d514a108085a50430595884072c01c13",
+    "half2.py:ge_mask": "5906bcb83b038c9fe0732f7b970deecfeef5a49a55c7bbf0875809cc0a4ddbeb",
+    "half2.py:gt_mask": "2833d8904f7eba26cf512370fcf4bf86c212c109d4f39888a007fc7748768fd3",
+    "half2.py:reciprocal": "9d5780e5d9e0258c755111d84908cd08ec3fc14ed6a12438c640343b5bbe42e8",
+    "half2.py:exp": "11cedee0fec706853f0aa03a4ba5cc95f3e53de5826f56fe8a0dca8fe4f71b83",
+    "half2.py:sum_pair": "a596931f7e28a5027afcee412c211ec3a1062b37ad6c035c23f4729c887c18b4",
+    "half2.py:float_bits": "c6e31be73a47d23ab6dc3c125284835c5216122933b671a180a6e0a36e6d5e90",
+    "half2.py:bits_float": "119e114f0eed88c8e1e560e83ead1533d1aa0bbf1aaa305c366efd373098f2d5",
+    "half2.py:fma": "7fc1e14c9061fdc9d48c75c8808c1923424b3df139abdce9c08351036be9438f",
+    "half2.py:warp_sum": "6ef81551628d044fb4b3c8aba8858f617bc50fadf336845af5cb7e4be727cddb",
+    "half2.py:warp_sum_scaled": "3bf4e1cd51adfd1219a2f62aead2911d5dee3e0304110aa7f89ca3dc32273e9b",
+    "packed_rasterize.py:_load_params": "7ddfdd0f1a60b8940ca2703f456109ca4ea32ae82d54b2fb46bc0074b8154e47",
+    "packed_rasterize.py:_pack": "48840e5770c2653edcfa81991d563d387b11862fcbd806f5079174fc918ed542",
+    "packed_rasterize.py:_forward": "45ddb12177568cfba9ffa185fa4321fea3a9ef96d9b10bdaa1a49349280fdde9",
+    "packed_rasterize.py:_backward": "e867351adccd0304d1b10e756a57695040f278046c385bd6618b49ba873730d4",
+    "packed_rasterize.py:launch_forward": "94bbf1271e8398f6eedd0dc37cf2be4a2556432c9572ca60d100a84778ccb176",
+    "packed_rasterize.py:launch_backward": "2f46fda1847fb75b830d121020bd40db1860273d9c2c15305d72f5915a4aad46",
+    "projection.py:_projection_kernel": "1d6559cf1135df381cce05d8b95f79c3e43d1fe55e94cd95f6e080bd7e1300c0",
+    "projection.py:launch_projection": "ced08657c59a8be29bf457655d0d85ee703077abdd543fb21d767c37c7ce7d51",
+    "projection_backward.py:_projection_backward_kernel": "7c5b9710d9a9990ee8368024a2d3d9a9ae3eef9651c414a6c5c55643c67c2ca1",
+    "projection_backward.py:launch_projection_backward": "d185fa5660aa4b77b83201c86576a7766844531d343cbe4a0ad563e1c57c593a",
+    "rasterize_backward.py:_zero_grads": "9583b948abaacc0d710bb4060ccbdee5e620b6fa0acebb23fca3e77d8538eabe",
+    "rasterize_backward.py:_backward_tiled": "dde6e4e6daa2efbffbaf167690de1d464eb3edab0b65e8b9bdda9456d6c2bb5c",
+    "rasterize_backward.py:launch_backward": "6734d4442c2150fcdb7bf5a6d22ca3ea2d2a80c33dc657eb7a9ce4db28e1ad49",
+    "rasterize_forward.py:_forward_kernel": "2c0b91342c25a00069e27e711b66caabafcefb50b9fc2330a862b0e74d885d7e",
+    "rasterize_forward.py:launch_forward": "98bf7577b2ec9a9aee566db095102c2f2d90ee379e38772871b9939f90d50c91",
+    "sorted_rasterize.py:_zero_fragments": "2af2c19e67e58647abfd8ec201aefe0853b885a56602fe60be82d79a86783e0d",
+    "sorted_rasterize.py:_warp_sum": "82c84dea065511f784f346e25de843a47972805cbe6551ae1d4d2bfec661a105",
+    "sorted_rasterize.py:_forward": "00145cad95ca9fd420c167c55287f8d3621b184863a01602ed800752bbc3e837",
+    "sorted_rasterize.py:_backward_warp": "2d089277b501d6f5071ddf5df75bfb7f6aa06204bdb750242ab43a1ff65cdb65",
+    "sorted_rasterize.py:launch_forward_sorted": "13084f32d78ddf7d7f4631401856d7eebed95ba30174b30eb2ce8fc797c86543",
+    "sorted_rasterize.py:launch_backward_sorted": "2e0554c93b042ed81570ce5eff6860d13c80da1365358ad530be47bf9ee86782",
+    "sorted_visibility.py:_intersection": "57e37486ee416a78b826179ce48d2b35e540a91f4b4b8b215519aa9dbce2bcb4",
+    "sorted_visibility.py:_process_tiles": "4817bb21891c181486e09030685651c5c82bc8b9aec3728852f8e4a222df8d44",
+    "sorted_visibility.py:_pairs": "9ce6703e11ac842d79e7e11af181cb24b3bb99a28a53c751e44b4615e9f3695a",
+    "sorted_visibility.py:_clear_pairs": "7361008cdf2aee6b1d4632b259c8e00683826ff36549cf95efbaf513018468c7",
+    "sorted_visibility.py:_tile_ranges": "5de9e4a8b82679db85111253008a4cd38e9cf8871a4b08708267ec942a640164",
+    "sorted_visibility.py:launch_tile_ranges": "0d659a85a45c1da881c9bdc0632010fbcb75abe4fac3f3281784fd1250c1dd91",
+    "sorted_visibility.py:launch_count_pairs": "89d77325f3174b4dd93eb89be2a4883b2265bcde69712f111bc4ecd195a64bcf",
+    "sorted_visibility.py:launch_emit_pairs": "59bf83087dd3231088d40b03ff5bdcb0b958ce477170983a594373f2dcea48a9",
+    "sparse_adam.py:_update": "2fe17a63bdc194c88d28aaf40f324cb6ebd9af046cfc66a98f79ac2fedb4927c",
+    "sparse_adam.py:_launch": "d63f3f5fe5a5daf3de70d2c05e83bf0b7d59f0e244d308e742ffd9b05d367922",
+    "visibility.py:_clear_count": "f61d237e538cdc022333d0341ae5db9da702955748024a615aeb2c7c1cada045",
+    "visibility.py:_cluster_bounds": "1ebcb327f31aafede24256ec886597b74a93deab78022873184f0bd1080b6885",
+    "visibility.py:_tile_table": "feaa5f74ecd0bb8bcfda51e2543e427800fb1853140132d7971a34f1eb70cccc",
+    "visibility.py:launch_cluster_compact": "1f30256ba7d22fc4f236e6cfde1fbec3075634fc2d32c3bf922202cf7e2f7cd7",
+    "visibility.py:launch_visibility_table": "336c2f444cf480f75423efdf11365bede6788bcec4cc3b3cdc6424f51bbad37e"
+  },
+  "timed_epoch_loop_ast_unchanged": true,
+  "changes": {
+    "shared_render_data": "render/types.py",
+    "shared_parameter_and_cluster_layouts": "scene/types.py",
+    "shared_pruning": "training/pool_ops.py",
+    "render_interfaces": "render/rasterizer.py",
+    "projection_function": {
+      "before": "project_cute_sparse",
+      "after": "project_with_compact_pullback"
+    },
+    "optimizer_slot_reset": {
+      "before": "clear_slots(state, slots)",
+      "after": "reset_adam_slots(state, slot_mask)"
+    },
+    "parameter_tree": {
+      "before": "Moments",
+      "after": "ParameterArrays"
+    },
+    "alpha_gradient_statistics": [
+      "count",
+      "weight",
+      "alpha_grad_sum",
+      "alpha_grad_sq_sum"
+    ],
+    "production_train_function_lines": {
+      "before": 241,
+      "after": 173
+    },
+    "host_functions_with_incomplete_annotations": {
+      "before": 25,
+      "after": 0
+    }
+  },
+  "verification": {
+    "full_gpu_suite": {
+      "passed": 165,
+      "failed": 0,
+      "seconds": 222.22,
+      "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q --cov=jaxgs --cov-report=term-missing --cov-report=json:/tmp/jaxgs-structure-coverage.json --cov-report=html:htmlcov"
+    },
+    "targeted_cpu_suite": {
+      "passed": 32,
+      "skipped": 8,
+      "seconds": 11.03,
+      "command": "JAX_PLATFORMS=cpu uv run --extra cute pytest tests/test_pipeline.py tests/test_backend_contracts.py tests/test_production_training.py -q --tb=short"
+    },
+    "final_nnx_suite": {
+      "passed": 5,
+      "failed": 0,
+      "seconds": 24.89,
+      "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest tests/test_nnx.py -q --cov=jaxgs --cov-append --cov-report=term-missing --cov-report=json:/tmp/jaxgs-structure-coverage.json --cov-report=html:htmlcov",
+      "parameter_and_moment_buffer_pointers_preserved": 15,
+      "donated_source_buffer_deleted": true,
+      "jit_cache_size_stable_across_updates": true,
+      "nnx_and_array_steps_match": true,
+      "variants": "Optax and CuTe optimizers; degree 0 without statistics and degree 3 with statistics"
+    },
+    "python_host_coverage": {
+      "statements": 1578,
+      "branches": 224,
+      "statement_percent": 100.0,
+      "branch_percent": 100.0,
+      "missing_lines": 0,
+      "missing_branches": 0,
+      "scope": "Python bindings and orchestration; GPU bodies decorated with cute.kernel, cute.jit or dsl_user_op are excluded from Python coverage"
+    },
+    "ruff_check": "passed",
+    "ruff_format_check": {
+      "passed": true,
+      "files": 74
+    },
+    "git_diff_check": "passed",
+    "public_host_functions": 68,
+    "public_host_functions_with_incomplete_annotations": 0,
+    "readme_and_audit_local_links": "all targets exist",
+    "stablehlo_modules_byte_identical": 6,
+    "compiled_memory_analysis_identical": true,
+    "output_arrays_compared": 132,
+    "output_float_tolerance": {
+      "rtol": 2e-05,
+      "atol": 2e-06
+    },
+    "gpu_speed_remeasured": false
+  }
+}

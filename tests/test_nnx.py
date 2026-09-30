@@ -52,9 +52,12 @@ def test_model_parameters_pool_views_and_fixed_shape_updates():
 )
 @pytest.mark.parametrize("degree,collect", [(0, False), (3, True)])
 @pytest.mark.parametrize("optimizer", ["cute", "optax"])
-def test_nnx_donated_training_matches_array_step(degree, collect, optimizer):
+@pytest.mark.parametrize("bound", [False, True])
+def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bound):
     from jaxgs.scene.cluster import world_cluster_bounds
     from jaxgs.training.optimizer import create_adam_state
+    from jaxgs.training.state import TrainingState
+    from jaxgs.training.step import bind_train_step
     from jaxgs.training.trainer import array_train_step, train_step
 
     config = CapacityConfig(128, 128, 128, 16, 3, 512, tile_height=8)
@@ -79,13 +82,18 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer):
     bounds = world_cluster_bounds(pool, config.cluster_size)
     target = jnp.full((16, 32, 3), 32, jnp.uint8)
     model = GaussianModel(jax.tree.map(lambda x: x.copy(), pool))
-    nnx_state, nnx_stats = jax.tree.map(lambda x: x.copy(), (state, stats))
+    nnx_state = create_adam_state(model.as_pool())
+    nnx_stats = stats.copy()
+    training = TrainingState(model, nnx_state, nnx_stats)
+    update = bind_train_step(training) if bound else train_step
+    assert isinstance(training.adam, nnx.OptState)
     overflow, peak = jnp.array(False), jnp.array(0, jnp.int32)
     old_xyz = model.xyz.get_value()
     fields = ("xyz", "log_scale", "rotation", "opacity", "sh")
     buffers = [getattr(model.as_pool(), name) for name in fields]
     buffers += [getattr(moment, name) for moment in (nnx_state.m, nnx_state.v) for name in fields]
     pointers = [value.unsafe_buffer_pointer() for value in buffers]
+    assert len(set(pointers)) == len(pointers)
     for step in range(2):
         pool, state, stats, metrics = array_train_step(
             pool,
@@ -101,10 +109,7 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer):
             collect,
             optimizer=optimizer,
         )
-        nnx_state, nnx_stats, loss, overflow, peak = train_step(
-            nnx_state,
-            nnx_stats,
-            model,
+        args = (
             bounds,
             camera,
             target,
@@ -118,6 +123,12 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer):
             peak,
             optimizer,
         )
+        if bound:
+            loss, overflow, peak = update(*args)
+            nnx_state = training.adam.get_value()
+            nnx_stats = training.fragments.get_value()
+        else:
+            nnx_state, nnx_stats, loss, overflow, peak = update(nnx_state, nnx_stats, model, *args)
         actual = (model.as_pool(), nnx_state, nnx_stats, loss)
         expected = (pool, state, stats, metrics["loss"])
         for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
@@ -130,7 +141,7 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer):
         assert [value.unsafe_buffer_pointer() for value in buffers] == pointers
         assert int(peak) >= int(metrics["pairs"])
         if step == 0:
-            cache_size = train_step.jitted_fn._cache_size()
+            cache_size = update.jitted_fn._cache_size()
         else:
-            assert train_step.jitted_fn._cache_size() == cache_size
+            assert update.jitted_fn._cache_size() == cache_size
     assert old_xyz.is_deleted()

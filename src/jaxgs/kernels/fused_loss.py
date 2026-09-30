@@ -4,6 +4,7 @@ The source's MIT notice is in LICENSE.fused_ssim. Images use HWC layout;
 loss/derivative caches keep LiteGS's CHW planes for coalesced access.
 """
 
+import chex
 import cuda.bindings.driver as cuda
 import cutlass
 import cutlass.cute as cute
@@ -185,7 +186,9 @@ def _launch(
     )
 
 
-def fused_loss_and_grad(prediction, target):
+def fused_loss_and_grad(
+    prediction: chex.Array, target: chex.Array
+) -> tuple[chex.Array, chex.Array]:
     """Mean LiteGS L1+SSIM and its image gradient (weight 0.2)."""
     from cutlass.jax import cutlass_call
 

@@ -1,73 +1,88 @@
 """Compiled array and NNX training steps, independent of host orchestration."""
 
-from functools import partial
+from collections.abc import Callable
 
+import chex
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from ..config import load_config
+from ..config import CapacityConfig, OptimizationConfig, load_config
+from ..render.types import FragmentStatistics
+from ..scene.camera import Camera
 from ..scene.cluster import frustum_cluster_mask
-from ..scene.point import GaussianModel
-from .optimizer import optax_adam_update, sparse_adam_update
+from ..scene.point import GaussianModel, GaussianPool
+from ..scene.types import WorldClusterBounds
+from .optimizer import AdamState, optax_adam_update, sparse_adam_update
+from .state import TrainingState
 
 _DEFAULT_OPTIMIZATION = load_config().optimization
-
-
-@partial(
-    jax.jit,
-    static_argnames=(
-        "config",
-        "active_degree",
-        "collect_stats",
-        "max_steps",
-        "optimizer",
-        "optimization",
-    ),
+_STATIC_ARGUMENTS = (
+    "config",
+    "active_degree",
+    "collect_stats",
+    "max_steps",
+    "optimizer",
+    "optimization",
 )
-def array_train_step(
-    pool,
-    state,
-    stats,
-    bounds,
-    camera,
-    target,
-    step,
-    scene_radius,
-    config,
-    active_degree,
-    collect_stats,
-    max_steps=None,
-    optimizer="optax",
-    optimization=_DEFAULT_OPTIMIZATION,
-):
+
+
+def compute_training_step(
+    pool: GaussianPool,
+    state: AdamState,
+    stats: FragmentStatistics,
+    bounds: WorldClusterBounds,
+    camera: Camera,
+    target: chex.Array,
+    step: int | chex.Array,
+    scene_radius: float | chex.Array,
+    config: CapacityConfig,
+    active_degree: int,
+    collect_stats: bool,
+    max_steps: int | None = None,
+    optimizer: str = "optax",
+    optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
+) -> tuple[GaussianPool, AdamState, FragmentStatistics, dict[str, chex.Array]]:
+    """Pure array computation shared by the JAX and NNX compilation boundaries."""
     from ..kernels.cluster_compact import compact_visible_clusters
     from ..kernels.packed_rasterizer import packed_loss_and_grad
-    from ..kernels.projector import project_cute_sparse
+    from ..kernels.projector import project_with_compact_pullback
     from ..kernels.sorted_binning import build_sorted_visibility_table_cute
     from ..kernels.sorted_rasterizer import rasterize_loss_and_grad
 
-    visible = frustum_cluster_mask(bounds, camera, config.cluster_size, config.max_gaussians)
+    visible_slots = frustum_cluster_mask(bounds, camera, config.cluster_size, config.max_gaussians)
 
-    clusters = compact_visible_clusters(visible, config.cluster_size)
+    visible_clusters = compact_visible_clusters(visible_slots, config.cluster_size)
 
-    projected, pullback = project_cute_sparse(
-        pool.replace(alive=pool.alive & visible), camera, config, active_degree, clusters
+    projected_gaussians, projection_pullback = project_with_compact_pullback(
+        pool.replace(alive=pool.alive & visible_slots),
+        camera,
+        config,
+        active_degree,
+        visible_clusters,
+        rgb_only=True,
     )
-    table = build_sorted_visibility_table_cute(jax.lax.stop_gradient(projected), camera, config)
+    visibility_table = build_sorted_visibility_table_cute(
+        jax.lax.stop_gradient(projected_gaussians), camera, config
+    )
     # LiteGS's half2 kernel needs at least 64 pixels per tile. Small diagnostic
     # scenes retain the float32 path; production uses LiteGS's packed path.
-    render_loss = packed_loss_and_grad if config.tile_size in (8, 16) else rasterize_loss_and_grad
-    loss, cotangents, fragments = render_loss(
-        projected, table, camera, config, target.astype(jnp.float32) / 255, collect_stats
+    loss_and_grad = packed_loss_and_grad if config.tile_size in (8, 16) else rasterize_loss_and_grad
+    loss, projected_gradients, fragment_stats = loss_and_grad(
+        projected_gaussians,
+        visibility_table,
+        camera,
+        config,
+        target.astype(jnp.float32) / 255,
+        collect_stats,
     )
-    gradients = pullback(cotangents)
+    gradients = projection_pullback(projected_gradients)
     if optimizer == "optax":
         pool, state = optax_adam_update(
             pool,
             state,
             gradients,
-            visible,
+            visible_slots,
             step,
             scene_radius,
             max_steps,
@@ -80,11 +95,11 @@ def array_train_step(
             pool,
             state,
             gradients,
-            visible,
+            visible_slots,
             step,
             scene_radius,
             max_steps,
-            compacted_clusters=clusters,
+            compacted_clusters=visible_clusters,
             cluster_size=config.cluster_size,
             compact_gradients=True,
             optimization=optimization,
@@ -92,46 +107,41 @@ def array_train_step(
     else:
         raise ValueError(f"unknown optimizer: {optimizer}")
     if collect_stats:
-        stats = stats + fragments
-    return pool, state, stats, {"loss": loss, "overflow": table.overflow, "pairs": table.pair_count}
+        stats = stats + fragment_stats
+    return (
+        pool,
+        state,
+        stats,
+        {"loss": loss, "overflow": visibility_table.overflow, "pairs": visibility_table.pair_count},
+    )
 
 
-@partial(
-    nnx.jit,
-    graph=False,
-    static_argnames=(
-        "config",
-        "active_degree",
-        "collect_stats",
-        "max_steps",
-        "optimizer",
-        "optimization",
-    ),
-    donate_argnums=(0, 1, 2),
-)
-def train_step(
-    state,
-    stats,
+array_train_step = jax.jit(compute_training_step, static_argnames=_STATIC_ARGUMENTS)
+
+
+def _update_model(
+    state: AdamState,
+    stats: FragmentStatistics,
     model: GaussianModel,
-    bounds,
-    camera,
-    target,
-    step,
-    scene_radius,
-    config,
-    active_degree,
-    collect_stats,
-    max_steps,
-    overflow,
-    peak_pairs,
-    optimizer="optax",
-    optimization=_DEFAULT_OPTIMIZATION,
-):
+    bounds: WorldClusterBounds,
+    camera: Camera,
+    target: chex.Array,
+    step: int | chex.Array,
+    scene_radius: float | chex.Array,
+    config: CapacityConfig,
+    active_degree: int,
+    collect_stats: bool,
+    max_steps: int | None,
+    overflow: chex.Array,
+    peak_pairs: chex.Array,
+    optimizer: str = "optax",
+    optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
+) -> tuple[AdamState, FragmentStatistics, chex.Array, chex.Array, chex.Array]:
     # The fixed model is a tree with no shared Variables. NNX tree mode avoids
     # graph protocol, while donation keeps the existing in-place GPU updates.
     # NNX appends mutated Variables after explicit outputs. Keep state/stats
     # before the model so XLA pairs each donated buffer with its own output.
-    pool, state, stats, metrics = array_train_step.__wrapped__(
+    pool, state, stats, metrics = compute_training_step(
         model.as_pool(),
         state,
         stats,
@@ -154,4 +164,61 @@ def train_step(
         metrics["loss"],
         overflow | metrics["overflow"],
         jnp.maximum(peak_pairs, metrics["pairs"]),
+    )
+
+
+train_step = nnx.jit(
+    _update_model, graph=False, static_argnames=_STATIC_ARGUMENTS, donate_argnums=(0, 1, 2)
+)
+
+
+def _update_training_state(
+    training: TrainingState,
+    bounds: WorldClusterBounds,
+    camera: Camera,
+    target: chex.Array,
+    step: int | chex.Array,
+    scene_radius: float | chex.Array,
+    config: CapacityConfig,
+    active_degree: int,
+    collect_stats: bool,
+    max_steps: int | None,
+    overflow: chex.Array,
+    peak_pairs: chex.Array,
+    optimizer: str = "optax",
+    optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
+) -> tuple[chex.Array, chex.Array, chex.Array]:
+    state, stats, loss, overflow, peak_pairs = _update_model(
+        training.adam.get_value(),
+        training.fragments.get_value(),
+        training.model,
+        bounds,
+        camera,
+        target,
+        step,
+        scene_radius,
+        config,
+        active_degree,
+        collect_stats,
+        max_steps,
+        overflow,
+        peak_pairs,
+        optimizer,
+        optimization,
+    )
+    training.adam.set_value(state)
+    training.fragments.set_value(stats)
+    return loss, overflow, peak_pairs
+
+
+def bind_train_step(
+    training: TrainingState,
+) -> Callable[..., tuple[chex.Array, chex.Array, chex.Array]]:
+    """Pre-flatten fixed NNX buffers; their values remain mutable between calls."""
+    return nnx.jit_partial(
+        _update_training_state,
+        training,
+        graph=False,
+        static_argnames=_STATIC_ARGUMENTS,
+        donate_argnums=(0,),
     )

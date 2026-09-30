@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from jaxgs import Camera, CapacityConfig, create_pool, seed_pool
-from jaxgs.training.densify import decay_opacity, densify_step, fragment_scores
+from jaxgs.training.densify import compute_densification_scores, decay_opacity, densify_step
 from jaxgs.training.optimizer import create_adam_state, sparse_adam_update
 
 
@@ -26,7 +26,7 @@ def test_fragment_score_and_append_only_split():
     stats = jnp.array(
         [[3.0, 1.0, 2.0, 4.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]
     )
-    score, prune = fragment_scores(pool, stats)
+    score, prune = compute_densification_scores(pool, stats)
     np.testing.assert_allclose(score[0], (4 / 4 - (2 / 4) ** 2) * 3 * 0.5**2)
     np.testing.assert_array_equal(prune, [False, True, False, False])
     # LiteGS's minimum growth budget is one, plus replacement of pruned points.
@@ -149,7 +149,7 @@ def test_fragment_statistics_and_full_step():
     exponent = -0.5 * jnp.einsum(
         "hwi,ij,hwj->hw", delta, projected.conic[0], delta, precision=jax.lax.Precision.HIGHEST
     )
-    valid = (exponent >= -4.5) & (projected.alpha[0] * jnp.exp(exponent) >= 1 / 256)
+    valid = (exponent <= 0) & (projected.alpha[0] * jnp.exp(exponent) >= 1 / 256)
     errors = jnp.where(
         valid, jnp.sum(image_grad * projected.color[0], axis=-1) * jnp.exp(exponent), 0
     )

@@ -1,51 +1,58 @@
+"""CuTe Gaussian projection and its parameter gradients exposed through JAX."""
+
+from collections.abc import Callable
+
+import chex
 import jax
 import jax.numpy as jnp
 
 from ..config import CapacityConfig
-from ..render.projection import ProjectedGaussians
+from ..render.types import ProjectedGaussians
 from ..scene.camera import Camera
 from ..scene.point import GaussianPool
+from ..scene.types import ParameterGradients, VisibleClusters
 
 
-def _project_arrays(
-    xyz,
-    log_scale,
-    rotation,
-    opacity,
-    sh,
-    alive,
-    view,
-    intrinsic,
-    center,
+def _project_gaussian_arrays(
+    xyz: chex.Array,
+    log_scale: chex.Array,
+    rotation: chex.Array,
+    opacity: chex.Array,
+    sh: chex.Array,
+    alive: chex.Array,
+    world_to_camera: chex.Array,
+    intrinsics: chex.Array,
+    camera_center: chex.Array,
     config: CapacityConfig,
     width: int,
     height: int,
     near: float,
     far: float,
     active_degree: int | None = None,
-    compacted_clusters=None,
-):
+    compacted_clusters: VisibleClusters | None = None,
+) -> tuple[chex.Array, ...]:
+    """Launch projection with the pool layout and optional visible-cluster prefix."""
     from cutlass.jax import cutlass_call
 
     from .projection import launch_projection
 
     if jax.default_backend() != "gpu":
         raise RuntimeError("CuTe projection requires a JAX CUDA device")
-    c = config.max_gaussians
-    shapes = (
-        jax.ShapeDtypeStruct((c * 2,), jnp.float32),
-        jax.ShapeDtypeStruct((c,), jnp.float32),
-        jax.ShapeDtypeStruct((c * 4,), jnp.float32),
-        jax.ShapeDtypeStruct((c,), jnp.float32),
-        jax.ShapeDtypeStruct((c * 3,), jnp.float32),
-        jax.ShapeDtypeStruct((c,), jnp.float32),
-        jax.ShapeDtypeStruct((c,), jnp.int8),
+    capacity = config.max_gaussians
+    output_shapes = (
+        jax.ShapeDtypeStruct((capacity * 2,), jnp.float32),
+        jax.ShapeDtypeStruct((capacity,), jnp.float32),
+        jax.ShapeDtypeStruct((capacity * 4,), jnp.float32),
+        jax.ShapeDtypeStruct((capacity,), jnp.float32),
+        jax.ShapeDtypeStruct((capacity * 3,), jnp.float32),
+        jax.ShapeDtypeStruct((capacity,), jnp.float32),
+        jax.ShapeDtypeStruct((capacity,), jnp.int8),
     )
-    call = cutlass_call(
+    project_kernel = cutlass_call(
         launch_projection,
-        output_shape_dtype=shapes,
+        output_shape_dtype=output_shapes,
         use_static_tensors=True,
-        capacity=c,
+        capacity=capacity,
         sh_dim=config.sh_dim,
         degree=config.sh_degree if active_degree is None else active_degree,
         width=width,
@@ -55,38 +62,38 @@ def _project_arrays(
         cluster_size=config.cluster_size,
         compacted=compacted_clusters is not None,
     )
-    clusters = (
+    cluster_arrays = (
         (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))
         if compacted_clusters is None
         else compacted_clusters
     )
-    mean, depth, conic, radius, color, alpha, visible = call(
+    mean, depth, conic, radius, color, alpha, visible = project_kernel(
         xyz.reshape(-1),
         log_scale.reshape(-1),
         rotation.reshape(-1),
         opacity.reshape(-1),
         sh.reshape(-1),
         alive.astype(jnp.int8),
-        view.reshape(-1),
-        intrinsic,
-        center,
-        *clusters,
+        world_to_camera.reshape(-1),
+        intrinsics,
+        camera_center,
+        *cluster_arrays,
     )
     return (
-        mean.reshape(c, 2),
+        mean.reshape(capacity, 2),
         depth,
-        conic.reshape(c, 2, 2),
+        conic.reshape(capacity, 2, 2),
         radius,
-        color.reshape(c, 3),
+        color.reshape(capacity, 3),
         alpha,
         visible.astype(jnp.bool_),
     )
 
 
 def project_cute(pool: GaussianPool, camera: Camera, config: CapacityConfig) -> ProjectedGaussians:
-    intrinsic = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
+    intrinsics = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
     return ProjectedGaussians(
-        *_project_arrays(
+        *_project_gaussian_arrays(
             pool.xyz,
             pool.log_scale,
             pool.rotation,
@@ -94,7 +101,7 @@ def project_cute(pool: GaussianPool, camera: Camera, config: CapacityConfig) -> 
             pool.sh,
             pool.alive,
             camera.world_to_camera,
-            intrinsic,
+            intrinsics,
             camera.center,
             config,
             camera.width,
@@ -110,25 +117,27 @@ def project_cute_vjp(
     camera: Camera,
     config: CapacityConfig,
     active_degree: int | None = None,
-    compacted_clusters=None,
+    compacted_clusters: VisibleClusters | None = None,
 ) -> ProjectedGaussians:
     """CuTe projection forward and analytic CuTe parameter pullback."""
     if active_degree is not None and not 0 <= active_degree <= config.sh_degree:
         raise ValueError("active_degree must fit the pool's SH coefficients")
-    intrinsic = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
+    intrinsics = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
 
     @jax.custom_vjp
-    def projected(xyz, log_scale, rotation, opacity, sh, alive, view, focal, center):
-        return _project_arrays(
+    def project_arrays(
+        xyz, log_scale, rotation, opacity, sh, alive, world_to_camera, intrinsics, camera_center
+    ):
+        return _project_gaussian_arrays(
             xyz,
             log_scale,
             rotation,
             opacity,
             sh,
             alive,
-            view,
-            focal,
-            center,
+            world_to_camera,
+            intrinsics,
+            camera_center,
             config,
             camera.width,
             camera.height,
@@ -138,17 +147,19 @@ def project_cute_vjp(
             compacted_clusters,
         )
 
-    def projected_fwd(xyz, log_scale, rotation, opacity, sh, alive, view, focal, center):
-        result = _project_arrays(
+    def project_forward(
+        xyz, log_scale, rotation, opacity, sh, alive, world_to_camera, intrinsics, camera_center
+    ):
+        result = _project_gaussian_arrays(
             xyz,
             log_scale,
             rotation,
             opacity,
             sh,
             alive,
-            view,
-            focal,
-            center,
+            world_to_camera,
+            intrinsics,
+            camera_center,
             config,
             camera.width,
             camera.height,
@@ -157,15 +168,27 @@ def project_cute_vjp(
             active_degree,
             compacted_clusters,
         )
-        return result, (xyz, log_scale, rotation, opacity, sh, view, focal, center, result[4])
+        return result, (
+            xyz,
+            log_scale,
+            rotation,
+            opacity,
+            sh,
+            world_to_camera,
+            intrinsics,
+            camera_center,
+            result[4],
+        )
 
-    def projected_bwd(residual, cotangents):
-        xyz, log_scale, rotation, opacity, sh, view, focal, center, color = residual
-        gradients = _project_pullback_arrays(
+    def project_backward(residual, cotangents):
+        xyz, log_scale, rotation, opacity, sh, world_to_camera, intrinsics, camera_center, color = (
+            residual
+        )
+        gradients = _compute_projection_gradients(
             (xyz, log_scale, rotation, opacity, sh),
-            view,
-            focal,
-            center,
+            world_to_camera,
+            intrinsics,
+            camera_center,
             color,
             cotangents,
             camera,
@@ -187,9 +210,9 @@ def project_cute_vjp(
             None,
         )
 
-    projected.defvjp(projected_fwd, projected_bwd)
+    project_arrays.defvjp(project_forward, project_backward)
     return ProjectedGaussians(
-        *projected(
+        *project_arrays(
             pool.xyz,
             pool.log_scale,
             pool.rotation,
@@ -197,79 +220,94 @@ def project_cute_vjp(
             pool.sh,
             pool.alive,
             camera.world_to_camera,
-            intrinsic,
+            intrinsics,
             camera.center,
         )
     )
 
 
-def _project_pullback_arrays(
-    params,
-    view,
-    focal,
-    center,
-    color,
-    cotangents,
-    camera,
-    config,
-    active_degree,
-    clusters,
-    compact_gradients,
-):
+def _compute_projection_gradients(
+    parameters: tuple[chex.Array, ...],
+    world_to_camera: chex.Array,
+    intrinsics: chex.Array,
+    camera_center: chex.Array,
+    projected_color: chex.Array,
+    cotangents: tuple[chex.Array, ...],
+    camera: Camera,
+    config: CapacityConfig,
+    active_degree: int | None,
+    visible_clusters: VisibleClusters | None,
+    compact_gradients: bool,
+    rgb_only: bool = False,
+) -> ParameterGradients:
+    """Compute parameter gradients from projected-field cotangents in CuTe."""
     from cutlass.jax import cutlass_call
 
     from .projection_backward import launch_projection_backward
 
-    shapes = tuple(jax.ShapeDtypeStruct((value.size,), jnp.float32) for value in params)
-    call = cutlass_call(
+    output_shapes = tuple(jax.ShapeDtypeStruct((value.size,), jnp.float32) for value in parameters)
+    backward_kernel = cutlass_call(
         launch_projection_backward,
-        output_shape_dtype=shapes,
+        output_shape_dtype=output_shapes,
         use_static_tensors=True,
         capacity=config.max_gaussians,
         sh_dim=config.sh_dim,
         degree=config.sh_degree if active_degree is None else active_degree,
         near=camera.near,
         cluster_size=config.cluster_size,
-        compacted=clusters is not None,
+        compacted=visible_clusters is not None,
         compact_gradients=compact_gradients,
+        rgb_only=rgb_only,
     )
     cluster_arrays = (
-        (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32)) if clusters is None else clusters
+        (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))
+        if visible_clusters is None
+        else visible_clusters
     )
-    gmean, gdepth, gconic, gradius, gcolor, galpha = cotangents[:6]
-    return call(
-        *(value.reshape(-1) for value in params),
-        view.reshape(-1),
-        focal,
-        center,
-        color.reshape(-1),
+    mean_grad, depth_grad, conic_grad, radius_grad, color_grad, alpha_grad = cotangents[:6]
+    return backward_kernel(
+        *(value.reshape(-1) for value in parameters),
+        world_to_camera.reshape(-1),
+        intrinsics,
+        camera_center,
+        projected_color.reshape(-1),
         *cluster_arrays,
-        gmean.reshape(-1),
-        gdepth,
-        gconic.reshape(-1),
-        gradius,
-        gcolor.reshape(-1),
-        galpha,
+        mean_grad.reshape(-1),
+        None if rgb_only else depth_grad,
+        conic_grad.reshape(-1),
+        None if rgb_only else radius_grad,
+        color_grad.reshape(-1),
+        alpha_grad,
     )
 
 
-def project_cute_sparse(pool, camera, config, active_degree, clusters):
-    """Training projection with LiteGS's compact-gradient pullback.
+def project_with_compact_pullback(
+    pool: GaussianPool,
+    camera: Camera,
+    config: CapacityConfig,
+    active_degree: int,
+    clusters: VisibleClusters,
+    *,
+    rgb_only: bool = False,
+) -> tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients]]:
+    """CuTe projection and a pullback producing gradients in visible-cluster order.
 
     The pullback returns fixed-capacity buffers in visible-cluster order.
-    Only slots belonging to clusters[:count] are valid. Sparse Adam consumes
-    this prefix directly; ordinary autodiff uses project_cute_vjp instead.
+    Only clusters[0][:clusters[1][0]] contribute valid entries. Parameter
+    gradients follow xyz, log_scale, rotation, opacity and SH order; the tail
+    is undefined. Ordinary autodiff uses project_cute_vjp instead.
+    rgb_only specializes the pullback for zero depth and radius cotangents.
     """
     if not 0 <= active_degree <= config.sh_degree:
         raise ValueError("active_degree must fit the pool's SH coefficients")
-    focal = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
-    params = (pool.xyz, pool.log_scale, pool.rotation, pool.opacity, pool.sh)
+    intrinsics = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
+    parameters = (pool.xyz, pool.log_scale, pool.rotation, pool.opacity, pool.sh)
     projected = ProjectedGaussians(
-        *_project_arrays(
-            *params,
+        *_project_gaussian_arrays(
+            *parameters,
             pool.alive,
             camera.world_to_camera,
-            focal,
+            intrinsics,
             camera.center,
             config,
             camera.width,
@@ -282,10 +320,10 @@ def project_cute_sparse(pool, camera, config, active_degree, clusters):
     )
 
     def pullback(cotangents):
-        arrays = _project_pullback_arrays(
-            params,
+        arrays = _compute_projection_gradients(
+            parameters,
             camera.world_to_camera,
-            focal,
+            intrinsics,
             camera.center,
             projected.color,
             (
@@ -301,9 +339,10 @@ def project_cute_sparse(pool, camera, config, active_degree, clusters):
             active_degree,
             clusters,
             True,
+            rgb_only,
         )
         return tuple(
-            array.reshape(value.shape) for array, value in zip(arrays, params, strict=True)
+            array.reshape(value.shape) for array, value in zip(arrays, parameters, strict=True)
         )
 
     return projected, pullback

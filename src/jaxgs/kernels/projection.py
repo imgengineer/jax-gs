@@ -110,10 +110,10 @@ def _projection_kernel(
             and z > near
             and z < far
             and alpha >= 1.0 / 255
-            and u + radius >= 0
-            and u - radius < width
-            and v + radius >= 0
-            and v - radius < height
+            and u >= -0.15 * width
+            and u <= 1.15 * width
+            and v >= -0.15 * height
+            and v <= 1.15 * height
         )
         out_visible[gid] = cutlass.Int8(1) if is_visible else cutlass.Int8(0)
 

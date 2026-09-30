@@ -1,10 +1,13 @@
 """Fixed-capacity visible-cluster list consumed by projection kernels."""
 
+import chex
 import cuda.bindings.driver as cuda
 import cutlass
 import cutlass.cute as cute
 import jax
 import jax.numpy as jnp
+
+from ..scene.types import VisibleClusters
 
 
 @cute.kernel
@@ -26,7 +29,7 @@ def _launch(
     )
 
 
-def compact_visible_clusters(point_mask, cluster_size):
+def compact_visible_clusters(point_mask: chex.Array, cluster_size: int) -> VisibleClusters:
     """Only ids[:count] is consumed; capacity never depends on visibility."""
     from cutlass.jax import cutlass_call
 

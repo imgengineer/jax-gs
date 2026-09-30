@@ -46,7 +46,7 @@ def _forward_kernel(
                     dx * (conic[gid * 4] * dx + conic[gid * 4 + 1] * dy)
                     + dy * (conic[gid * 4 + 2] * dx + conic[gid * 4 + 3] * dy)
                 )
-                if exponent >= -4.5:
+                if exponent <= 0:
                     raw_alpha = opacity[gid] * cute.exp(exponent)
                     if raw_alpha >= 1.0 / 256:
                         a = cute.min(cute.Float32(255.0 / 256), raw_alpha)

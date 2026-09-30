@@ -6,10 +6,10 @@ import pytest
 
 from jaxgs import CapacityConfig, create_pool, seed_pool
 from jaxgs.training.optimizer import (
-    adam_transform,
-    clear_slots,
     create_adam_state,
+    create_adam_transform,
     optax_adam_update,
+    reset_adam_slots,
     sparse_adam_update,
 )
 
@@ -45,7 +45,7 @@ def test_optax_matches_sparse_adam_with_visibility_changes_and_slot_reuse(compac
         [True] * 5,
         [True, False, True, False, False],
     )
-    assert isinstance(adam_transform(), optax.GradientTransformationExtraArgs)
+    assert isinstance(create_adam_transform(), optax.GradientTransformationExtraArgs)
     for iteration, pattern in enumerate(patterns):
         visible = jnp.repeat(jnp.array(pattern), cluster_size)[:capacity]
         gradients = tuple(
@@ -55,7 +55,10 @@ def test_optax_matches_sparse_adam_with_visibility_changes_and_slot_reuse(compac
         gradients = tuple(g.at[2].set(0) for g in gradients)
         if iteration == 2:
             slots = jnp.arange(capacity) == 3
-            state, expected_state = clear_slots(state, slots), clear_slots(expected_state, slots)
+            state, expected_state = (
+                reset_adam_slots(state, slots),
+                reset_adam_slots(expected_state, slots),
+            )
             pool = pool.replace(
                 alive=jnp.ones(capacity, jnp.bool_),
                 free_mask=jnp.zeros(capacity, jnp.bool_),

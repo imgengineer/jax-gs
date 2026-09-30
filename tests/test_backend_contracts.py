@@ -9,8 +9,7 @@ import pytest
 
 from jaxgs import Camera, CapacityConfig, create_pool, seed_pool
 from jaxgs.render.projection import project
-from jaxgs.render.rasterize_backward import rasterize
-from jaxgs.render.rasterize_forward import rasterize_forward
+from jaxgs.render.rasterizer import rasterize, rasterize_forward
 from jaxgs.render.visibility_table import build_visibility_table
 
 has_cute = importlib.util.find_spec("cutlass") is not None
@@ -103,12 +102,12 @@ def test_cute_rejects_cpu_before_launch(scene, monkeypatch, operation):
 @pytest.mark.parametrize("degree", [-1, 2])
 @pytest.mark.parametrize("sparse", [False, True])
 def test_projection_rejects_degree_outside_allocated_sh(scene, degree, sparse):
-    from jaxgs.kernels.projector import project_cute_sparse, project_cute_vjp
+    from jaxgs.kernels.projector import project_cute_vjp, project_with_compact_pullback
 
     config, camera, pool, _, _ = scene
     with pytest.raises(ValueError, match="active_degree must fit"):
         if sparse:
-            project_cute_sparse(pool, camera, config, degree, None)
+            project_with_compact_pullback(pool, camera, config, degree, None)
         else:
             project_cute_vjp(pool, camera, config, degree)
 
@@ -159,3 +158,27 @@ def test_array_training_rejects_unknown_optimizer(scene):
             False,
             optimizer="typo",
         )
+
+
+@requires_cute
+def test_bounded_cute_interfaces_reject_rectangles_before_launch(scene, monkeypatch):
+    import cutlass.jax
+
+    from jaxgs.kernels.binning import build_visibility_table_cute
+    from jaxgs.kernels.rasterizer import rasterize_cute, rasterize_cute_vjp
+
+    _, camera, _, projected, table = scene
+    rectangular = CapacityConfig(4, 2, 4, 16, 1, 64, tile_height=8)
+
+    def unexpected_launch(*args, **kwargs):
+        pytest.fail("unsupported tile shape reached a CuTe launch")
+
+    monkeypatch.setattr(cutlass.jax, "cutlass_call", unexpected_launch)
+    calls = (
+        lambda: build_visibility_table_cute(projected, camera, rectangular),
+        lambda: rasterize_cute(projected, table, camera, rectangular),
+        lambda: rasterize_cute_vjp(projected, table, camera, rectangular),
+    )
+    for call in calls:
+        with pytest.raises(ValueError, match="requires square tiles"):
+            call()

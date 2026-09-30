@@ -1,90 +1,125 @@
+"""Masked Adam updates with fixed-capacity moments and per-parameter rates."""
+
 import chex
 import jax
 import jax.numpy as jnp
 import optax
 from flax import struct
 
-from ..config import load_config
+from ..config import OptimizationConfig, load_config
 from ..scene.point import GaussianPool
+from ..scene.types import PARAMETER_NAMES, ParameterArrays, ParameterGradients, VisibleClusters
 
 _DEFAULT_OPTIMIZATION = load_config().optimization
 
 
 @struct.dataclass
-class Moments:
-    xyz: chex.Array
-    log_scale: chex.Array
-    rotation: chex.Array
-    opacity: chex.Array
-    sh: chex.Array
-
-
-@struct.dataclass
 class AdamState:
-    m: Moments
-    v: Moments
+    m: ParameterArrays
+    v: ParameterArrays
     step: chex.Array  # [C], reset when a slot is reused
 
 
 def create_adam_state(pool: GaussianPool) -> AdamState:
-    params = Moments(
-        *(getattr(pool, name) for name in ("xyz", "log_scale", "rotation", "opacity", "sh"))
-    )
-    return _ADAM.init(params)
+    """Initialize independent first and second moments for every pool slot."""
+    parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))
+    return _ADAM_TRANSFORM.init(parameters)
 
 
 def masked_adam_update(
     pool: GaussianPool,
     state: AdamState,
-    gradients: tuple[chex.Array, ...],
+    gradients: ParameterGradients,
     learning_rate: float = 1e-3,
     beta1: float = 0.9,
     beta2: float = 0.999,
     eps: float = 1e-8,
 ) -> tuple[GaussianPool, AdamState]:
-    names = ("xyz", "log_scale", "rotation", "opacity", "sh")
-    step = state.step + pool.alive.astype(jnp.int32)
-    next_pool = pool
-    m_fields, v_fields = {}, {}
-    for name, gradient in zip(names, gradients, strict=True):
-        value = getattr(pool, name)
-        mask = pool.alive.reshape((-1,) + (1,) * (value.ndim - 1))
-        old_m, old_v = getattr(state.m, name), getattr(state.v, name)
-        m = jnp.where(mask, beta1 * old_m + (1 - beta1) * gradient, old_m)
-        v = jnp.where(mask, beta2 * old_v + (1 - beta2) * gradient**2, old_v)
-        correction1 = (1 - beta1 ** jnp.maximum(step, 1)).reshape(mask.shape)
-        correction2 = (1 - beta2 ** jnp.maximum(step, 1)).reshape(mask.shape)
-        updated = value - learning_rate * (m / correction1) / (jnp.sqrt(v / correction2) + eps)
-        next_pool = next_pool.replace(**{name: jnp.where(mask, updated, value)})
-        m_fields[name], v_fields[name] = m, v
-    return next_pool, AdamState(Moments(**m_fields), Moments(**v_fields), step)
-
-
-def clear_slots(state: AdamState, slots: chex.Array) -> AdamState:
-    """Reset only newly allocated slots; slots is a fixed-shape boolean mask."""
-    m_fields, v_fields = {}, {}
-    for name in ("xyz", "log_scale", "rotation", "opacity", "sh"):
-        value = getattr(state.m, name)
-        mask = slots.reshape((-1,) + (1,) * (value.ndim - 1))
-        m_fields[name] = jnp.where(mask, 0, value)
-        v_fields[name] = jnp.where(mask, 0, getattr(state.v, name))
-    return AdamState(Moments(**m_fields), Moments(**v_fields), jnp.where(slots, 0, state.step))
-
-
-def _parameter_rates(sh_dim, step, spatial_scale, max_steps, optimization):
-    op = optimization
-    t = jnp.clip(step / (max_steps or op.position_lr_max_steps), 0, 1)
-    xyz_lr = (
-        0.0
-        if op.position_lr_init == op.position_lr_final == 0
-        else spatial_scale
-        * jnp.exp(jnp.log(op.position_lr_init) * (1 - t) + jnp.log(op.position_lr_final) * t)
+    """Reference Adam with bias correction, restricted to live pool slots."""
+    update_counts = state.step + pool.alive.astype(jnp.int32)
+    updated_pool = pool
+    first_moments, second_moments = {}, {}
+    for name, gradient in zip(PARAMETER_NAMES, gradients, strict=True):
+        parameter = getattr(pool, name)
+        active_mask = pool.alive.reshape((-1,) + (1,) * (parameter.ndim - 1))
+        previous_first_moment, previous_second_moment = (
+            getattr(state.m, name),
+            getattr(state.v, name),
+        )
+        first_moment = jnp.where(
+            active_mask,
+            beta1 * previous_first_moment + (1 - beta1) * gradient,
+            previous_first_moment,
+        )
+        second_moment = jnp.where(
+            active_mask,
+            beta2 * previous_second_moment + (1 - beta2) * gradient**2,
+            previous_second_moment,
+        )
+        first_bias_correction = (1 - beta1 ** jnp.maximum(update_counts, 1)).reshape(
+            active_mask.shape
+        )
+        second_bias_correction = (1 - beta2 ** jnp.maximum(update_counts, 1)).reshape(
+            active_mask.shape
+        )
+        updated_parameter = parameter - learning_rate * (first_moment / first_bias_correction) / (
+            jnp.sqrt(second_moment / second_bias_correction) + eps
+        )
+        updated_pool = updated_pool.replace(
+            **{name: jnp.where(active_mask, updated_parameter, parameter)}
+        )
+        first_moments[name], second_moments[name] = first_moment, second_moment
+    return updated_pool, AdamState(
+        ParameterArrays(**first_moments), ParameterArrays(**second_moments), update_counts
     )
-    sh_lr = jnp.full((1, sh_dim, 1), op.feature_lr / 10).at[:, 0].set(op.feature_lr)
-    return Moments(xyz_lr, op.scaling_lr, op.rotation_lr, op.opacity_lr, sh_lr)
 
 
-def adam_transform():
+def reset_adam_slots(state: AdamState, slot_mask: chex.Array) -> AdamState:
+    """Reset moments and update counts where the fixed-shape slot mask is true."""
+    first_moments, second_moments = {}, {}
+    for name in PARAMETER_NAMES:
+        moment = getattr(state.m, name)
+        reset_mask = slot_mask.reshape((-1,) + (1,) * (moment.ndim - 1))
+        first_moments[name] = jnp.where(reset_mask, 0, moment)
+        second_moments[name] = jnp.where(reset_mask, 0, getattr(state.v, name))
+    return AdamState(
+        ParameterArrays(**first_moments),
+        ParameterArrays(**second_moments),
+        jnp.where(slot_mask, 0, state.step),
+    )
+
+
+def _parameter_learning_rates(
+    sh_dim: int,
+    step: int | chex.Array,
+    spatial_scale: float | chex.Array,
+    max_steps: int | None,
+    optimization: OptimizationConfig,
+) -> ParameterArrays:
+    """Build broadcastable field rates, including the position schedule and SH rates."""
+    schedule_fraction = jnp.clip(step / (max_steps or optimization.position_lr_max_steps), 0, 1)
+    position_rate = (
+        0.0
+        if optimization.position_lr_init == optimization.position_lr_final == 0
+        else spatial_scale
+        * jnp.exp(
+            jnp.log(optimization.position_lr_init) * (1 - schedule_fraction)
+            + jnp.log(optimization.position_lr_final) * schedule_fraction
+        )
+    )
+    sh_rates = (
+        jnp.full((1, sh_dim, 1), optimization.feature_lr / 10).at[:, 0].set(optimization.feature_lr)
+    )
+    return ParameterArrays(
+        position_rate,
+        optimization.scaling_lr,
+        optimization.rotation_lr,
+        optimization.opacity_lr,
+        sh_rates,
+    )
+
+
+def create_adam_transform() -> optax.GradientTransformationExtraArgs:
     """Optax transformation matching LiteGS Adam (no bias correction).
 
     Optax's built-in Adam always corrects the moments. Use its moment helpers
@@ -93,8 +128,11 @@ def adam_transform():
     """
 
     def init_fn(params):
-        zero = optax.tree.zeros_like(params)
-        return AdamState(zero, zero, jnp.zeros(params.xyz.shape[0], jnp.int32))
+        zero_moments = optax.tree.zeros_like(params)
+        # Eager initialization must provide distinct buffers for donation.
+        return AdamState(
+            zero_moments, optax.tree.zeros_like(params), jnp.zeros(params.xyz.shape[0], jnp.int32)
+        )
 
     def update_fn(gradients, state, params=None, *, active, rates):
         del params
@@ -104,78 +142,90 @@ def adam_transform():
         chex.assert_shape(active, state.step.shape)
         chex.assert_type(active, jnp.bool_)
         chex.assert_trees_all_equal_shapes_and_dtypes(gradients, state.m, state.v)
-        m = optax.tree.update_moment(gradients, state.m, 0.9, 1)
-        v = optax.tree.update_moment_per_elem_norm(gradients, state.v, 0.999, 2)
+        first_moment = optax.tree.update_moment(gradients, state.m, 0.9, 1)
+        second_moment = optax.tree.update_moment_per_elem_norm(gradients, state.v, 0.999, 2)
         updates = jax.tree.map(
-            lambda mean, variance, rate: -rate * mean / (jnp.sqrt(variance) + 1e-15), m, v, rates
+            lambda first_moment, second_moment, learning_rate: (
+                -learning_rate * first_moment / (jnp.sqrt(second_moment) + 1e-15)
+            ),
+            first_moment,
+            second_moment,
+            rates,
         )
 
-        def select(new, old):
-            mask = active.reshape((-1,) + (1,) * (new.ndim - 1))
-            return jnp.where(mask, new, old)
+        def select_active_slots(updated, previous):
+            active_mask = active.reshape((-1,) + (1,) * (updated.ndim - 1))
+            return jnp.where(active_mask, updated, previous)
 
-        updates = jax.tree.map(lambda value: select(value, 0), updates)
+        updates = jax.tree.map(lambda value: select_active_slots(value, 0), updates)
         return updates, AdamState(
-            jax.tree.map(select, m, state.m),
-            jax.tree.map(select, v, state.v),
+            jax.tree.map(select_active_slots, first_moment, state.m),
+            jax.tree.map(select_active_slots, second_moment, state.v),
             state.step + active.astype(jnp.int32),
         )
 
     return optax.GradientTransformationExtraArgs(init_fn, update_fn)
 
 
-_ADAM = adam_transform()
+_ADAM_TRANSFORM = create_adam_transform()
 
 
 def optax_adam_update(
-    pool,
-    state,
-    gradients,
-    visible,
-    step,
-    spatial_scale,
-    max_steps=None,
+    pool: GaussianPool,
+    state: AdamState,
+    gradients: ParameterGradients,
+    visible: chex.Array,
+    step: int | chex.Array,
+    spatial_scale: float | chex.Array,
+    max_steps: int | None = None,
     *,
-    cluster_size=128,
-    compact_gradients=False,
-    optimization=_DEFAULT_OPTIMIZATION,
-):
+    cluster_size: int = 128,
+    compact_gradients: bool = False,
+    optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
+) -> tuple[GaussianPool, AdamState]:
     """Apply the Optax transformation to fixed pool slots under nnx.jit."""
-    active = visible & pool.alive
+    active_slots = visible & pool.alive
     if compact_gradients:
         # compact_visible_clusters preserves cluster order. Invert that order
         # without touching its undefined IDs or gradient tail. Out-of-bounds
         # gathers produce zero, including when no clusters are visible.
         capacity = pool.xyz.shape[0]
-        ranks = jnp.cumsum(visible[::cluster_size], dtype=jnp.int32) - 1
-        slots = jnp.arange(capacity, dtype=jnp.int32)
-        indices = ranks[slots // cluster_size] * cluster_size + slots % cluster_size
-        indices = jnp.where(active, indices, capacity)
-        gradients = tuple(
-            jnp.take(g, indices, axis=0, mode="fill", fill_value=0) for g in gradients
+        visible_cluster_ranks = jnp.cumsum(visible[::cluster_size], dtype=jnp.int32) - 1
+        pool_slots = jnp.arange(capacity, dtype=jnp.int32)
+        compact_indices = (
+            visible_cluster_ranks[pool_slots // cluster_size] * cluster_size
+            + pool_slots % cluster_size
         )
-    names = ("xyz", "log_scale", "rotation", "opacity", "sh")
-    params = Moments(*(getattr(pool, name) for name in names))
-    rates = _parameter_rates(pool.sh.shape[1], step, spatial_scale, max_steps, optimization)
-    updates, state = _ADAM.update(Moments(*gradients), state, params, active=active, rates=rates)
-    params = optax.apply_updates(params, updates)
-    return pool.replace(**{name: getattr(params, name) for name in names}), state
+        compact_indices = jnp.where(active_slots, compact_indices, capacity)
+        gradients = tuple(
+            jnp.take(gradient, compact_indices, axis=0, mode="fill", fill_value=0)
+            for gradient in gradients
+        )
+    parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))
+    learning_rates = _parameter_learning_rates(
+        pool.sh.shape[1], step, spatial_scale, max_steps, optimization
+    )
+    parameter_updates, state = _ADAM_TRANSFORM.update(
+        ParameterArrays(*gradients), state, parameters, active=active_slots, rates=learning_rates
+    )
+    parameters = optax.apply_updates(parameters, parameter_updates)
+    return pool.replace(**{name: getattr(parameters, name) for name in PARAMETER_NAMES}), state
 
 
 def sparse_adam_update(
-    pool,
-    state,
-    gradients,
-    visible,
-    step,
-    spatial_scale,
-    max_steps=None,
+    pool: GaussianPool,
+    state: AdamState,
+    gradients: ParameterGradients,
+    visible: chex.Array,
+    step: int | chex.Array,
+    spatial_scale: float | chex.Array,
+    max_steps: int | None = None,
     *,
-    compacted_clusters=None,
-    cluster_size=128,
-    compact_gradients=False,
-    optimization=_DEFAULT_OPTIMIZATION,
-):
+    compacted_clusters: VisibleClusters | None = None,
+    cluster_size: int = 128,
+    compact_gradients: bool = False,
+    optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
+) -> tuple[GaussianPool, AdamState]:
     """LiteGS sparse Adam: per-field rates, no bias correction, eps=1e-15.
 
     Matches litegs/training/optimizer.py and compact.cu::adamUpdate. The
@@ -183,36 +233,48 @@ def sparse_adam_update(
     compact_gradients reads only the valid prefix in visible-cluster order;
     parameter and moment writes still address their original pool slots.
     """
-    rates = _parameter_rates(pool.sh.shape[1], step, spatial_scale, max_steps, optimization)
-    values, means, variances = {}, {}, {}
-    active = visible & pool.alive
-    for name, grad in zip(
-        ("xyz", "log_scale", "rotation", "opacity", "sh"), gradients, strict=True
-    ):
-        rate = getattr(rates, name)
-        value = getattr(pool, name)
-        mask = active.reshape((-1,) + (1,) * (value.ndim - 1))
-        old_m, old_v = getattr(state.m, name), getattr(state.v, name)
+    learning_rates = _parameter_learning_rates(
+        pool.sh.shape[1], step, spatial_scale, max_steps, optimization
+    )
+    updated_parameters, first_moments, second_moments = {}, {}, {}
+    active_slots = visible & pool.alive
+    for name, gradient in zip(PARAMETER_NAMES, gradients, strict=True):
+        learning_rate = getattr(learning_rates, name)
+        parameter = getattr(pool, name)
+        active_mask = active_slots.reshape((-1,) + (1,) * (parameter.ndim - 1))
+        previous_first_moment, previous_second_moment = (
+            getattr(state.m, name),
+            getattr(state.v, name),
+        )
         if compacted_clusters is not None:
             from ..kernels.sparse_adam import update_field
 
-            values[name], means[name], variances[name] = update_field(
-                value,
-                old_m,
-                old_v,
-                grad,
+            updated_parameters[name], first_moments[name], second_moments[name] = update_field(
+                parameter,
+                previous_first_moment,
+                previous_second_moment,
+                gradient,
                 pool.alive,
                 compacted_clusters,
-                optimization.feature_lr / 10 if name == "sh" else rate,
+                optimization.feature_lr / 10 if name == "sh" else learning_rate,
                 cluster_size,
                 name == "sh",
                 compact_gradients,
             )
             continue
-        m = 0.9 * old_m + 0.1 * grad
-        v = 0.999 * old_v + 0.001 * grad**2
-        values[name] = jnp.where(mask, value - rate * m / (jnp.sqrt(v) + 1e-15), value)
-        means[name], variances[name] = jnp.where(mask, m, old_m), jnp.where(mask, v, old_v)
-    return pool.replace(**values), AdamState(
-        Moments(**means), Moments(**variances), state.step + active.astype(jnp.int32)
+        first_moment = 0.9 * previous_first_moment + 0.1 * gradient
+        second_moment = 0.999 * previous_second_moment + 0.001 * gradient**2
+        updated_parameters[name] = jnp.where(
+            active_mask,
+            parameter - learning_rate * first_moment / (jnp.sqrt(second_moment) + 1e-15),
+            parameter,
+        )
+        first_moments[name], second_moments[name] = (
+            jnp.where(active_mask, first_moment, previous_first_moment),
+            jnp.where(active_mask, second_moment, previous_second_moment),
+        )
+    return pool.replace(**updated_parameters), AdamState(
+        ParameterArrays(**first_moments),
+        ParameterArrays(**second_moments),
+        state.step + active_slots.astype(jnp.int32),
     )

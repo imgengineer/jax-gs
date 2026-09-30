@@ -3,11 +3,14 @@
 Adapted from LiteGS; see LICENSE.LiteGS. Buffer aliases preserve untouched slots.
 """
 
+import chex
 import cuda.bindings.driver as cuda
 import cutlass
 import cutlass.cute as cute
 import jax
 import jax.numpy as jnp
+
+from ..scene.types import VisibleClusters
 
 
 @cute.kernel
@@ -92,8 +95,17 @@ def _launch(
 
 
 def update_field(
-    value, mean, variance, gradient, alive, clusters, rate, cluster_size, is_sh, compact_gradients
-):
+    value: chex.Array,
+    mean: chex.Array,
+    variance: chex.Array,
+    gradient: chex.Array,
+    alive: chex.Array,
+    clusters: VisibleClusters,
+    rate: float | chex.Array,
+    cluster_size: int,
+    is_sh: bool,
+    compact_gradients: bool,
+) -> tuple[chex.Array, chex.Array, chex.Array]:
     from cutlass.jax import cutlass_call
 
     call = cutlass_call(

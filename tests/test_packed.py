@@ -1,4 +1,5 @@
 import importlib.util
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -71,8 +72,7 @@ def test_packed_partial_tiles_and_parameter_pullback(tile_height, tile_width):
 
 def test_packed_empty_tile_and_early_termination():
     from jaxgs.kernels.packed_rasterizer import packed_backward, packed_forward
-    from jaxgs.render.projection import ProjectedGaussians
-    from jaxgs.render.visibility_table import SortedVisibilityTable
+    from jaxgs.render.types import ProjectedGaussians, SortedVisibilityTable
 
     config = CapacityConfig(12, 1, 12, 16, 0, 12, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 8, 4, 32, 8)
@@ -169,7 +169,7 @@ def test_compacted_projection_and_sparse_adam_preserve_invisible_slots():
 @pytest.mark.parametrize("optimizer", ["cute", "optax"])
 def test_compact_gradient_prefix_matches_dense_pullback(cluster_size, capacity, optimizer):
     from jaxgs.kernels.cluster_compact import compact_visible_clusters
-    from jaxgs.kernels.projector import project_cute_sparse, project_cute_vjp
+    from jaxgs.kernels.projector import project_cute_vjp, project_with_compact_pullback
     from jaxgs.training.optimizer import create_adam_state, optax_adam_update, sparse_adam_update
 
     config = CapacityConfig(capacity, cluster_size, 16, 16, 3, 4096, tile_height=8)
@@ -193,7 +193,7 @@ def test_compact_gradient_prefix_matches_dense_pullback(cluster_size, capacity, 
         lambda p: objective(project_cute_vjp(p, camera, config, compacted_clusters=clusters)),
         allow_int=True,
     )(masked)
-    projected, pullback = project_cute_sparse(masked, camera, config, 3, clusters)
+    projected, pullback = project_with_compact_pullback(masked, camera, config, 3, clusters)
     compact = pullback(jax.grad(objective, allow_int=True)(projected))
     names = ("xyz", "log_scale", "rotation", "opacity", "sh")
     for value, name in zip(compact, names, strict=True):
@@ -232,3 +232,97 @@ def test_compact_gradient_prefix_matches_dense_pullback(cluster_size, capacity, 
         np.testing.assert_allclose(
             getattr(actual_state.v, name), getattr(expected_state.v, name), rtol=1e-5, atol=1e-6
         )
+
+
+@pytest.mark.parametrize("cluster_size", [2, 65, 128])
+@pytest.mark.parametrize("degree", [0, 1, 2, 3])
+def test_rgb_projection_pullback_matches_general_and_reference(cluster_size, degree):
+    from jaxgs.kernels.cluster_compact import compact_visible_clusters
+    from jaxgs.kernels.projector import project_with_compact_pullback
+    from jaxgs.render.projection import project
+
+    capacity = 257
+    config = CapacityConfig(capacity, cluster_size, 16, 16, 3, 4096, tile_height=8)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
+    pool = seed_pool(
+        create_pool(config),
+        jnp.tile(jnp.array([[0.1, -0.2, 2.0]]), (capacity, 1)),
+        jnp.full((capacity, 3), 0.4),
+        scale=jnp.tile(jnp.array([0.1, 0.2, 0.3]), (capacity, 1)),
+        opacity=0.3,
+    )
+    pool = pool.replace(
+        sh=jax.random.normal(jax.random.key(5), pool.sh.shape) * 0.2,
+        rotation=jnp.tile(jnp.array([0.9, 0.1, 0.2, 0.05]), (capacity, 1)),
+    )
+    visible = (jnp.arange(capacity) // cluster_size) % 2 == 0
+    clusters = compact_visible_clusters(visible, cluster_size)
+    masked = pool.replace(alive=visible)
+    weights = jax.random.normal(jax.random.key(9), (capacity, 3)) * visible[:, None]
+
+    def objective(p):
+        return (
+            jnp.sum(p.mean * weights[:, :2])
+            + jnp.sum(p.conic * weights[:, :2, None]) * 0.01
+            + jnp.sum(p.color * weights)
+            + jnp.sum(p.alpha * weights[:, 0])
+        )
+
+    projected, general_pullback = project_with_compact_pullback(
+        masked, camera, config, degree, clusters
+    )
+    cotangents = jax.grad(objective, allow_int=True)(projected)
+    general = general_pullback(cotangents)
+
+    @jax.jit
+    def rgb_pullback(p):
+        _, pullback = project_with_compact_pullback(
+            p, camera, config, degree, clusters, rgb_only=True
+        )
+        return pullback(cotangents)
+
+    actual = rgb_pullback(masked)
+    with jax.default_matmul_precision("highest"):
+        reference = jax.grad(
+            lambda p: objective(project(p, camera, replace(config, sh_degree=degree))),
+            allow_int=True,
+        )(masked)
+    slots = np.flatnonzero(np.asarray(visible))
+    for rgb, full, name in zip(
+        actual, general, ("xyz", "log_scale", "rotation", "opacity", "sh"), strict=True
+    ):
+        np.testing.assert_allclose(rgb[: len(slots)], full[: len(slots)], rtol=1e-5, atol=2e-6)
+        np.testing.assert_allclose(
+            rgb[: len(slots)], getattr(reference, name)[slots], rtol=2e-4, atol=2e-5
+        )
+
+
+@pytest.mark.parametrize("rgb_only", [False, True])
+def test_empty_compact_projection_pullback_preserves_parameters(rgb_only):
+    from jaxgs.kernels.cluster_compact import compact_visible_clusters
+    from jaxgs.kernels.projector import project_with_compact_pullback
+    from jaxgs.training.optimizer import create_adam_state, optax_adam_update
+
+    config = CapacityConfig(257, 65, 16, 16, 3, 4096, tile_height=8)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
+    pool = create_pool(config)
+    state = create_adam_state(pool)
+    visible = jnp.zeros(257, bool)
+    clusters = compact_visible_clusters(visible, config.cluster_size)
+
+    @jax.jit
+    def update(p, s):
+        projected, pullback = project_with_compact_pullback(
+            p, camera, config, 3, clusters, rgb_only=rgb_only
+        )
+        cotangents = jax.grad(lambda x: jnp.sum(x.color), allow_int=True)(projected)
+        gradients = pullback(cotangents)
+        return optax_adam_update(
+            p, s, gradients, visible, 0, 1.0, cluster_size=65, compact_gradients=True
+        )
+
+    actual = update(pool, state)
+    for result, expected in zip(
+        jax.tree.leaves(actual), jax.tree.leaves((pool, state)), strict=True
+    ):
+        np.testing.assert_array_equal(result, expected)

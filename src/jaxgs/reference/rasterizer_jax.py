@@ -1,19 +1,10 @@
 import chex
 import jax
 import jax.numpy as jnp
-from flax import struct
 
 from ..config import CapacityConfig
-from ..render.projection import ProjectedGaussians
-from ..render.visibility_table import VisibilityTable
+from ..render.types import ProjectedGaussians, RenderResult, VisibilityTable
 from ..scene.camera import Camera
-
-
-@struct.dataclass
-class RenderResult:
-    rgb: chex.Array
-    depth: chex.Array
-    alpha: chex.Array
 
 
 def rasterize_jax(
@@ -28,7 +19,9 @@ def rasterize_jax(
     yy, xx = jnp.meshgrid(jnp.arange(camera.height), jnp.arange(camera.width), indexing="ij")
     pixel = jnp.stack([xx.reshape(-1) + 0.5, yy.reshape(-1) + 0.5], axis=-1)
     tiles_x = (camera.width + config.tile_size - 1) // config.tile_size
-    tile_ids = (yy.reshape(-1) // config.tile_size) * tiles_x + xx.reshape(-1) // config.tile_size
+    tile_ids = (yy.reshape(-1) // config.raster_tile_height) * tiles_x + xx.reshape(
+        -1
+    ) // config.tile_size
     ids = table.tile_gaussian_ids[tile_ids]
     valid = table.tile_valid[tile_ids]
 
@@ -39,13 +32,15 @@ def rasterize_jax(
         exponent = -0.5 * jnp.einsum("pi,pij,pj->p", delta, projected.conic[gid], delta)
         raw_alpha = projected.alpha[gid] * jnp.exp(exponent)
         alpha = jnp.where(
-            valid[:, i] & (exponent >= -4.5) & (raw_alpha >= 1.0 / 256),
+            valid[:, i] & (exponent <= 0) & (raw_alpha >= 1.0 / 256),
             jnp.minimum(255.0 / 256, raw_alpha),
             0.0,
         )
         weight = alpha * transmittance
         rgb = rgb + weight[:, None] * projected.color[gid]
-        depth = depth + weight * projected.depth[gid]
+        # Culled slots may have infinite depth; mask before multiplying by zero.
+        gaussian_depth = jnp.where(valid[:, i], projected.depth[gid], 0.0)
+        depth = depth + weight * gaussian_depth
         return (rgb, depth, transmittance * (1.0 - alpha)), None
 
     count = pixel.shape[0]

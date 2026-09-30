@@ -1,23 +1,20 @@
 import chex
 import jax
 import jax.numpy as jnp
-from flax import struct
 
 from ..config import CapacityConfig
 from ..reference.sh import eval_sh
 from ..scene.camera import Camera
 from ..scene.point import GaussianPool
+from .types import ProjectedGaussians
 
 
-@struct.dataclass
-class ProjectedGaussians:
-    mean: chex.Array  # [C, 2], pixel coordinates
-    depth: chex.Array  # [C]
-    conic: chex.Array  # [C, 2, 2], inverse covariance
-    radius: chex.Array  # [C], 3 sigma
-    color: chex.Array  # [C, 3]
-    alpha: chex.Array  # [C]
-    visible: chex.Array  # [C]
+def support_radius(projected: ProjectedGaussians) -> chex.Array:
+    """Conservative circle covering the rasterizer's 1/256 alpha support."""
+    factor = jnp.sqrt(
+        jnp.maximum(1.0, (2.0 / 9.0) * jnp.log(jnp.maximum(projected.alpha * 256, 1.0)))
+    )
+    return projected.radius * factor
 
 
 def quaternion_to_matrix(q: chex.Array) -> chex.Array:
@@ -69,9 +66,9 @@ def project(pool: GaussianPool, camera: Camera, config: CapacityConfig) -> Proje
         & (z > camera.near)
         & (z < camera.far)
         & (alpha >= 1.0 / 255)
-        & (mean[:, 0] + radius >= 0)
-        & (mean[:, 0] - radius < camera.width)
-        & (mean[:, 1] + radius >= 0)
-        & (mean[:, 1] - radius < camera.height)
+        & (mean[:, 0] >= -0.15 * camera.width)
+        & (mean[:, 0] <= 1.15 * camera.width)
+        & (mean[:, 1] >= -0.15 * camera.height)
+        & (mean[:, 1] <= 1.15 * camera.height)
     )
     return ProjectedGaussians(mean, z, conic, radius, color, alpha, visible)

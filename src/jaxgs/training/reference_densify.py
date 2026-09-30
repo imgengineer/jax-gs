@@ -4,7 +4,7 @@ import jax.numpy as jnp
 
 from ..render.projection import quaternion_to_matrix
 from ..scene.point import GaussianPool
-from .optimizer import AdamState, clear_slots
+from .optimizer import AdamState, reset_adam_slots
 
 
 def densify_step(
@@ -72,18 +72,7 @@ def densify_step(
     new_slots = (
         jnp.zeros((capacity,), dtype=jnp.int32).at[free_slots].add(valid.astype(jnp.int32)) > 0
     )
-    return next_pool, clear_slots(state, new_slots), jnp.sum(valid, dtype=jnp.int32)
-
-
-def prune_step(
-    pool: GaussianPool, state: AdamState, remove: chex.Array
-) -> tuple[GaussianPool, AdamState]:
-    remove = jax.lax.stop_gradient(remove) & pool.alive
-    alive = pool.alive & ~remove
-    next_pool = pool.replace(
-        alive=alive, free_mask=~alive, n_active=pool.n_active - jnp.sum(remove, dtype=jnp.int32)
-    )
-    return next_pool, clear_slots(state, remove)
+    return next_pool, reset_adam_slots(state, new_slots), jnp.sum(valid, dtype=jnp.int32)
 
 
 def reset_opacity(

@@ -1,0 +1,254 @@
+{
+  "date": "2026-09-30",
+  "baseline": "Workspace after structure/naming refactor and screen-edge fix; before Flax/JAX documentation cleanup",
+  "versions": {
+    "flax": "0.12.10",
+    "jax": "0.11.2",
+    "jaxlib": "0.11.2",
+    "optax": "0.2.8"
+  },
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "scope": "Correctness and compiler comparison on shared GPU; no speed measurement",
+  "default_renderer": "cute",
+  "default_optimizer": "optax",
+  "documentation": [
+    {
+      "page": "jax-aot",
+      "url": "https://raw.githubusercontent.com/jax-ml/jax/jax-v0.11.2/docs/aot.md",
+      "bytes": 10108
+    },
+    {
+      "page": "jax-donation",
+      "url": "https://raw.githubusercontent.com/jax-ml/jax/jax-v0.11.2/docs/buffer_donation.md",
+      "bytes": 3362
+    },
+    {
+      "page": "jax-jit",
+      "url": "https://raw.githubusercontent.com/jax-ml/jax/jax-v0.11.2/docs/jit-compilation.md",
+      "bytes": 11131
+    },
+    {
+      "page": "jax-async",
+      "url": "https://raw.githubusercontent.com/jax-ml/jax/jax-v0.11.2/docs/async_dispatch.rst",
+      "bytes": 5403
+    },
+    {
+      "page": "flax-tree",
+      "url": "https://raw.githubusercontent.com/google/flax/v0.12.10/docs_nnx/flip/5310-tree-mode-nnx.md",
+      "bytes": 13157
+    },
+    {
+      "page": "flax-performance",
+      "url": "https://raw.githubusercontent.com/google/flax/v0.12.10/docs_nnx/guides/performance.md",
+      "bytes": 7109
+    },
+    {
+      "page": "flax-transforms",
+      "url": "https://raw.githubusercontent.com/google/flax/v0.12.10/flax/nnx/transforms/compilation.py",
+      "bytes": 68904
+    },
+    {
+      "page": "flax-variables",
+      "url": "https://raw.githubusercontent.com/google/flax/v0.12.10/docs_nnx/api_reference/flax.nnx/variables.rst",
+      "bytes": 478
+    }
+  ],
+  "changes": {
+    "pure_training_core": "training.step.compute_training_step, used by array_train_step, NNX train_step and the fixed-model benchmark",
+    "reference_pure_core": "training.reference_trainer._compute_training_step",
+    "shared_static_argument_declarations": true,
+    "camera_intrinsics": "float32 scalars with weak_type=False",
+    "warmup": {
+      "copies_of_full_capacity_working_state": {
+        "before": 8,
+        "after": 1
+      },
+      "default_capacity": 1000000,
+      "default_sh_degree": 3,
+      "copied_array_bytes_per_working_state": 730000004,
+      "default_logical_copied_array_bytes": {
+        "before": 5840000032,
+        "after": 730000004
+      },
+      "note": "Array sizes summed over GaussianPool, Adam m/v/step and four-column statistics. Copy volume estimate; not measured bandwidth, timing or peak allocation.",
+      "independent_model_with_donated_returned_state_reused": true,
+      "all_eight_default_variants_still_executed": true
+    }
+  },
+  "compiler_cases": {
+    "train-optax-0-0": {
+      "before_stablehlo_sha256": "3cc60219be46f9fe682e86f3fbddf38378d0516ecec4dbc64275fb8b7a7a8782",
+      "after_stablehlo_sha256": "9f56f418b5be56707408e95713715e43479ebd40748ceede13d6e352697a1086",
+      "stablehlo_byte_identical": false,
+      "memory_bytes_unchanged": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 71352
+      },
+      "stablehlo_convert_count": {
+        "before": 28,
+        "after": 20
+      }
+    },
+    "train-optax-3-1": {
+      "before_stablehlo_sha256": "00e0bd7a3dfa01f90e9e3941252ab7077c477c8ffe56d519814f66b0946fd6b6",
+      "after_stablehlo_sha256": "226e51449df0b93f3f0a361b6be85dc76862d2a11372cc31ea5c3c4855cece3f",
+      "stablehlo_byte_identical": false,
+      "memory_bytes_unchanged": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 72376
+      },
+      "stablehlo_convert_count": {
+        "before": 28,
+        "after": 20
+      }
+    },
+    "train-cute-0-0": {
+      "before_stablehlo_sha256": "61ef127e9fbb45d22dbdaf8bef3b797990e50d81466566263468e1c4cdb9a6bd",
+      "after_stablehlo_sha256": "7e5c4ea7105f1c658355830099aa9da0ee9064da7b9d6c4ed1e9de9b6516c7e7",
+      "stablehlo_byte_identical": false,
+      "memory_bytes_unchanged": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 69816
+      },
+      "stablehlo_convert_count": {
+        "before": 24,
+        "after": 16
+      }
+    },
+    "train-cute-3-1": {
+      "before_stablehlo_sha256": "0aa31048efaaa670db7a3b8d1a9b7ce4deab3da5bbbf249e01df58a5884ab9f4",
+      "after_stablehlo_sha256": "49a26a284a0f63b85fe9c109d6131f91aea1070296d943fcdb1e7f678e8f7c1b",
+      "stablehlo_byte_identical": false,
+      "memory_bytes_unchanged": {
+        "argument_size_in_bytes": 188558,
+        "output_size_in_bytes": 187077,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 70072
+      },
+      "stablehlo_convert_count": {
+        "before": 24,
+        "after": 16
+      }
+    },
+    "optimizer": {
+      "before_stablehlo_sha256": "68c24df000a5426d788cfc6aa8f053c78f7a4ccc299c9659d3011ded037a72a7",
+      "after_stablehlo_sha256": "68c24df000a5426d788cfc6aa8f053c78f7a4ccc299c9659d3011ded037a72a7",
+      "stablehlo_byte_identical": true,
+      "memory_bytes_unchanged": {
+        "argument_size_in_bytes": 243464,
+        "output_size_in_bytes": 182940,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 1176
+      },
+      "stablehlo_convert_count": {
+        "before": 10,
+        "after": 10
+      }
+    },
+    "densify": {
+      "before_stablehlo_sha256": "e4736db405be8fc357246c4d21badf8fb48561c886133b59182209b8f1cd904a",
+      "after_stablehlo_sha256": "e4736db405be8fc357246c4d21badf8fb48561c886133b59182209b8f1cd904a",
+      "stablehlo_byte_identical": true,
+      "memory_bytes_unchanged": {
+        "argument_size_in_bytes": 186644,
+        "output_size_in_bytes": 182964,
+        "alias_size_in_bytes": 0,
+        "temp_size_in_bytes": 3640
+      },
+      "stablehlo_convert_count": {
+        "before": 30,
+        "after": 30
+      }
+    }
+  },
+  "comparison_geometry": {
+    "capacity": 256,
+    "seeded_gaussians": 128,
+    "cluster_size": 128,
+    "width": 32,
+    "height": 16,
+    "pair_capacity": 4096,
+    "baseline_intrinsics": "int32 weak scalars",
+    "current_intrinsics": "float32 strong scalars"
+  },
+  "outputs": {
+    "arrays_compared": 132,
+    "max_absolute_error": 3.725290298461914e-09,
+    "rtol": 2e-05,
+    "atol": 2e-06,
+    "integer_and_boolean_arrays_exact": true
+  },
+  "gpu_functions": {
+    "unchanged": 65,
+    "combined_ast_sha256": "a0c317ce6b06c563845c367fc7ae7643f106d01937ed900a53269d2147c28977"
+  },
+  "pure_production_computation_ast_unchanged": true,
+  "pure_reference_computation_ast_unchanged": true,
+  "timed_epoch_loop_ast_unchanged": true,
+  "camera_numeric_types_probe": {
+    "inputs": [
+      "int",
+      "float",
+      "numpy.float32",
+      "numpy.float64"
+    ],
+    "trace_count": {
+      "before": 3,
+      "after": 1
+    },
+    "values_equal": true
+  },
+  "verification": {
+    "targeted_gpu_suite": {
+      "passed": 35,
+      "seconds": 46.19,
+      "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest tests/test_nnx.py tests/test_chex_contracts.py tests/test_production_training.py tests/test_optax.py tests/test_training_protocol.py -q --tb=short"
+    },
+    "targeted_cpu_suite": {
+      "passed": 41,
+      "skipped": 5,
+      "seconds": 8.84,
+      "command": "JAX_PLATFORMS=cpu uv run --extra cute pytest tests/test_chex_contracts.py tests/test_training.py tests/test_backend_contracts.py -q --tb=short"
+    },
+    "full_gpu_suite": {
+      "passed": 167,
+      "failed": 0,
+      "seconds": 231.14,
+      "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q --cov=jaxgs --cov-report=term-missing --cov-report=json:/tmp/jaxgs-docs-coverage.json --cov-report=html:htmlcov"
+    },
+    "python_host_coverage": {
+      "statements": 1579,
+      "branches": 224,
+      "statement_percent": 100.0,
+      "branch_percent": 100.0,
+      "missing_lines": 0,
+      "missing_branches": 0,
+      "scope": "Python bindings and orchestration; decorated GPU bodies are excluded from Python coverage"
+    },
+    "warmup_original_buffers": {
+      "contents_unchanged": true,
+      "pointers_unchanged": true,
+      "not_deleted": true
+    },
+    "nnx_donation": {
+      "parameter_and_moment_buffer_pointers_preserved": 15,
+      "donated_source_buffer_deleted": true,
+      "jit_cache_stable_across_updates": true,
+      "array_and_nnx_steps_match": true
+    },
+    "ruff_check": "passed",
+    "ruff_format_check": {
+      "passed": true,
+      "files": 75
+    },
+    "git_diff_check": "passed",
+    "warmup_layout_bytes_verified_with_jax_eval_shape": 730000004
+  },
+  "gpu_speed_remeasured": false
+}

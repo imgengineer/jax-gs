@@ -2,14 +2,18 @@
 
 from functools import partial
 
+import chex
 import jax
 import jax.numpy as jnp
 
 from ..render.projection import quaternion_to_matrix
+from .camera import Camera
+from .point import GaussianPool
+from .types import WorldClusterBounds
 
 
 @partial(jax.jit, static_argnames=("cluster_size",))
-def world_cluster_bounds(pool, cluster_size):
+def world_cluster_bounds(pool: GaussianPool, cluster_size: int) -> WorldClusterBounds:
     transform = quaternion_to_matrix(pool.rotation) * jnp.exp(pool.log_scale)[:, None, :]
     extent = jnp.sum(jnp.abs(transform), axis=-1) * jnp.sqrt(2 * jnp.log(255.0))
     padding = (-pool.xyz.shape[0]) % cluster_size
@@ -33,7 +37,9 @@ def world_cluster_bounds(pool, cluster_size):
     )
 
 
-def frustum_cluster_mask(bounds, camera, cluster_size, capacity):
+def frustum_cluster_mask(
+    bounds: WorldClusterBounds, camera: Camera, cluster_size: int, capacity: int
+) -> chex.Array:
     center, extent, valid = bounds
     near, far = 0.01, 5000.0  # LiteGS PinHoleCameraInfo projection defaults
     projection = jnp.array(

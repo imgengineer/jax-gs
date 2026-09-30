@@ -3,9 +3,7 @@ import jax
 import jax.numpy as jnp
 
 from ..config import CapacityConfig
-from ..reference.rasterizer_jax import RenderResult
-from ..render.projection import ProjectedGaussians
-from ..render.visibility_table import VisibilityTable
+from ..render.types import ProjectedGaussians, RenderResult, VisibilityTable
 from ..scene.camera import Camera
 
 
@@ -71,6 +69,8 @@ def rasterize_cute_with_cache(
     background: chex.Array | None = None,
 ) -> tuple[RenderResult, chex.Array]:
     """CuTe forward renderer with transmittance cache for backward."""
+    if config.raster_tile_height != config.tile_size:
+        raise ValueError("The bounded CuTe rasterizer requires square tiles")
     background = jnp.zeros((3,), jnp.float32) if background is None else background
     result, cache = _forward_arrays(
         projected.mean,
@@ -107,6 +107,8 @@ def rasterize_cute_vjp(
     background: chex.Array | None = None,
 ) -> RenderResult:
     """CuTe rasterization with a custom VJP for projected Gaussian fields."""
+    if config.raster_tile_height != config.tile_size:
+        raise ValueError("The bounded CuTe rasterizer requires square tiles")
     from cutlass.jax import cutlass_call
 
     from .rasterize_backward import launch_backward

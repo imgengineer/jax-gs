@@ -2,8 +2,7 @@ import jax
 import jax.numpy as jnp
 
 from ..config import CapacityConfig
-from ..render.projection import ProjectedGaussians
-from ..render.visibility_table import SortedVisibilityTable
+from ..render.types import ProjectedGaussians, SortedVisibilityTable
 from ..scene.camera import Camera
 
 

@@ -1,10 +1,27 @@
 """JAX entry points for the LiteGS RGB half2 training rasterizer."""
 
+import chex
 import jax
 import jax.numpy as jnp
 
+from ..config import CapacityConfig
+from ..render.types import (
+    FragmentStatistics,
+    PackedRasterCache,
+    ProjectedGaussians,
+    SortedVisibilityTable,
+)
+from ..scene.camera import Camera
 
-def packed_forward(projected, table, camera, config, collect_stats=False):
+
+def packed_forward(
+    projected: ProjectedGaussians,
+    table: SortedVisibilityTable,
+    camera: Camera,
+    config: CapacityConfig,
+    collect_stats: bool = False,
+) -> tuple[chex.Array, PackedRasterCache, chex.Array]:
+    """Return RGB, (packed params, final T, last pair), and count/weight pairs."""
     from cutlass.jax import cutlass_call
 
     from .packed_rasterize import launch_forward
@@ -40,7 +57,16 @@ def packed_forward(projected, table, camera, config, collect_stats=False):
     return rgb.reshape(camera.height, camera.width, 3), (params, trans, last), stats
 
 
-def packed_backward(projected, table, cache, image_grad, camera, config, collect_stats=False):
+def packed_backward(
+    projected: ProjectedGaussians,
+    table: SortedVisibilityTable,
+    cache: PackedRasterCache,
+    image_grad: chex.Array,
+    camera: Camera,
+    config: CapacityConfig,
+    collect_stats: bool = False,
+) -> tuple[ProjectedGaussians, chex.Array]:
+    """Return projected-field cotangents and per-Gaussian squared alpha gradients."""
     from cutlass.jax import cutlass_call
 
     from .packed_rasterize import launch_backward
@@ -77,23 +103,36 @@ def packed_backward(projected, table, cache, image_grad, camera, config, collect
     return cotangents, grads[5] * scale[0] ** 2
 
 
-def packed_loss_and_grad(projected, table, camera, config, target, collect_stats):
+def packed_loss_and_grad(
+    projected: ProjectedGaussians,
+    table: SortedVisibilityTable,
+    camera: Camera,
+    config: CapacityConfig,
+    target: chex.Array,
+    collect_stats: bool,
+) -> tuple[chex.Array, ProjectedGaussians, FragmentStatistics]:
+    """Loss, projected-field gradients and detached [C, 4] fragment statistics."""
     from .fused_loss import fused_loss_and_grad
 
     image, cache, fragments = packed_forward(projected, table, camera, config, collect_stats)
     loss, image_grad = fused_loss_and_grad(image, target)
-    gradients, square_error = packed_backward(
+    gradients, alpha_grad_sq_sum = packed_backward(
         projected, table, cache, image_grad, camera, config, collect_stats
     )
     stats = (
-        jnp.stack((fragments[0::2], fragments[1::2], gradients.alpha, square_error), axis=1)
+        jnp.stack((fragments[0::2], fragments[1::2], gradients.alpha, alpha_grad_sq_sum), axis=1)
         if collect_stats
         else jnp.zeros((config.max_gaussians, 4), jnp.float32)
     )
     return loss, gradients, jax.lax.stop_gradient(stats)
 
 
-def rasterize_packed_cute_vjp(projected, table, camera, config):
+def rasterize_packed_cute_vjp(
+    projected: ProjectedGaussians,
+    table: SortedVisibilityTable,
+    camera: Camera,
+    config: CapacityConfig,
+) -> chex.Array:
     """Differentiable LiteGS RGB rendering; parameter gradients stay in CuTe."""
 
     @jax.custom_vjp

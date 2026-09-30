@@ -20,7 +20,11 @@ def evaluate_jax(args):
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
 
     pool = load_pool(args.model)
-    config = CapacityConfig(pool.xyz.shape[0], 128, 128, 16, 3, 8_000_000, tile_height=8)
+    sh_dims = (1, 4, 9, 16)
+    if pool.sh.shape[1] not in sh_dims:
+        raise ValueError("checkpoint SH dimension must be 1, 4, 9 or 16")
+    degree = sh_dims.index(pool.sh.shape[1])
+    config = CapacityConfig(pool.xyz.shape[0], 128, 128, 16, degree, 8_000_000, tile_height=8)
     model = GaussianModel(pool)
 
     @nnx.jit(graph=False)
@@ -31,7 +35,7 @@ def evaluate_jax(args):
         return jnp.clip(image, 0, 1), table.overflow
 
     rows = []
-    for frame in load_colmap_images(args.scene, args.images)[::8]:
+    for frame in load_colmap_images(args.scene, args.images, resolution=-1)[::8]:
         image, overflow = render(model, frame.camera)
         if bool(overflow):
             raise RuntimeError(f"overflow in evaluation view {frame.image_path.name}")

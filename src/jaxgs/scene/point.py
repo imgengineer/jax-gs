@@ -1,3 +1,5 @@
+"""Fixed-capacity Gaussian parameters and their NNX model."""
+
 import chex
 import jax.numpy as jnp
 import numpy as np
@@ -9,14 +11,16 @@ from ..config import CapacityConfig
 
 @struct.dataclass
 class GaussianPool:
-    xyz: chex.Array
-    log_scale: chex.Array
-    rotation: chex.Array  # wxyz
-    opacity: chex.Array  # logit
-    sh: chex.Array
-    alive: chex.Array
-    free_mask: chex.Array
-    n_active: chex.Array
+    """Gaussian parameters, live slots and free slots in one fixed-capacity tree."""
+
+    xyz: chex.Array  # [C, 3]
+    log_scale: chex.Array  # [C, 3]
+    rotation: chex.Array  # [C, 4], wxyz; normalized during projection
+    opacity: chex.Array  # [C, 1], logits
+    sh: chex.Array  # [C, SH_DIM, 3]
+    alive: chex.Array  # [C], boolean
+    free_mask: chex.Array  # [C], boolean
+    n_active: chex.Array  # scalar
 
 
 class GaussianModel(nnx.Module):
@@ -52,15 +56,15 @@ class GaussianModel(nnx.Module):
 
 
 def create_pool(config: CapacityConfig) -> GaussianPool:
-    c = config.max_gaussians
+    capacity = config.max_gaussians
     return GaussianPool(
-        xyz=jnp.zeros((c, 3), jnp.float32),
-        log_scale=jnp.zeros((c, 3), jnp.float32),
-        rotation=jnp.tile(jnp.array([1.0, 0.0, 0.0, 0.0], jnp.float32), (c, 1)),
-        opacity=jnp.zeros((c, 1), jnp.float32),
-        sh=jnp.zeros((c, config.sh_dim, 3), jnp.float32),
-        alive=jnp.zeros((c,), jnp.bool_),
-        free_mask=jnp.ones((c,), jnp.bool_),
+        xyz=jnp.zeros((capacity, 3), jnp.float32),
+        log_scale=jnp.zeros((capacity, 3), jnp.float32),
+        rotation=jnp.tile(jnp.array([1.0, 0.0, 0.0, 0.0], jnp.float32), (capacity, 1)),
+        opacity=jnp.zeros((capacity, 1), jnp.float32),
+        sh=jnp.zeros((capacity, config.sh_dim, 3), jnp.float32),
+        alive=jnp.zeros((capacity,), jnp.bool_),
+        free_mask=jnp.ones((capacity,), jnp.bool_),
         n_active=jnp.array(0, jnp.int32),
     )
 
@@ -75,25 +79,25 @@ def seed_pool(
     """Seed a new pool once; subsequent births use fixed-size slot allocation."""
     from ..reference.sh import C0
 
-    n = xyz.shape[0]
-    if n > pool.xyz.shape[0] or rgb.shape != (n, 3):
+    point_count = xyz.shape[0]
+    if point_count > pool.xyz.shape[0] or rgb.shape != (point_count, 3):
         raise ValueError("seed data exceeds capacity or RGB shape is invalid")
     scale = jnp.asarray(scale, jnp.float32)
     if scale.ndim == 0:
-        scale = jnp.broadcast_to(scale, (n, 3))
-    elif scale.shape == (n,):
-        scale = jnp.broadcast_to(scale[:, None], (n, 3))
-    elif scale.shape != (n, 3):
+        scale = jnp.broadcast_to(scale, (point_count, 3))
+    elif scale.shape == (point_count,):
+        scale = jnp.broadcast_to(scale[:, None], (point_count, 3))
+    elif scale.shape != (point_count, 3):
         raise ValueError("scale must be scalar, [N], or [N, 3]")
-    sh = pool.sh.at[:n, 0, :].set((jnp.asarray(rgb) - 0.5) / C0)
+    sh = pool.sh.at[:point_count, 0, :].set((jnp.asarray(rgb) - 0.5) / C0)
     return pool.replace(
-        xyz=pool.xyz.at[:n].set(xyz),
-        log_scale=pool.log_scale.at[:n].set(jnp.log(scale)),
-        opacity=pool.opacity.at[:n].set(jnp.log(opacity / (1 - opacity))),
+        xyz=pool.xyz.at[:point_count].set(xyz),
+        log_scale=pool.log_scale.at[:point_count].set(jnp.log(scale)),
+        opacity=pool.opacity.at[:point_count].set(jnp.log(opacity / (1 - opacity))),
         sh=sh,
-        alive=pool.alive.at[:n].set(True),
-        free_mask=pool.free_mask.at[:n].set(False),
-        n_active=jnp.array(n, jnp.int32),
+        alive=pool.alive.at[:point_count].set(True),
+        free_mask=pool.free_mask.at[:point_count].set(False),
+        n_active=jnp.array(point_count, jnp.int32),
     )
 
 

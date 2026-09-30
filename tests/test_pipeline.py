@@ -7,18 +7,20 @@ import pytest
 
 from jaxgs import Camera, CapacityConfig, create_pool, estimate_initial_scales, seed_pool
 from jaxgs.reference.rasterizer_jax import rasterize_jax
-from jaxgs.render.cluster_compact import cluster_compact
-from jaxgs.render.cluster_culling import cluster_culling
-from jaxgs.render.projection import ProjectedGaussians, project
-from jaxgs.render.visibility_table import VisibilityTable, build_visibility_table
-from jaxgs.scene.spatial_refine import spatial_refine
+from jaxgs.render.cluster_compact import compact_clusters
+from jaxgs.render.cluster_culling import build_cluster_tile_mask
+from jaxgs.render.projection import project
+from jaxgs.render.types import ProjectedGaussians, VisibilityTable
+from jaxgs.render.visibility_table import build_visibility_table
+from jaxgs.scene.spatial_refine import reorder_pool
 from jaxgs.training.optimizer import create_adam_state, masked_adam_update
-from jaxgs.training.reference_densify import densify_step, prune_step, reset_opacity
+from jaxgs.training.pool_ops import prune_step
+from jaxgs.training.reference_densify import densify_step, reset_opacity
 from jaxgs.training.reference_trainer import train_step
 
 
 def test_reference_compaction_keeps_stable_visible_prefix_under_jit():
-    compact = jax.jit(cluster_compact)
+    compact = jax.jit(compact_clusters)
     for mask, expected in [
         ([[False, False], [True, False], [False, False], [False, True]], [1, 3]),
         ([[False, False]] * 4, []),
@@ -102,7 +104,7 @@ def test_spatial_refine_keeps_adam_slots_attached():
     pool = seed_pool(create_pool(config), xyz, jnp.full((3, 3), 0.5))
     state = create_adam_state(pool)
     state = state.replace(step=jnp.array([1, 2, 3, 0]))
-    next_pool, next_state = spatial_refine(pool, state)
+    next_pool, next_state = reorder_pool(pool, state)
     np.testing.assert_array_equal(next_pool.xyz[:3, 0], [0.0, 2.0, 3.0])
     np.testing.assert_array_equal(next_state.step, [2, 1, 3, 0])
     np.testing.assert_array_equal(next_pool.alive, [True, True, True, False])
@@ -114,7 +116,7 @@ def test_reference_render_and_train():
     config, camera, pool = scene()
     projected = project(pool, camera, config)
     table = build_visibility_table(
-        projected, camera, config, cluster_culling(projected, camera, config)
+        projected, camera, config, build_cluster_tile_mask(projected, camera, config)
     )
     assert table.tile_gaussian_ids.shape == (4, 2)
     assert not np.any(table.overflow)
@@ -129,6 +131,70 @@ def test_reference_render_and_train():
     np.testing.assert_array_equal(state.step, [1, 0, 0, 0])
     np.testing.assert_array_equal(next_pool.alive, pool.alive)
     assert next_pool.xyz.shape == pool.xyz.shape
+
+
+@pytest.mark.parametrize("tile_height", [8, 12])
+def test_reference_rectangular_tiles_preserve_separate_rows(tile_height):
+    config = CapacityConfig(2, 1, 1, 16, 0, tile_height=tile_height)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 16, 16, 8, 8, 17, 2 * tile_height + 1)
+    projected = ProjectedGaussians(
+        mean=jnp.array([[8.0, 4.0], [8.0, tile_height + 4.0]]),
+        depth=jnp.array([1.0, 2.0]),
+        conic=jnp.broadcast_to(jnp.eye(2) * 2, (2, 2, 2)),
+        radius=jnp.full((2,), 3 / np.sqrt(2)),
+        color=jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+        alpha=jnp.full((2,), 0.5),
+        visible=jnp.ones((2,), jnp.bool_),
+    )
+    mask = build_cluster_tile_mask(projected, camera, config)
+    np.testing.assert_array_equal(
+        mask, [[True, False, False, False, False, False], [False, False, True, False, False, False]]
+    )
+    table = build_visibility_table(projected, camera, config, mask)
+    assert table.tile_gaussian_ids.shape == (6, 1)
+    np.testing.assert_array_equal(table.tile_count, [1, 0, 1, 0, 0, 0])
+    assert not np.any(table.overflow)
+    render = jax.jit(lambda p: rasterize_jax(p, table, camera, config))
+    image = render(projected).rgb
+    expected = 0.5 * np.exp(-0.5)
+    np.testing.assert_allclose(image[4, 8], [expected, 0, 0], atol=1e-7)
+    np.testing.assert_allclose(image[tile_height + 4, 8], [0, expected, 0], atol=1e-7)
+    np.testing.assert_array_equal(image[-1, -1], 0)
+    gradient = jax.grad(
+        lambda alpha: render(projected.replace(alpha=alpha)).rgb[tile_height + 4, 8, 1]
+    )(projected.alpha)
+    np.testing.assert_allclose(gradient, [0, np.exp(-0.5)], atol=1e-7)
+
+
+@pytest.mark.parametrize("has_visible", [False, True])
+def test_reference_depth_masks_infinite_culled_slots(has_visible):
+    config = CapacityConfig(2, 1, 4, 1, 0)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 1, 1, 0.5, 0.5, 1, 1)
+    projected = ProjectedGaussians(
+        mean=jnp.full((2, 2), 0.5),
+        depth=jnp.array([2.0 if has_visible else jnp.inf, jnp.inf]),
+        conic=jnp.broadcast_to(jnp.eye(2), (2, 2, 2)),
+        radius=jnp.full((2,), 3.0),
+        color=jnp.full((2, 3), 0.4),
+        alpha=jnp.array([0.5, 0.0]),
+        visible=jnp.array([has_visible, False]),
+    )
+    table = build_visibility_table(projected, camera, config)
+
+    def objective(value):
+        rendered = rasterize_jax(value, table, camera, config)
+        return rendered.depth.sum(), rendered
+
+    (loss, rendered), gradient = jax.jit(
+        jax.value_and_grad(objective, allow_int=True, has_aux=True)
+    )(projected)
+    np.testing.assert_allclose(loss, 1.0 if has_visible else 0.0)
+    np.testing.assert_allclose(rendered.rgb, 0.2 if has_visible else 0.0)
+    np.testing.assert_allclose(rendered.alpha, 0.5 if has_visible else 0.0)
+    for name in ("mean", "depth", "conic", "radius", "color", "alpha"):
+        assert np.isfinite(np.asarray(getattr(gradient, name))).all(), name
+    np.testing.assert_allclose(gradient.alpha, [2.0 if has_visible else 0.0, 0.0])
+    np.testing.assert_allclose(gradient.depth, [0.5 if has_visible else 0.0, 0.0])
 
 
 def test_raster_alpha_cutoff_and_cap():

@@ -1,6 +1,7 @@
+"""Small-scene training for reference and CuTe correctness checks."""
+
 import argparse
 from contextlib import closing
-from functools import partial
 from pathlib import Path
 
 import chex
@@ -14,9 +15,9 @@ from ..data import image_dataset
 from ..io_manager.checkpoint import save_pool
 from ..io_manager.colmap import load_colmap, load_colmap_points
 from ..reference.loss import photometric_loss
-from ..render.cluster_culling import cluster_culling
+from ..render.cluster_culling import build_cluster_tile_mask
 from ..render.projection import project
-from ..render.rasterize_backward import rasterize
+from ..render.rasterizer import rasterize
 from ..render.visibility_table import build_visibility_table
 from ..scene.camera import Camera
 from ..scene.point import (
@@ -26,13 +27,13 @@ from ..scene.point import (
     estimate_initial_scales,
     seed_pool,
 )
-from ..scene.spatial_refine import spatial_refine
+from ..scene.spatial_refine import reorder_pool
 from .optimizer import AdamState, create_adam_state, masked_adam_update
-from .reference_densify import densify_step, prune_step, reset_opacity
+from .pool_ops import prune_step
+from .reference_densify import densify_step, reset_opacity
 
 
-@partial(jax.jit, static_argnames=("config", "learning_rate", "backend"))
-def train_step(
+def _compute_training_step(
     pool: GaussianPool,
     state: AdamState,
     camera: Camera,
@@ -40,7 +41,7 @@ def train_step(
     config: CapacityConfig,
     learning_rate: float = 1e-3,
     backend: str = "cute",
-):
+) -> tuple[GaussianPool, AdamState, dict[str, chex.Array]]:
     """Fixed-capacity step; JAX binning remains a small-scene reference path."""
     if backend not in ("reference", "cute"):
         raise ValueError(f"unknown backend: {backend}")
@@ -49,42 +50,44 @@ def train_step(
         from ..kernels.sorted_binning import build_sorted_visibility_table_cute
         from ..kernels.sorted_rasterizer import rasterize_sorted_cute_vjp
 
-    def loss_fn(xyz, log_scale, rotation, opacity, sh, mean_delta):
-        current = pool.replace(
+    def render_loss(xyz, log_scale, rotation, opacity, sh, mean_delta):
+        current_pool = pool.replace(
             xyz=xyz, log_scale=log_scale, rotation=rotation, opacity=opacity, sh=sh
         )
-        projected_current = (
-            project_cute_vjp(current, camera, config)
+        projected_gaussians = (
+            project_cute_vjp(current_pool, camera, config)
             if backend == "cute"
-            else project(current, camera, config)
+            else project(current_pool, camera, config)
         )
-        projected = jax.lax.stop_gradient(projected_current)
+        binning_gaussians = jax.lax.stop_gradient(projected_gaussians)
         if backend == "cute":
-            table = build_sorted_visibility_table_cute(projected, camera, config)
-            binned_visible = table.point_counts > 0
+            visibility_table = build_sorted_visibility_table_cute(binning_gaussians, camera, config)
+            binned_slots = visibility_table.point_counts > 0
             image = rasterize_sorted_cute_vjp(
-                projected_current.replace(mean=projected_current.mean + mean_delta),
-                table,
+                projected_gaussians.replace(mean=projected_gaussians.mean + mean_delta),
+                visibility_table,
                 camera,
                 config,
             ).rgb
         else:
-            clusters = cluster_culling(projected, camera, config)
-            table = build_visibility_table(projected, camera, config, clusters)
-            binned_visible = (
+            cluster_tile_mask = build_cluster_tile_mask(binning_gaussians, camera, config)
+            visibility_table = build_visibility_table(
+                binning_gaussians, camera, config, cluster_tile_mask
+            )
+            binned_slots = (
                 jnp.zeros((config.max_gaussians,), jnp.int32)
-                .at[table.tile_gaussian_ids.reshape(-1)]
-                .max(table.tile_valid.reshape(-1).astype(jnp.int32))
+                .at[visibility_table.tile_gaussian_ids.reshape(-1)]
+                .max(visibility_table.tile_valid.reshape(-1).astype(jnp.int32))
                 > 0
             )
             image = rasterize(
-                projected_current.replace(mean=projected_current.mean + mean_delta),
-                table,
+                projected_gaussians.replace(mean=projected_gaussians.mean + mean_delta),
+                visibility_table,
                 camera,
                 config,
                 backend=backend,
             ).rgb
-        return photometric_loss(image, target), (jnp.any(table.overflow), binned_visible)
+        return photometric_loss(image, target), (jnp.any(visibility_table.overflow), binned_slots)
 
     parameters = (
         pool.xyz,
@@ -94,24 +97,28 @@ def train_step(
         pool.sh,
         jnp.zeros_like(pool.xyz[:, :2]),
     )
-    (loss, (overflow, binned_visible)), gradients = jax.value_and_grad(
-        loss_fn, argnums=(0, 1, 2, 3, 4, 5), has_aux=True
+    (loss, (overflow, binned_slots)), gradients = jax.value_and_grad(
+        render_loss, argnums=(0, 1, 2, 3, 4, 5), has_aux=True
     )(*parameters)
-    next_pool, next_state = masked_adam_update(pool, state, gradients[:5], learning_rate)
-    stats = jax.lax.stop_gradient(jnp.linalg.norm(gradients[5], axis=1))
+    next_pool, next_adam_state = masked_adam_update(pool, state, gradients[:5], learning_rate)
+    gradient_stats = jax.lax.stop_gradient(jnp.linalg.norm(gradients[5], axis=1))
     return (
         next_pool,
-        next_state,
+        next_adam_state,
         {
             "loss": loss,
             "overflow": overflow,
-            "gradient_stats": stats,
-            "visible": jax.lax.stop_gradient(binned_visible),
+            "gradient_stats": gradient_stats,
+            "visible": jax.lax.stop_gradient(binned_slots),
         },
     )
 
 
-@partial(nnx.jit, graph=False, static_argnames=("config", "learning_rate", "backend"))
+_STATIC_ARGUMENTS = ("config", "learning_rate", "backend")
+train_step = jax.jit(_compute_training_step, static_argnames=_STATIC_ARGUMENTS)
+
+
+@nnx.jit(graph=False, static_argnames=_STATIC_ARGUMENTS)
 def nnx_train_step(
     model: GaussianModel,
     state: AdamState,
@@ -120,8 +127,8 @@ def nnx_train_step(
     config: CapacityConfig,
     learning_rate: float = 1e-3,
     backend: str = "cute",
-):
-    pool, state, metrics = train_step.__wrapped__(
+) -> tuple[AdamState, dict[str, chex.Array]]:
+    pool, state, metrics = _compute_training_step(
         model.as_pool(), state, camera, target, config, learning_rate, backend
     )
     model.update_from_pool(pool)
@@ -161,25 +168,25 @@ def train_colmap(
         )
     if not 0 < initial_points <= min(capacity, xyz.shape[0]):
         raise ValueError("initial_points must fit the scene and pool capacity")
-    indices = np.linspace(0, xyz.shape[0] - 1, initial_points, dtype=np.int32)
-    initial_xyz, initial_rgb = xyz[indices], rgb[indices]
-    initial_scales = estimate_initial_scales(xyz)[indices]
+    seed_indices = np.linspace(0, xyz.shape[0] - 1, initial_points, dtype=np.int32)
+    initial_xyz, initial_rgb = xyz[seed_indices], rgb[seed_indices]
+    initial_scales = estimate_initial_scales(xyz)[seed_indices]
     pool = seed_pool(
         create_pool(config), initial_xyz, initial_rgb, scale=initial_scales, opacity=0.1
     )
-    state = create_adam_state(pool)
-    pool, state = spatial_refine(pool, state)
+    adam_state = create_adam_state(pool)
+    pool, adam_state = reorder_pool(pool, adam_state)
     model = GaussianModel(pool)
-    gradient_sum = jnp.zeros((capacity,), jnp.float32)
-    visible_count = jnp.zeros((capacity,), jnp.int32)
-    key = jax.random.key(0)
+    gradient_sums = jnp.zeros((capacity,), jnp.float32)
+    visibility_counts = jnp.zeros((capacity,), jnp.int32)
+    random_key = jax.random.key(0)
 
     with closing(iter(image_dataset(frames, steps=steps))) as images:
-        for step, image in enumerate(images, start=1):
+        for step, image_rgb in enumerate(images, start=1):
             frame = frames[(step - 1) % len(frames)]
-            target = jnp.asarray(image.astype(np.float32) / 255.0)
-            state, metrics = nnx_train_step(
-                model, state, frame.camera, target, config, learning_rate, backend
+            target = jnp.asarray(image_rgb.astype(np.float32) / 255.0)
+            adam_state, metrics = nnx_train_step(
+                model, adam_state, frame.camera, target, config, learning_rate, backend
             )
             pool = model.as_pool()
             if bool(metrics["overflow"]):
@@ -189,26 +196,28 @@ def train_colmap(
                     )
                 raise RuntimeError("tile capacity overflow; increase --max-gaussians-per-tile")
             visible = metrics["visible"] & pool.alive
-            gradient_sum = gradient_sum + jnp.where(visible, metrics["gradient_stats"], 0)
-            visible_count = visible_count + visible.astype(jnp.int32)
+            gradient_sums = gradient_sums + jnp.where(visible, metrics["gradient_stats"], 0)
+            visibility_counts = visibility_counts + visible.astype(jnp.int32)
             if densify_every > 0 and step % densify_every == 0:
-                mean_gradient = gradient_sum / jnp.maximum(visible_count, 1)
-                key, subkey = jax.random.split(key)
-                pool, state, _ = densify_step(
+                mean_gradients = gradient_sums / jnp.maximum(visibility_counts, 1)
+                random_key, densify_key = jax.random.split(random_key)
+                pool, adam_state, _ = densify_step(
                     pool,
-                    state,
-                    mean_gradient,
-                    subkey,
+                    adam_state,
+                    mean_gradients,
+                    densify_key,
                     max_new=min(max_new, capacity),
                     threshold=densify_threshold,
                     allocator="cute" if backend == "cute" else "jax",
                 )
-                gradient_sum = jnp.zeros_like(gradient_sum)
-                visible_count = jnp.zeros_like(visible_count)
-                pool, state = prune_step(pool, state, jax.nn.sigmoid(pool.opacity[:, 0]) < 0.005)
-                pool, state = spatial_refine(pool, state)
+                gradient_sums = jnp.zeros_like(gradient_sums)
+                visibility_counts = jnp.zeros_like(visibility_counts)
+                pool, adam_state = prune_step(
+                    pool, adam_state, jax.nn.sigmoid(pool.opacity[:, 0]) < 0.005
+                )
+                pool, adam_state = reorder_pool(pool, adam_state)
             if step % 3000 == 0:
-                pool, state = reset_opacity(pool, state)
+                pool, adam_state = reset_opacity(pool, adam_state)
             model.update_from_pool(pool)
             if step == 1 or step % 100 == 0 or step == steps:
                 print(

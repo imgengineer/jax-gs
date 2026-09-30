@@ -20,8 +20,7 @@ from jaxgs.training.reference_trainer import train_step
 )
 def test_cute_forward_and_backward_match_reference():
     from jaxgs.kernels.binning import build_visibility_table_cute
-    from jaxgs.render.rasterize_backward import rasterize
-    from jaxgs.render.rasterize_forward import rasterize_forward
+    from jaxgs.render.rasterizer import rasterize, rasterize_forward
 
     config = CapacityConfig(2, 2, 2, 4, 0)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
@@ -224,7 +223,7 @@ def test_sorted_binning_keeps_large_ellipses_and_handles_empty_scene():
 def test_sorted_rasterizer_partial_tiles_and_early_termination(tile_size):
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
     from jaxgs.kernels.sorted_rasterizer import rasterize_sorted_cute_vjp
-    from jaxgs.render.projection import ProjectedGaussians
+    from jaxgs.render.types import ProjectedGaussians
 
     count, width, height = 24, 23, 19
     config = CapacityConfig(count, 4, 1, tile_size, 0, count * 4)
@@ -255,7 +254,7 @@ def test_sorted_rasterizer_partial_tiles_and_early_termination(tile_size):
         )
         raw_alpha = p.alpha * jnp.exp(exponent)
         alpha = jnp.where(
-            (exponent >= -4.5) & (raw_alpha >= 1 / 256), jnp.minimum(raw_alpha, 255 / 256), 0
+            (exponent <= 0) & (raw_alpha >= 1 / 256), jnp.minimum(raw_alpha, 255 / 256), 0
         )
         prefix = jnp.cumprod(1 - alpha, axis=-1)
         before = jnp.roll(prefix, 1, axis=-1).at[:, :, 0].set(1)

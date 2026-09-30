@@ -1,0 +1,449 @@
+{
+  "date": "2026-09-30",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "gpu_shared": true,
+  "new_gpu_timing_performed": false,
+  "baseline": "Working tree before this CuTe review, including previous edge and Flax/JAX changes.",
+  "versions": {
+    "jax": "0.11.2",
+    "flax": "0.12.10",
+    "nvidia-cutlass-dsl": "4.8.0",
+    "optax": "0.2.8"
+  },
+  "source_hashes": {
+    "src/jaxgs/kernels/projection_backward.py": {
+      "before_sha256": "8f620eb6dfc77c025a61e6ac630abc0dc75b38b69536db49ebdf30d1606ddef2",
+      "after_sha256": "eaac86e3090c3195288f989e358ebd124deff01a6e636327e8de56116fa35aa8"
+    },
+    "src/jaxgs/kernels/projector.py": {
+      "before_sha256": "d3316784a2d54daccf4e68516fa789ce5117089518b6a2564b0d4a53c2dbbe63",
+      "after_sha256": "81c9272ed738f03d58de57339713327d272b8246550c630a06c5493c70fceefd"
+    },
+    "src/jaxgs/training/step.py": {
+      "before_sha256": "92e7b19c6b3295aec3dd100c4dc3558cc7b639bf56862b10993a94c643502ef8",
+      "after_sha256": "e07d28279e12a72aa3867f58b3a87ab0f7f47055cbd9386cb215cdc82b84ebe6"
+    },
+    "tests/test_packed.py": {
+      "before_sha256": "7830e93a7ba1f15eefb757b722b913699a00f7e600e7a04eb3a97e6f24312d47",
+      "after_sha256": "20bd699fea65f42be12cc5329fd5c5cc40992da54e97bcc4b41492dda33fa05f"
+    }
+  },
+  "resources": {
+    "before": [
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 0,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": false,
+          "compact_gradients": false
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 2328,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 28,
+        "cubin_bytes": 56728,
+        "cubin_sha256": "5fa22b07c607f2baed7b4c87c1e206b4fb57b67cca2ad365e6a718ccda68021d",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 3,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": false,
+          "compact_gradients": false
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 2632,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 27,
+        "cubin_bytes": 61040,
+        "cubin_sha256": "8806dbca37f0c35711b1a2fab50a7bc5c4a26aa6812908db81e8b9c5e2d05436",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 0,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": true,
+          "compact_gradients": true
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 3200,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 28,
+        "cubin_bytes": 72448,
+        "cubin_sha256": "7c64db7ffb87ac9a448771cf07e91ec93db546eba351d211d65d715405031a86",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 3,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": true,
+          "compact_gradients": true
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 3504,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 27,
+        "cubin_bytes": 77576,
+        "cubin_sha256": "d150b2c1a5bdd4bf807fb8673b081affbd9f19127e7c555adcbbb36f3ec0c981",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      }
+    ],
+    "after": [
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 0,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": false,
+          "compact_gradients": false,
+          "rgb_only": false
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 2328,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 28,
+        "cubin_bytes": 56728,
+        "cubin_sha256": "f8406fe183a3fe347ff7b640b3a74fcdada5567f7a39a5f396fde054ff205952",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 3,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": false,
+          "compact_gradients": false,
+          "rgb_only": false
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 2632,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 27,
+        "cubin_bytes": 61040,
+        "cubin_sha256": "30c7393002d35f53ba0632cd1b491a205b034cb06e37045817a2d4f1a1d2ee0d",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 0,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": true,
+          "compact_gradients": true,
+          "rgb_only": false
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 3208,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 28,
+        "cubin_bytes": 72456,
+        "cubin_sha256": "23321565991ab8ca63457a8f72442729774fb0e5c120565342accebebfe9befb",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 0,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": true,
+          "compact_gradients": true,
+          "rgb_only": true
+        },
+        "input_buffers": 15,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 3120,
+        "mufu_rsq_count": 4,
+        "mufu_rcp_count": 26,
+        "cubin_bytes": 71152,
+        "cubin_sha256": "5e8e716fb50612d7e712d82389185c46cc19e36aa351874b800c0bfb17d5f966",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1064 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 3,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": true,
+          "compact_gradients": true,
+          "rgb_only": false
+        },
+        "input_buffers": 17,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 3512,
+        "mufu_rsq_count": 6,
+        "mufu_rcp_count": 27,
+        "cubin_bytes": 77584,
+        "cubin_sha256": "1352a912db3a062211eefa4146e7bd4d1462a97ef637b07bd993713e7b915e35",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1080 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      },
+      {
+        "constants": {
+          "capacity": 1048576,
+          "sh_dim": 16,
+          "degree": 3,
+          "near": 0.2,
+          "cluster_size": 128,
+          "compacted": true,
+          "compact_gradients": true,
+          "rgb_only": true
+        },
+        "input_buffers": 15,
+        "output_buffers": 5,
+        "registers_per_thread": 72,
+        "stack_bytes": 0,
+        "local_memory_bytes": 0,
+        "static_shared_memory_bytes": 1024,
+        "sass_instruction_count": 3424,
+        "mufu_rsq_count": 4,
+        "mufu_rcp_count": 25,
+        "cubin_bytes": 76264,
+        "cubin_sha256": "9b40f583072dd521a9728630a17a89191ba0a018ce46835d5f78526adcbeccc3",
+        "resource_usage": "\nFatbin elf code:\n================\narch = sm_120a\ncode version = [1,8]\nhost = linux\ncompile_size = 64bit\nidentifier = kernels\n\nResource usage:\n Common:\n  GLOBAL:0\n Function kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o31457281_tensorptrf32gmemalign256o41943041_tensorptrf32gmemalign256o10485761_tensorpt_0:\n  REG:72 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:1064 TEXTURE:0 SURFACE:0 SAMPLER:0\n"
+      }
+    ]
+  },
+  "resource_notes": [
+    "Abstract lowering: capacity 1 << 20, cluster_size 128, SH_DIM 16, block 128.",
+    "Normal release cubin extracted from host object via objcopy; cuobjdump used for resource and SASS inspection. No debug or lineinfo settings.",
+    "Static SASS counts describe code size, not dynamic instructions or measured speedup. Dynamic SH shared layout is unchanged."
+  ],
+  "training_comparison": {
+    "output_arrays": 132,
+    "max_abs_error": 3.725290298461914e-09,
+    "nonzero_array_errors": {
+      "train-optax-0-0_8": 3.637978807091713e-12,
+      "train-optax-0-0_10": 5.684341886080802e-14,
+      "train-optax-0-0_12": 2.2737367544323206e-13,
+      "train-optax-0-0_13": 5.551115123125783e-17,
+      "train-optax-0-0_15": 2.541098841762901e-21,
+      "train-optax-0-0_17": 5.421010862427522e-20,
+      "train-optax-3-1_2": 3.725290298461914e-09,
+      "train-optax-3-1_4": 1.7462298274040222e-10,
+      "train-optax-3-1_8": 7.275957614183426e-12,
+      "train-optax-3-1_9": 3.637978807091713e-12,
+      "train-optax-3-1_10": 2.0463630789890885e-12,
+      "train-optax-3-1_11": 3.637978807091713e-12,
+      "train-optax-3-1_12": 3.637978807091713e-12,
+      "train-optax-3-1_13": 5.551115123125783e-17,
+      "train-optax-3-1_14": 4.163336342344337e-17,
+      "train-optax-3-1_15": 1.0408340855860843e-17,
+      "train-optax-3-1_16": 1.0408340855860843e-17,
+      "train-optax-3-1_17": 4.163336342344337e-17,
+      "train-cute-0-0_8": 3.637978807091713e-12,
+      "train-cute-0-0_10": 5.684341886080802e-14,
+      "train-cute-0-0_12": 2.2737367544323206e-13,
+      "train-cute-0-0_13": 8.326672684688674e-17,
+      "train-cute-0-0_15": 3.3881317890172014e-21,
+      "train-cute-0-0_17": 8.131516293641283e-20,
+      "train-cute-3-1_2": 3.725290298461914e-09,
+      "train-cute-3-1_4": 1.7462298274040222e-10,
+      "train-cute-3-1_8": 7.275957614183426e-12,
+      "train-cute-3-1_9": 3.637978807091713e-12,
+      "train-cute-3-1_10": 1.4779288903810084e-12,
+      "train-cute-3-1_11": 3.637978807091713e-12,
+      "train-cute-3-1_12": 3.637978807091713e-12,
+      "train-cute-3-1_13": 5.551115123125783e-17,
+      "train-cute-3-1_14": 1.734723475976807e-17,
+      "train-cute-3-1_15": 1.734723475976807e-18,
+      "train-cute-3-1_16": 1.0408340855860843e-17,
+      "train-cute-3-1_17": 4.163336342344337e-17
+    },
+    "cases": {
+      "train-optax-0-0": {
+        "before_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 71352
+        },
+        "after_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 71352
+        },
+        "stablehlo_identical": false
+      },
+      "train-optax-3-1": {
+        "before_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 72376
+        },
+        "after_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 72376
+        },
+        "stablehlo_identical": false
+      },
+      "train-cute-0-0": {
+        "before_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 69816
+        },
+        "after_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 68792
+        },
+        "stablehlo_identical": false
+      },
+      "train-cute-3-1": {
+        "before_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 70072
+        },
+        "after_memory_bytes": {
+          "argument_size_in_bytes": 188558,
+          "output_size_in_bytes": 187077,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 69048
+        },
+        "stablehlo_identical": false
+      },
+      "optimizer": {
+        "before_memory_bytes": {
+          "argument_size_in_bytes": 243464,
+          "output_size_in_bytes": 182940,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 1176
+        },
+        "after_memory_bytes": {
+          "argument_size_in_bytes": 243464,
+          "output_size_in_bytes": 182940,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 1176
+        },
+        "stablehlo_identical": true
+      },
+      "densify": {
+        "before_memory_bytes": {
+          "argument_size_in_bytes": 186644,
+          "output_size_in_bytes": 182964,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 3640
+        },
+        "after_memory_bytes": {
+          "argument_size_in_bytes": 186644,
+          "output_size_in_bytes": 182964,
+          "alias_size_in_bytes": 0,
+          "temp_size_in_bytes": 3640
+        },
+        "stablehlo_identical": true
+      }
+    }
+  },
+  "cute_decorated_functions": 65,
+  "changed_cute_decorated_functions": [
+    "projection_backward.py:_projection_backward_kernel",
+    "projection_backward.py:launch_projection_backward"
+  ],
+  "tests": {
+    "full_suite_passed": 181,
+    "full_suite_seconds": 265.17,
+    "new_gpu_checks_passed": 14,
+    "synccheck_errors": 0,
+    "coverage": {
+      "covered_lines": 1579,
+      "num_statements": 1579,
+      "percent_covered": 100.0,
+      "percent_covered_display": "100.00",
+      "missing_lines": 0,
+      "excluded_lines": 2607,
+      "percent_statements_covered": 100.0,
+      "percent_statements_covered_display": "100.00",
+      "num_branches": 224,
+      "num_partial_branches": 0,
+      "covered_branches": 224,
+      "missing_branches": 0,
+      "percent_branches_covered": 100.0,
+      "percent_branches_covered_display": "100.00"
+    },
+    "ruff_check_passed": true,
+    "ruff_format_check_passed": true
+  },
+  "official_sources": [
+    "https://docs.jax.dev/en/latest/401/cute-dsl.html",
+    "https://github.com/NVIDIA/cutlass/blob/v4.8.0/examples/python/CuTeDSL/dsl_tutorials/jax/cutlass_call_basic.py",
+    "https://github.com/NVIDIA/cutlass/blob/v4.8.0/examples/python/CuTeDSL/dsl_tutorials/jax/cute_dsl_jax_kernels.py",
+    "https://github.com/NVIDIA/cutlass/blob/v4.8.0/media/docs/pythonDSL/cute_dsl_general/dsl_control_flow.rst",
+    "https://github.com/NVIDIA/cutlass/blob/v4.8.0/python/CuTeDSL/cutlass/jax/primitive.py",
+    "https://docs.nvidia.com/cutlass/latest/media/docs/pythonDSL/cute_dsl_api/cute_arch.html"
+  ]
+}

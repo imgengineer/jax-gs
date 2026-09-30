@@ -1,6 +1,7 @@
 import chex
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from jaxgs import Camera, CapacityConfig, GaussianModel, create_pool, seed_pool
@@ -31,6 +32,26 @@ def test_model_rejects_inconsistent_pool_layout(field, shape, dtype):
 def test_camera_rejects_malformed_extrinsics(qvec, tvec):
     with pytest.raises(AssertionError, match="assert_shape"):
         Camera.from_colmap(qvec, tvec, 4, 4, 2, 2, 4, 4)
+
+
+def test_camera_numeric_input_types_share_one_compilation():
+    traces = []
+
+    @jax.jit
+    def camera_center_and_intrinsics(camera):
+        traces.append(True)
+        return camera.center, jnp.stack((camera.fx, camera.fy, camera.cx, camera.cy))
+
+    for scalar_type in (int, float, np.float32, np.float64):
+        camera = Camera.from_colmap(
+            [1, 0, 0, 0], [0, 0, -2], *(scalar_type(x) for x in (8, 8, 4, 4)), 8, 8
+        )
+        for value in (camera.fx, camera.fy, camera.cx, camera.cy):
+            assert value.dtype == jnp.float32 and not value.weak_type
+        center, intrinsics = camera_center_and_intrinsics(camera)
+        np.testing.assert_array_equal(center, [0, 0, 2])
+        np.testing.assert_array_equal(intrinsics, [8, 8, 4, 4])
+    assert traces == [True]
 
 
 @pytest.mark.parametrize("invalid", ["mask", "moment_shape", "gradient_dtype", "step_rank"])

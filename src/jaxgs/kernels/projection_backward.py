@@ -35,6 +35,7 @@ def _projection_backward_kernel(
     cluster_size: cutlass.Constexpr,
     compacted: cutlass.Constexpr,
     compact_gradients: cutlass.Constexpr,
+    rgb_only: cutlass.Constexpr,
 ):
     tidx, _, _ = cute.arch.thread_idx()
     bidx, _, _ = cute.arch.block_idx()
@@ -57,7 +58,9 @@ def _projection_backward_kernel(
     # slots still need zeros, including the shared SH transpose below.
     has_gradient = False
     if valid:
-        has_gradient = (gdepth[gid] != 0) | (gradius[gid] != 0) | (galpha[gid] != 0)
+        has_gradient = galpha[gid] != 0
+        if cutlass.const_expr(not rgb_only):
+            has_gradient = has_gradient | (gdepth[gid] != 0) | (gradius[gid] != 0)
         for component in cutlass.range_constexpr(2):
             has_gradient = has_gradient | (gmean[gid * 2 + component] != 0)
         for component in cutlass.range_constexpr(4):
@@ -84,7 +87,9 @@ def _projection_backward_kernel(
         inv_z2 = inv_z * inv_z
         gx = gmean[gid * 2] * fx * inv_z
         gy = gmean[gid * 2 + 1] * fy * inv_z
-        gz = gdepth[gid]
+        gz = cute.Float32(0.0)
+        if cutlass.const_expr(not rgb_only):
+            gz = gdepth[gid]
         gsafe_z = -gmean[gid * 2] * fx * x * inv_z2
         gsafe_z -= gmean[gid * 2 + 1] * fy * y * inv_z2
 
@@ -139,16 +144,17 @@ def _projection_backward_kernel(
         gb = -(gc01 + gc10) / det - 2.0 * b * gdet
         gd = gc00 / det + gdet * a
 
-        disc = (a - d) * (a - d) + 4.0 * b * b
-        disc_root = cute.sqrt(cute.max(disc, cute.Float32(1e-12)))
-        eigen = 0.5 * (a + d + disc_root)
-        geigen = gradius[gid] * 1.5 / cute.sqrt(eigen)
-        gdisc = cute.Float32(0.0)
-        if disc > 1e-12:
-            gdisc = geigen * 0.25 / disc_root
-        ga += 0.5 * geigen + 2.0 * (a - d) * gdisc
-        gb += 8.0 * b * gdisc
-        gd += 0.5 * geigen - 2.0 * (a - d) * gdisc
+        if cutlass.const_expr(not rgb_only):
+            disc = (a - d) * (a - d) + 4.0 * b * b
+            disc_root = cute.sqrt(cute.max(disc, cute.Float32(1e-12)))
+            eigen = 0.5 * (a + d + disc_root)
+            geigen = gradius[gid] * 1.5 / cute.sqrt(eigen)
+            gdisc = cute.Float32(0.0)
+            if disc > 1e-12:
+                gdisc = geigen * 0.25 / disc_root
+            ga += 0.5 * geigen + 2.0 * (a - d) * gdisc
+            gb += 8.0 * b * gdisc
+            gd += 0.5 * geigen - 2.0 * (a - d) * gdisc
 
         ga0, ga1, ga2 = 2 * a0 * ga + b0 * gb, 2 * a1 * ga + b1 * gb, 2 * a2 * ga + b2 * gb
         gb0, gb1, gb2 = 2 * b0 * gd + a0 * gb, 2 * b1 * gd + a1 * gb, 2 * b2 * gd + a2 * gb
@@ -319,24 +325,32 @@ def _projection_backward_kernel(
         out_xyz[output_index * 3 + 1] = view[1] * gx + view[5] * gy + view[9] * gz + gy_world
         out_xyz[output_index * 3 + 2] = view[2] * gx + view[6] * gy + view[10] * gz + gz_world
 
-    cute.arch.sync_threads()
-    for offset in cutlass.range_constexpr(sh_dim * 3):
-        flat = offset * 128 + tidx
-        point = bidx * 128 + flat // (sh_dim * 3)
-        coefficient = flat % (sh_dim * 3)
-        write = point < capacity
-        if cutlass.const_expr(compacted):
-            write = write and point < cluster_count[0] * cluster_size
+    active_block = True
+    if cutlass.const_expr(compacted):
+        active_block = bidx * bdx < cluster_count[0] * cluster_size
+    # This condition is uniform across the CTA; partial blocks still have every
+    # thread reach the barrier before reading other threads' SH gradients.
+    if active_block:
+        cute.arch.sync_threads()
+        for offset in cutlass.range_constexpr(sh_dim * 3):
+            flat = offset * 128 + tidx
+            point = bidx * 128 + flat // (sh_dim * 3)
+            coefficient = flat % (sh_dim * 3)
+            write = point < capacity
+            if cutlass.const_expr(compacted):
+                write = write and point < cluster_count[0] * cluster_size
+                if write:
+                    point = cluster_ids[point // cluster_size] * cluster_size + point % cluster_size
+                    write = point < capacity
+            output_point = (
+                bidx * 128 + flat // (sh_dim * 3)
+                if cutlass.const_expr(compact_gradients)
+                else point
+            )
             if write:
-                point = cluster_ids[point // cluster_size] * cluster_size + point % cluster_size
-                write = point < capacity
-        output_point = (
-            bidx * 128 + flat // (sh_dim * 3) if cutlass.const_expr(compact_gradients) else point
-        )
-        if write:
-            out_sh[output_point * sh_dim * 3 + coefficient] = sh_cache[
-                coefficient, flat // (sh_dim * 3)
-            ]
+                out_sh[output_point * sh_dim * 3 + coefficient] = sh_cache[
+                    coefficient, flat // (sh_dim * 3)
+                ]
 
 
 @cute.jit
@@ -372,6 +386,7 @@ def launch_projection_backward(
     cluster_size: cutlass.Constexpr,
     compacted: cutlass.Constexpr,
     compact_gradients: cutlass.Constexpr,
+    rgb_only: cutlass.Constexpr,
 ):
     block = 128
     if cutlass.const_expr(compacted and not compact_gradients):
@@ -414,4 +429,5 @@ def launch_projection_backward(
         cluster_size,
         compacted,
         compact_gradients,
+        rgb_only,
     ).launch(grid=[(capacity + block - 1) // block, 1, 1], block=[block, 1, 1], stream=stream)

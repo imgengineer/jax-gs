@@ -26,15 +26,22 @@ src/jaxgs/
 ├── io_manager/                  # COLMAP readers and shared NPZ checkpoints
 ├── scene/
 │   ├── point.py                # GaussianModel (NNX) and GaussianPool array view
+│   ├── types.py                # parameter order and fixed-shape cluster layouts
 │   ├── camera.py
 │   ├── cluster.py
 │   └── spatial_refine.py
-├── render/                     # projection, visibility and render interfaces
+├── render/
+│   ├── types.py                # shared projections, tile tables and render results
+│   ├── rasterizer.py           # differentiable and forward render interfaces
+│   ├── projection.py
+│   └── visibility_table.py
 ├── training/
 │   ├── trainer.py              # configuration, dataset setup and production loop
-│   ├── step.py                 # compiled array step and donated nnx.jit train_step
+│   ├── step.py                 # compiled array step and bound NNX training step
+│   ├── state.py                # NNX model, Optax state and fragment statistics
 │   ├── optimizer.py            # fixed-capacity Optax Adam; CuTe comparison
 │   ├── densify.py              # growth and pruning
+│   ├── pool_ops.py             # slot pruning shared with the reference path
 │   ├── reference_trainer.py
 │   └── reference_densify.py
 ├── kernels/                    # CuTe kernels, launchers and JAX bindings
@@ -47,21 +54,51 @@ src/jaxgs/
 `nnx.merge` work normally. `model.as_pool()` provides a zero-copy array view
 for kernels and custom VJPs. The existing NPZ checkpoint format is unchanged.
 
-Both CLI trainers update NNX models through `nnx.jit`. The production step
-uses `graph=False` because its fixed model is a tree with no shared Variables;
-it donates model, Adam and statistics buffers. Densification changes array
+Both CLI trainers update NNX models through NNX JIT transforms. Production
+binds a fixed `TrainingState` once with `nnx.jit_partial(graph=False)`, caching
+the flattening of its model, Optax state and statistics. The bound step donates
+these buffers. Densification changes array
 contents and occupancy without changing the model structure. Optax keeps the existing
 update rule and fixed-capacity moments. The pure array
 `array_train_step` remains available for correctness comparisons.
 
-The production signature puts `state, stats` before `model`: NNX appends model
-updates after explicit return values, and matching that order lets XLA reuse
-each parameter/moment buffer. Tests verify buffer addresses, parameter and
-optimizer parity, NNX state round-trips, and reuse of compiled steps.
+`TrainingState` stores Adam in `nnx.OptState` and statistics in `nnx.Variable`;
+their pytree order precedes the model so donation reuses the parameter/moment
+buffers. Warmup uses one working copy, then restores the original arrays on
+the same bound Variables before timed training. Tests verify buffer addresses,
+parameter and optimizer parity, NNX state round-trips and compiled step reuse.
+Eager Adam initialization creates independent m/v buffers for direct donation.
+Production retains shared initial zeros through warmup and separates v before
+training. Warmup covers each distinct camera image size and clipping range.
+The [Flax binding review](benchmarks/results/flax_partial_review_20260930.md)
+records the documentation, CPU dispatch probe and million-capacity resource checks.
 
 Use `jaxgs-train` for production training and `jaxgs-train-reference` for the
 small-scene correctness path. Production training defaults to Optax. Source
 project names remain in attribution and external comparison scripts.
+
+Renderer data types are defined in `render.types`; production CuTe bindings
+and the reference implementation use the same PyTrees. The bounded diagnostic
+render interfaces are `render.rasterizer.rasterize` and `rasterize_forward`.
+Production training uses `kernels.projector.project_with_compact_pullback`
+and the packed RGB kernels. Its gradient tuple follows `scene.types.PARAMETER_NAMES`:
+`xyz`, `log_scale`, `rotation`, `opacity`, `sh`. Compact buffers contain a valid
+visible-cluster prefix; their unused tails must not be read.
+
+The four fragment-statistics columns are fragment count, compositing weight,
+summed alpha gradient and summed squared alpha gradient. `reset_adam_slots`
+accepts a boolean slot mask and clears only those moments and update counts.
+The production trainer separates pool initialization, precompilation and report
+writing from the epoch loop. The
+[structure validation record](benchmarks/results/structure_naming_validation_20260930.json)
+compares outputs, compiled operations and memory against the preceding implementation.
+
+The JAX and NNX steps share the pure `training.step.compute_training_step` function.
+Precompilation reuses one independent donated working state across SH/statistics
+variants. `Camera.from_colmap` normalizes all intrinsic scalars to `float32`,
+so their original Python/NumPy numeric types do not create extra JIT signatures.
+The [Flax/JAX documentation review](benchmarks/results/flax_jax_review_20260930.md)
+records the versioned sources, code decisions and regression checks.
 
 ### Default training configuration
 
@@ -201,7 +238,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute python \
   --backend jaxgs --optimizer optax --output fixed_optax.json
 ```
 
-`training.optimizer.adam_transform()` is an Optax `GradientTransformationExtraArgs`
+`training.optimizer.create_adam_transform()` is an Optax `GradientTransformationExtraArgs`
 using `optax.tree` moment updates and `optax.apply_updates`. It keeps LiteGS's
 Adam rule: beta1=0.9, beta2=0.999, epsilon=1e-15, no bias correction, the same
 per-field learning rates, and frozen parameters/moments in invisible or free
@@ -258,6 +295,17 @@ atomics over warp lanes also slowed the complete step. The
 contains the measurements. Pool capacity, gradient rules and rasterization
 arithmetic remain unchanged.
 
+The [2026-09-30 source and algorithm review](benchmarks/results/static_performance_audit_20260930.md)
+records CPU checks and small CuTe/native correctness checks while the GPU is
+shared. It identifies a screen-edge culling mismatch, a stable-partition
+replacement for densification's second sort, and remaining full-capacity
+SH/pair work. The screen-edge mismatch has since been fixed: projection uses
+LiteGS's coarse center bounds, and reference/diagnostic renderers preserve
+contributions beyond 3 sigma. The [edge validation record](benchmarks/results/edge_support_validation_20260930.json)
+compares four borders, isotropic/rotated anisotropic Gaussians, native pair
+tables, RGB and gradients. GPU performance will be remeasured when it is available
+exclusively; the other review items remain optimization candidates.
+
 A fresh full-training comparison with Optax measured **30.459 s before and
 30.097 s after** (1.2% shorter) for 9,971 updates. Both finished with 975,104
 active Gaussians in a one-million-slot pool and eight compiled variants,
@@ -290,6 +338,10 @@ it on its CUDA stream. Bindings declare output shapes/dtypes and use static
 tensor layouts; sparse Adam also declares input/output aliases for donation.
 The directory move preserves these bindings, GPU calculations and launch
 parameters. Source licenses remain alongside the translated kernels.
+
+The [JAX/CuTe performance review](benchmarks/results/cute_dsl_review_20260930.md)
+records RGB pullback specialization, empty-cluster CTA handling, release kernel
+resource checks and GPU correctness tests. Training timing awaits an exclusive GPU.
 
 The [layout migration checks](benchmarks/results/kernels_layout_migration.json)
 passed all 54 tests on the GPU and verified unchanged calculation bodies in
@@ -333,6 +385,10 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute jaxgs-train \
   --output bicycle.npz
 ```
 
+The production trainer saves a JSON report beside the checkpoint, using the same
+stem. If the checkpoint filename itself ends in `.json`, the report uses
+`.report.json` to keep both files (for example, `model.json` and `model.report.json`).
+
 This uses LiteGS's every-eighth-image evaluation split, epoch-based target
 point count, weighted fragment-error variance sampling, clone/split and
 weight-based pruning, opacity decay, per-parameter learning rates, sparse Adam
@@ -367,7 +423,7 @@ scene and GPU have enough memory. CuTe training stops on global pair overflow.
 
 ## Pipeline
 
-`training.trainer.train_step` culls world-space clusters, compacts visible cluster IDs,
+The bound production step culls world-space clusters, compacts visible cluster IDs,
 projects those clusters, builds a visibility table, renders, evaluates fused
 L1+SSIM, and applies Optax Adam to visible live slots. Projection
 gradients stay in visible-cluster order until Adam maps them to pool slots;
@@ -401,7 +457,7 @@ visibility table.
 `densify_step` stops their gradient, selects a fixed number of parents, and
 writes children into free slots while clearing those slots' Adam state.
 `prune_step` and `reset_opacity` also keep shapes unchanged.
-At initialization and after each densification interval, `spatial_refine`
+At initialization and after each densification interval, `reorder_pool`
 groups live Gaussians by Morton order and reorders their Adam state with them.
 The default near plane is 0.2 scene units. Binning applies LiteGS's opacity
 threshold of 1/255, NDC bounds of +/-1.3, and positive-definite conic check.
@@ -409,12 +465,20 @@ threshold of 1/255, NDC bounds of +/-1.3, and positive-definite conic check.
 The original `jaxgs-train-reference --backend reference` path uses JAX projection,
 bounded per-tile binning and rasterization for small correctness checks.
 Its `--backend cute` path uses the float32 diagnostic rasterizer, including
-depth and alpha pullbacks. The production `jaxgs-train` path uses the
-packed RGB renderer. Both geometry pullbacks compute xyz, log scale, rotation,
+depth and alpha pullbacks. The JAX reference supports rectangular tiles;
+the float32 CuTe diagnostic interfaces require square tiles. The production
+`jaxgs-train` path uses the packed RGB renderer. Both geometry pullbacks compute xyz, log scale, rotation,
 opacity and SH gradients in CuTe. JAX manages the fixed pool and training
 loop and Optax parameter updates; the fused loss executes CuTe kernels.
 
 ## Fixed-count comparison
+
+`benchmarks/fixed_model.py` pads both backends with the same tail-point copies
+to complete 128-point clusters. Reports distinguish the PLY's `input_count`
+from the actual rendered `count` (1,000,000 input points become 1,000,064).
+Fixed-count benchmarking and evaluation both use LiteGS's `resolution=-1`
+convention: cap image width at 1600 pixels and scale camera intrinsics accordingly.
+JAX evaluation infers SH degree 0–3 from the checkpoint's coefficient count.
 
 RTX 5090, the **same LiteGS PLY containing 975,104 Gaussians**, one 1237x822
 bicycle view, SH degree 3, 10 warmup updates followed by 200 sequential training

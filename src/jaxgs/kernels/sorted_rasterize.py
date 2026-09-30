@@ -68,7 +68,7 @@ def _forward(
                     dx * (conic[gid * 4] * dx + conic[gid * 4 + 1] * dy)
                     + dy * (conic[gid * 4 + 2] * dx + conic[gid * 4 + 3] * dy)
                 )
-                if exponent >= -4.5:
+                if exponent <= 0:
                     raw_alpha = opacity[gid] * cute.exp(exponent)
                     if raw_alpha >= 1.0 / 256.0:
                         a = cute.min(cute.Float32(255.0 / 256.0), raw_alpha)
@@ -161,7 +161,7 @@ def _backward_warp(
             c00, c01 = conic[gid * 4], conic[gid * 4 + 1]
             c10, c11 = conic[gid * 4 + 2], conic[gid * 4 + 3]
             exponent = -0.5 * (dx * (c00 * dx + c01 * dy) + dy * (c10 * dx + c11 * dy))
-            if exponent >= -4.5:
+            if exponent <= 0:
                 e = cute.exp(exponent)
                 raw_alpha = opacity[gid] * e
                 if raw_alpha >= 1.0 / 256.0:

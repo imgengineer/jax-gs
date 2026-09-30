@@ -8,7 +8,7 @@ class Camera:
     """Column-vector world-to-camera transform; camera looks along +Z."""
 
     world_to_camera: chex.Array  # [4, 4]
-    fx: chex.Array
+    fx: chex.Array  # float32 scalar, independent of the input's numeric type
     fy: chex.Array
     cx: chex.Array
     cy: chex.Array
@@ -49,10 +49,10 @@ class Camera:
         transform = transform.at[:3, 3].set(translation)
         return cls(
             transform,
-            jnp.asarray(fx),
-            jnp.asarray(fy),
-            jnp.asarray(cx),
-            jnp.asarray(cy),
+            jnp.asarray(fx, dtype=jnp.float32),
+            jnp.asarray(fy, dtype=jnp.float32),
+            jnp.asarray(cx, dtype=jnp.float32),
+            jnp.asarray(cy, dtype=jnp.float32),
             width,
             height,
             near,

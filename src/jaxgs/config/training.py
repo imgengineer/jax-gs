@@ -82,46 +82,50 @@ class TrainingConfig:
 
     @property
     def capacity(self) -> CapacityConfig:
-        height, width = self.pipeline.tile_size
+        tile_height, tile_width = self.pipeline.tile_size
         return CapacityConfig(
             max_gaussians=self.runtime.max_gaussians,
             cluster_size=self.pipeline.cluster_size,
-            tile_size=width,
-            tile_height=height,
+            tile_size=tile_width,
+            tile_height=tile_height,
             sh_degree=self.model.sh_degree,
             max_visibility_pairs=self.runtime.max_visibility_pairs,
         )
 
     def validate(self) -> None:
-        op, dp = self.optimization, self.densify
+        optimization, densification = self.optimization, self.densify
         if (
             min(
-                op.iterations,
-                op.position_lr_max_steps,
-                dp.densification_interval,
-                dp.opacity_reset_interval,
-                dp.target_primitives,
+                optimization.iterations,
+                optimization.position_lr_max_steps,
+                densification.densification_interval,
+                densification.opacity_reset_interval,
+                densification.target_primitives,
             )
             <= 0
         ):
             raise ValueError("iterations, schedule lengths and target_primitives must be positive")
-        if dp.densify_from < 0 or dp.densify_until < -1 or dp.percent_dense <= 0:
+        if (
+            densification.densify_from < 0
+            or densification.densify_until < -1
+            or densification.percent_dense <= 0
+        ):
             raise ValueError("invalid densification window or percent_dense")
         if self.model.resolution != -1 and self.model.resolution <= 0:
             raise ValueError("resolution must be -1 or positive")
-        rates = (
-            op.position_lr_init,
-            op.position_lr_final,
-            op.feature_lr,
-            op.opacity_lr,
-            op.scaling_lr,
-            op.rotation_lr,
+        learning_rates = (
+            optimization.position_lr_init,
+            optimization.position_lr_final,
+            optimization.feature_lr,
+            optimization.opacity_lr,
+            optimization.scaling_lr,
+            optimization.rotation_lr,
         )
-        if any(not math.isfinite(rate) or rate < 0 for rate in rates):
+        if any(not math.isfinite(rate) or rate < 0 for rate in learning_rates):
             raise ValueError("learning rates must be finite and nonnegative")
-        if (op.position_lr_init == 0) != (op.position_lr_final == 0):
+        if (optimization.position_lr_init == 0) != (optimization.position_lr_final == 0):
             raise ValueError("position learning rates must both be positive or both zero")
-        if dp.target_primitives > self.capacity.max_gaussians:
+        if densification.target_primitives > self.capacity.max_gaussians:
             raise ValueError("target_primitives exceeds runtime.max_gaussians")
         if self.pipeline.tile_size not in ((8, 8), (8, 16), (12, 16), (16, 16)):
             raise ValueError("production tile_size must be 8x8, 8x16, 12x16 or 16x16")
@@ -129,7 +133,7 @@ class TrainingConfig:
             raise ValueError("optimizer must be optax or cute")
         # These source switches are recorded for parity, but their nondefault
         # paths are not implemented by the production RGB training backend.
-        supported = {
+        supported_settings = {
             "white_background": (self.model.white_background, False),
             "data_device": (self.model.data_device, "cuda"),
             "sparse_grad": (self.pipeline.sparse_grad, True),
@@ -137,13 +141,13 @@ class TrainingConfig:
             "enable_transmitance": (self.pipeline.enable_transmitance, False),
             "enable_depth": (self.pipeline.enable_depth, False),
             "input_color_type": (self.pipeline.input_color_type, "sh"),
-            "lambda_dssim": (op.lambda_dssim, 0.2),
-            "reg_weight": (op.reg_weight, 0.0),
-            "learnable_viewproj": (op.learnable_viewproj, False),
-            "opacity_reset_mode": (dp.opacity_reset_mode, "decay"),
-            "prune_mode": (dp.prune_mode, "weight"),
+            "lambda_dssim": (optimization.lambda_dssim, 0.2),
+            "reg_weight": (optimization.reg_weight, 0.0),
+            "learnable_viewproj": (optimization.learnable_viewproj, False),
+            "opacity_reset_mode": (densification.opacity_reset_mode, "decay"),
+            "prune_mode": (densification.prune_mode, "weight"),
         }
-        for name, (actual, expected) in supported.items():
+        for name, (actual, expected) in supported_settings.items():
             if actual != expected:
                 raise ValueError(f"production training currently requires {name}={expected!r}")
 

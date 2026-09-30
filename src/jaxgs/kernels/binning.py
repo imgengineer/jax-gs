@@ -4,8 +4,8 @@ import jax.numpy as jnp
 from flax import struct
 
 from ..config import CapacityConfig
-from ..render.projection import ProjectedGaussians
-from ..render.visibility_table import VisibilityTable
+from ..render.projection import support_radius
+from ..render.types import ProjectedGaussians, VisibilityTable
 from ..scene.camera import Camera
 
 
@@ -39,7 +39,7 @@ def compact_clusters_cute(projected: ProjectedGaussians, config: CapacityConfig)
         num_clusters=clusters,
     )
     bounds, ids, count = call(
-        projected.mean.reshape(-1), projected.radius, projected.visible.astype(jnp.int8)
+        projected.mean.reshape(-1), support_radius(projected), projected.visible.astype(jnp.int8)
     )
     return ClusterList(bounds.reshape(clusters, 4), ids, count)
 
@@ -50,6 +50,8 @@ def build_visibility_table_cute(
     config: CapacityConfig,
     clusters: ClusterList | None = None,
 ) -> VisibilityTable:
+    if config.raster_tile_height != config.tile_size:
+        raise ValueError("The bounded CuTe binning requires square tiles")
     from cutlass.jax import cutlass_call
 
     from .visibility import launch_visibility_table
@@ -80,7 +82,7 @@ def build_visibility_table_cute(
     ids, depths, valid, count, overflow = call(
         projected.mean.reshape(-1),
         projected.depth,
-        projected.radius,
+        support_radius(projected),
         projected.visible.astype(jnp.int8),
         clusters.bounds.reshape(-1),
         clusters.ids,

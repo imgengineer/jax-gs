@@ -3,9 +3,12 @@ import jax
 import jax.numpy as jnp
 
 from ..config import CapacityConfig
-from ..reference.rasterizer_jax import RenderResult
-from ..render.projection import ProjectedGaussians
-from ..render.visibility_table import SortedVisibilityTable
+from ..render.types import (
+    FragmentStatistics,
+    ProjectedGaussians,
+    RenderResult,
+    SortedVisibilityTable,
+)
 from ..scene.camera import Camera
 
 
@@ -157,7 +160,14 @@ def rasterize_sorted_cute_vjp(
     )
 
 
-def rasterize_loss_and_grad(projected, table, camera, config, target, collect_stats):
+def rasterize_loss_and_grad(
+    projected: ProjectedGaussians,
+    table: SortedVisibilityTable,
+    camera: Camera,
+    config: CapacityConfig,
+    target: chex.Array,
+    collect_stats: bool,
+) -> tuple[chex.Array, ProjectedGaussians, FragmentStatistics]:
     """Explicit pullback exposes LiteGS fragment statistics outside autodiff."""
     from cutlass.jax import cutlass_call
 

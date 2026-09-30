@@ -1,0 +1,328 @@
+{
+  "date": "2026-09-30",
+  "baseline": "Working tree before this Flax binding change, including the prior CuTe RGB specialization.",
+  "versions": {
+    "flax": "0.12.10",
+    "jax": "0.11.2",
+    "optax": "0.2.8",
+    "nvidia-cutlass-dsl": "4.8.0"
+  },
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "gpu_shared": true,
+  "exclusive_gpu_timing_performed": false,
+  "source_hashes": {
+    "src/jaxgs/training/state.py": {
+      "before_sha256": null,
+      "after_sha256": "da5296ec49fb99c7e9c9998aca7183a9ca2cb7afb8bfdbfff9527de4dd0fd298"
+    },
+    "src/jaxgs/training/step.py": {
+      "before_sha256": "e07d28279e12a72aa3867f58b3a87ab0f7f47055cbd9386cb215cdc82b84ebe6",
+      "after_sha256": "6e0c64e3db1ef8695f125de0ec944f603ef77860b341b97807132ac472f60d1b"
+    },
+    "src/jaxgs/training/trainer.py": {
+      "before_sha256": "82c3e63ffa3469cf6af1e46e85ca60f1ba8f57fb49a286f7e3cb066d7e56e47f",
+      "after_sha256": "b0024cfe57362b9add974b8e36d7b65696170b12f3064e3b0c8230e794a9440c"
+    },
+    "benchmarks/fixed_model.py": {
+      "before_sha256": "38529fa5c5af41befb5f7d6bbe024c33fdb4b559368f92bbdac2352eadd9f3fd",
+      "after_sha256": "6b4293208ab1d3bd09e8f500ed476ab647a7100e23e51a05e99f5994a6b6c781"
+    },
+    "tests/test_nnx.py": {
+      "before_sha256": "0759c9256be0e506ca06b033eba085e84874cc861c05ee6661077f06f9944eb7",
+      "after_sha256": "f55d329ed28014c4b39196f3c6b121481f87dba9dae525c94e0431bfcf66d942"
+    },
+    "tests/test_production_training.py": {
+      "before_sha256": "ef8d02371b8cd369e360865947df0bd5809cfe514e51d3d77633bfc97807dac1",
+      "after_sha256": "e66d44f86facf02618acf406705e0ca0efba28f112ebc385211e38c512661afd"
+    }
+  },
+  "cpu_probe": {
+    "backend": "cpu",
+    "trials": [
+      {
+        "normal_us": 56.20073201134801,
+        "partial_us": 29.989738017320633
+      },
+      {
+        "normal_us": 57.436127099208534,
+        "partial_us": 24.160095024853945
+      },
+      {
+        "normal_us": 68.99187306407839,
+        "partial_us": 39.49820506386459
+      },
+      {
+        "normal_us": 58.595472015440464,
+        "partial_us": 31.432074028998617
+      },
+      {
+        "normal_us": 57.43375595193356,
+        "partial_us": 31.67647495865822
+      }
+    ],
+    "capacity": 128,
+    "warmup_calls": 30,
+    "rounds": 5,
+    "calls_per_round": 1000,
+    "synchronize_at_round_end": true,
+    "normal_median_us": 57.436127099208534,
+    "partial_median_us": 31.432074028998617,
+    "reduction_percent": 45.274732791947336,
+    "scope": "CPU NNX dispatch microbenchmark with simple parameter/moment/statistics array updates. Includes CPU compute; not a full CuTe GPU training measurement."
+  },
+  "initial_gpu_probe": {
+    "backend": "gpu",
+    "pointers_reused": 15,
+    "old_memory": {
+      "argument_size_in_bytes": 95098,
+      "output_size_in_bytes": 93637,
+      "alias_size_in_bytes": 93444,
+      "temp_size_in_bytes": 61240
+    },
+    "partial_memory": {
+      "argument_size_in_bytes": 95098,
+      "output_size_in_bytes": 93637,
+      "alias_size_in_bytes": 93444,
+      "temp_size_in_bytes": 61240
+    },
+    "cache_size": 1
+  },
+  "gpu_memory_comparisons": [
+    {
+      "capacity": 128,
+      "image": [
+        16,
+        32
+      ],
+      "pair_capacity": 512,
+      "optimizer": "optax",
+      "degree": 0,
+      "collect": false,
+      "normal_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 60216
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 60216
+      }
+    },
+    {
+      "capacity": 128,
+      "image": [
+        16,
+        32
+      ],
+      "pair_capacity": 512,
+      "optimizer": "optax",
+      "degree": 3,
+      "collect": true,
+      "normal_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 61240
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 61240
+      }
+    },
+    {
+      "capacity": 128,
+      "image": [
+        16,
+        32
+      ],
+      "pair_capacity": 512,
+      "optimizer": "cute",
+      "degree": 0,
+      "collect": false,
+      "normal_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 60472
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 60472
+      }
+    },
+    {
+      "capacity": 128,
+      "image": [
+        16,
+        32
+      ],
+      "pair_capacity": 512,
+      "optimizer": "cute",
+      "degree": 3,
+      "collect": true,
+      "normal_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 61496
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 95098,
+        "output_size_in_bytes": 93637,
+        "alias_size_in_bytes": 93444,
+        "temp_size_in_bytes": 61496
+      }
+    },
+    {
+      "capacity": 1048576,
+      "image": [
+        822,
+        1237
+      ],
+      "pair_capacity": 4194304,
+      "optimizer": "optax",
+      "degree": 0,
+      "collect": false,
+      "normal_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 307303736
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 307303736
+      }
+    },
+    {
+      "capacity": 1048576,
+      "image": [
+        822,
+        1237
+      ],
+      "pair_capacity": 4194304,
+      "optimizer": "optax",
+      "degree": 3,
+      "collect": true,
+      "normal_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 307303736
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 307303736
+      }
+    },
+    {
+      "capacity": 1048576,
+      "image": [
+        822,
+        1237
+      ],
+      "pair_capacity": 4194304,
+      "optimizer": "cute",
+      "degree": 0,
+      "collect": false,
+      "normal_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 303076664
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 303076664
+      }
+    },
+    {
+      "capacity": 1048576,
+      "image": [
+        822,
+        1237
+      ],
+      "pair_capacity": 4194304,
+      "optimizer": "cute",
+      "degree": 3,
+      "collect": true,
+      "normal_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 303076664
+      },
+      "bound_memory": {
+        "argument_size_in_bytes": 768715819,
+        "output_size_in_bytes": 765460677,
+        "alias_size_in_bytes": 765460484,
+        "temp_size_in_bytes": 303076664
+      }
+    }
+  ],
+  "cute_decorated_function_count": 65,
+  "cute_decorated_ast_unchanged": true,
+  "pure_training_ast_unchanged": true,
+  "model_update_body_ast_unchanged": true,
+  "benchmark_smoke": {
+    "count": 128,
+    "jit": "nnx.jit_partial(graph=False)",
+    "jit_cache_size": 1,
+    "initial_loss": 0.3817898631095886,
+    "final_loss": 0.38109922409057617,
+    "final_pairs": 512
+  },
+  "validation": {
+    "full_suite_passed": 186,
+    "full_suite_seconds": 287.24,
+    "state_and_protocol_checks_passed": 18,
+    "new_checks": 5,
+    "final_targeted_suite_passed": 18,
+    "initial_moment_copy_kept_after_warmup": true,
+    "nnx_array_tolerances": {
+      "rtol": 2e-05,
+      "atol": 2e-06
+    },
+    "parameter_and_moment_buffers_reused": 15,
+    "warmup_original_arrays_restored_on_success_and_interruption": true,
+    "first_training_call_reuses_warmup_cache": true,
+    "coverage": {
+      "covered_lines": 1617,
+      "num_statements": 1617,
+      "percent_covered": 100.0,
+      "percent_covered_display": "100.00",
+      "missing_lines": 0,
+      "excluded_lines": 2607,
+      "percent_statements_covered": 100.0,
+      "percent_statements_covered_display": "100.00",
+      "num_branches": 224,
+      "num_partial_branches": 0,
+      "covered_branches": 224,
+      "missing_branches": 0,
+      "percent_branches_covered": 100.0,
+      "percent_branches_covered_display": "100.00"
+    },
+    "ruff_check_passed": true,
+    "ruff_format_check_passed": true,
+    "git_diff_check_passed": true
+  },
+  "official_sources": [
+    "https://github.com/google/flax/blob/v0.12.10/docs_nnx/guides/performance.md",
+    "https://github.com/google/flax/blob/v0.12.10/flax/nnx/transforms/compilation.py",
+    "https://github.com/google/flax/blob/v0.12.10/flax/nnx/training/optimizer.py",
+    "https://github.com/google/flax/blob/v0.12.10/docs_nnx/flip/5310-tree-mode-nnx.md"
+  ]
+}

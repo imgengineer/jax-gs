@@ -1,3 +1,5 @@
+"""Fixed-capacity reference compaction of visible clusters."""
+
 import chex
 import jax.numpy as jnp
 from flax import struct
@@ -5,15 +7,17 @@ from flax import struct
 
 @struct.dataclass
 class CompactedClusters:
-    ids: chex.Array
-    valid: chex.Array
-    count: chex.Array
+    """Stable cluster IDs with masked padding and a scalar valid count."""
+
+    ids: chex.Array  # [num_clusters]
+    valid: chex.Array  # [num_clusters]
+    count: chex.Array  # scalar
 
 
-def cluster_compact(cluster_tile_mask: chex.Array) -> CompactedClusters:
-    """Fixed-size list of clusters touching any tile."""
-    active = jnp.any(cluster_tile_mask, axis=1)
-    count = jnp.sum(active, dtype=jnp.int32)
-    ids = jnp.argsort(~active, stable=True).astype(jnp.int32)
-    valid = jnp.arange(active.shape[0]) < count
-    return CompactedClusters(ids, valid, count)
+def compact_clusters(cluster_tile_mask: chex.Array) -> CompactedClusters:
+    """Compact clusters touching any tile into a stable valid prefix."""
+    active_clusters = jnp.any(cluster_tile_mask, axis=1)
+    cluster_count = jnp.sum(active_clusters, dtype=jnp.int32)
+    cluster_ids = jnp.argsort(~active_clusters, stable=True).astype(jnp.int32)
+    valid_mask = jnp.arange(active_clusters.shape[0]) < cluster_count
+    return CompactedClusters(cluster_ids, valid_mask, cluster_count)

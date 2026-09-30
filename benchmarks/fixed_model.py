@@ -9,11 +9,20 @@ from time import perf_counter
 import numpy as np
 
 
+def _cluster_indices(count: int, cluster_size: int) -> np.ndarray:
+    """Keep the input order and repeat tail points to complete the last cluster."""
+    if count < 1:
+        raise ValueError("Gaussian PLY is empty")
+    padding = (-count) % cluster_size
+    indices = np.arange(count + padding)
+    indices[count:] = np.arange(count - padding, count) % count
+    return indices
+
+
 def benchmark_jax(args):
     import jax
     import jax.numpy as jnp
     from flax import nnx
-    from PIL import Image
     from plyfile import PlyData
     from sorted_pipeline import load_gaussian_ply
 
@@ -21,23 +30,32 @@ def benchmark_jax(args):
     from jaxgs.config import load_config
     from jaxgs.io_manager.colmap import load_colmap_images
     from jaxgs.scene.cluster import world_cluster_bounds
+    from jaxgs.scene.types import PARAMETER_NAMES
     from jaxgs.training.optimizer import create_adam_state
-    from jaxgs.training.trainer import array_train_step
+    from jaxgs.training.state import TrainingState
+    from jaxgs.training.step import array_train_step, compute_training_step
 
     optimization = load_config(Path(__file__).parent / "configs" / "bicycle_10k.toml").optimization
-    count = len(PlyData.read(args.ply)["vertex"])
+    input_count = len(PlyData.read(args.ply)["vertex"])
+    indices = _cluster_indices(input_count, 128)
+    count = len(indices)
     config = CapacityConfig(count, 128, 128, 16, 3, args.pairs, tile_height=8)
     pool = load_gaussian_ply(args.ply, config)
+    if count != input_count:
+        pool = pool.replace(
+            **{name: getattr(pool, name)[indices] for name in PARAMETER_NAMES},
+            alive=jnp.ones((count,), jnp.bool_),
+            free_mask=jnp.zeros((count,), jnp.bool_),
+            n_active=jnp.array(count, jnp.int32),
+        )
     state = create_adam_state(pool)
     bounds = world_cluster_bounds(pool, 128)
-    frame = load_colmap_images(args.scene, args.images)[args.view]
-    with Image.open(frame.image_path) as image:
-        target = jnp.asarray(np.asarray(image.convert("RGB"), np.uint8))
+    frame = load_colmap_images(args.scene, args.images, resolution=-1)[args.view]
+    target = jnp.asarray(frame.load_rgb())
     stats = jnp.zeros((count, 4), jnp.float32)
     radius = jnp.array(1.0, jnp.float32)
 
-    # One ordinary warmup produces distinct m/v buffers; the initial Adam
-    # state intentionally shares its zero arrays. Subsequent steps donate.
+    # Compile an ordinary warmup before binding the donated timed step.
     compile_start = perf_counter()
     pool, state, stats, metrics = jax.block_until_ready(
         array_train_step(
@@ -58,14 +76,13 @@ def benchmark_jax(args):
     )
 
     model = GaussianModel(pool)
+    training = TrainingState(model, state, stats)
 
-    # Match the production argument order: NNX appends model updates after
-    # explicit outputs, so state/stats precede model for XLA buffer donation.
-    def update(state, stats, model, seen_overflow, step):
-        pool, state, stats, metrics = array_train_step.__wrapped__(
-            model.as_pool(),
-            state,
-            stats,
+    def update(training, seen_overflow, step):
+        pool, state, stats, metrics = compute_training_step(
+            training.model.as_pool(),
+            training.adam.get_value(),
+            training.fragments.get_value(),
             bounds,
             frame.camera,
             target,
@@ -77,24 +94,27 @@ def benchmark_jax(args):
             optimizer=args.optimizer,
             optimization=optimization,
         )
-        model.update_from_pool(pool)
-        return state, stats, seen_overflow | metrics["overflow"], metrics
+        training.model.update_from_pool(pool)
+        training.adam.set_value(state)
+        training.fragments.set_value(stats)
+        return seen_overflow | metrics["overflow"], metrics
 
-    update = nnx.jit(update, graph=False, donate_argnums=(0, 1, 2))
+    update = nnx.jit_partial(update, training, graph=False, donate_argnums=(0,))
     overflow = metrics["overflow"]
     for step in range(1, args.warmup):
-        state, stats, overflow, metrics = update(state, stats, model, overflow, jnp.array(step))
-    jax.block_until_ready((model.as_pool(), state, stats, metrics))
+        overflow, metrics = update(overflow, jnp.array(step))
+    jax.block_until_ready((training, metrics))
     warmup_seconds = perf_counter() - compile_start
     first_loss = float(metrics["loss"])
     start = perf_counter()
     for step in range(args.warmup, args.warmup + args.steps):
-        state, stats, overflow, metrics = update(state, stats, model, overflow, jnp.array(step))
-    jax.block_until_ready((model.as_pool(), state, stats, metrics))
+        overflow, metrics = update(overflow, jnp.array(step))
+    jax.block_until_ready((training, metrics))
     seconds = perf_counter() - start
     if bool(overflow):
         raise RuntimeError("fixed-count benchmark overflowed")
     result = {
+        "input_count": input_count,
         "count": count,
         "image": frame.image_path.name,
         "shape": list(target.shape[:2]),
@@ -106,16 +126,14 @@ def benchmark_jax(args):
         "jit_cache_size": update.jitted_fn._cache_size(),
         "donation": True,
         "model": "flax.nnx.Module",
-        "jit": "nnx.jit(graph=False)",
+        "jit": "nnx.jit_partial(graph=False)",
         "optimizer": args.optimizer,
     }
     if args.trace:
         with jax.profiler.trace(str(args.trace)):
             for step in range(10):
-                state, stats, overflow, metrics = update(
-                    state, stats, model, overflow, jnp.array(args.steps + args.warmup + step)
-                )
-            jax.block_until_ready((model.as_pool(), state, stats, metrics))
+                overflow, metrics = update(overflow, jnp.array(args.steps + args.warmup + step))
+            jax.block_until_ready((training, metrics))
     return result
 
 
@@ -136,10 +154,14 @@ def benchmark_litegs(args):
     optimizer_settings.position_lr_final = 0.000016
     optimizer_settings.position_lr_max_steps = 10000
     arrays = io_manager.load_ply(str(args.ply), 3)
+    input_count = arrays[0].shape[-1]
+    indices = _cluster_indices(input_count, 128)
+    count = len(indices)
+    if count != input_count:
+        arrays = tuple(value[..., indices] for value in arrays)
     params = tuple(
         torch.as_tensor(value, dtype=torch.float32, device="cuda").contiguous() for value in arrays
     )
-    count = params[0].shape[-1]
     params = tuple(
         torch.nn.Parameter(value) for value in scene.cluster.cluster_points(128, *params)
     )
@@ -206,6 +228,7 @@ def benchmark_litegs(args):
     torch.cuda.synchronize()
     seconds = perf_counter() - start
     result = {
+        "input_count": input_count,
         "count": count,
         "image": frame.name,
         "shape": list(target.shape[2:]),
