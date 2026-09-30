@@ -44,10 +44,10 @@ def build_sorted_visibility_table_cute(
     )
     # LiteGS sorts Gaussians by depth before duplication. A stable tile-only
     # sort then preserves depth order inside each tile (wrapper.py::Binning).
-    depth_order = jnp.argsort(projected.depth, stable=True)
+    # Emission walks the same depth order, writing each prefix-sum segment.
+    depth_order = jnp.argsort(projected.depth, stable=True).astype(jnp.int32)
     ordered_counts = point_counts[depth_order]
     end_offsets = jnp.cumsum(ordered_counts, dtype=jnp.int32)
-    offsets = jnp.zeros_like(point_counts).at[depth_order].set(end_offsets - ordered_counts)
     pair_count = end_offsets[-1]
     emit = cutlass_call(
         launch_emit_pairs,
@@ -62,15 +62,14 @@ def build_sorted_visibility_table_cute(
         tile_height=config.raster_tile_height,
         tiles_x=tiles_x,
         tiles_y=tiles_y,
-        width=camera.width,
-        height=camera.height,
     )
     tile_ids, gaussian_ids = emit(
         projected.mean.reshape(-1),
         projected.conic.reshape(-1),
         projected.alpha,
-        projected.visible.astype(jnp.int8),
-        offsets,
+        depth_order,
+        ordered_counts,
+        end_offsets,
     )
     # One sort path keeps the training update asynchronous.
     tile_ids, gaussian_ids = jax.lax.sort(

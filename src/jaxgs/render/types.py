@@ -45,8 +45,8 @@ class RenderResult:
 
 
 # Packed parameters [C * 8] uint32, final transmittance [H * W] float32,
-# and last processed pair [H * W] int32, in that order.
-type PackedRasterCache = tuple[chex.Array, chex.Array, chex.Array]
+# last processed pair [H * W] int32 and per-tile backward pair counts [T] int32.
+type PackedRasterCache = tuple[chex.Array, chex.Array, chex.Array, chex.Array]
 
 # [C, 4]: fragment count, compositing weight, sum(dL/dalpha), sum((dL/dalpha)^2).
 type FragmentStatistics = chex.Array

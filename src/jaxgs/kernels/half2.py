@@ -1,4 +1,4 @@
-"""PTX half2 operations used by LiteGS's packed rasterizer."""
+"""PTX half2 and explicitly rounded float32 operations used by the CuTe kernels."""
 
 import cutlass.cute as cute
 from cutlass import Float32, Uint32
@@ -141,6 +141,44 @@ def bits_float(a, *, loc=None, ip=None):
     return Float32(
         llvm.bitcast(Float32.mlir_type, Uint32(a).ir_value(loc=loc, ip=ip), loc=loc, ip=ip)
     )
+
+
+def _f32_asm(op, operands, *, loc=None, ip=None):
+    return Float32(
+        llvm.inline_asm(
+            Float32.mlir_type,
+            [Float32(x).ir_value(loc=loc, ip=ip) for x in operands],
+            op + " $0, " + ", ".join(f"${i + 1}" for i in range(len(operands))) + ";",
+            "=f," + ",".join("f" for _ in operands),
+            has_side_effects=False,
+            loc=loc,
+            ip=ip,
+        )
+    )
+
+
+@dsl_user_op
+def ffma(a, b, c, *, loc=None, ip=None):
+    """fma.rn.f32 whose rounding does not depend on the compiler's contraction choice."""
+    return _f32_asm("fma.rn.f32", (a, b, c), loc=loc, ip=ip)
+
+
+@dsl_user_op
+def fmul(a, b, *, loc=None, ip=None):
+    """mul.rn.f32, which is never fused into a neighboring add."""
+    return _f32_asm("mul.rn.f32", (a, b), loc=loc, ip=ip)
+
+
+@dsl_user_op
+def fadd(a, b, *, loc=None, ip=None):
+    """add.rn.f32, which is never fused with a neighboring multiply."""
+    return _f32_asm("add.rn.f32", (a, b), loc=loc, ip=ip)
+
+
+@dsl_user_op
+def fsub(a, b, *, loc=None, ip=None):
+    """sub.rn.f32, which is never fused with a neighboring multiply."""
+    return _f32_asm("sub.rn.f32", (a, b), loc=loc, ip=ip)
 
 
 @dsl_user_op

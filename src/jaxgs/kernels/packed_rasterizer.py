@@ -14,6 +14,11 @@ from ..render.types import (
 from ..scene.camera import Camera
 
 
+def _tile_count(camera: Camera, config: CapacityConfig) -> int:
+    tiles_x = (camera.width + config.tile_size - 1) // config.tile_size
+    return tiles_x * ((camera.height + config.raster_tile_height - 1) // config.raster_tile_height)
+
+
 def packed_forward(
     projected: ProjectedGaussians,
     table: SortedVisibilityTable,
@@ -21,7 +26,7 @@ def packed_forward(
     config: CapacityConfig,
     collect_stats: bool = False,
 ) -> tuple[chex.Array, PackedRasterCache, chex.Array]:
-    """Return RGB, (packed params, final T, last pair), and count/weight pairs."""
+    """Return RGB, (packed params, final T, last pair, backward tile work), and stats."""
     from cutlass.jax import cutlass_call
 
     from .packed_rasterize import launch_forward
@@ -29,6 +34,7 @@ def packed_forward(
     if (config.raster_tile_height, config.tile_size) not in ((8, 8), (8, 16), (12, 16), (16, 16)):
         raise ValueError("Packed rasterizer supports tiles 8x8, 8x16, 12x16 and 16x16")
     pixels = camera.width * camera.height
+    tiles = _tile_count(camera, config)
     call = cutlass_call(
         launch_forward,
         output_shape_dtype=(
@@ -37,6 +43,8 @@ def packed_forward(
             jax.ShapeDtypeStruct((pixels,), jnp.float32),
             jax.ShapeDtypeStruct((pixels,), jnp.int32),
             jax.ShapeDtypeStruct((config.max_gaussians * 2 if collect_stats else 1,), jnp.float32),
+            jax.ShapeDtypeStruct((tiles,), jnp.int32),
+            jax.ShapeDtypeStruct((tiles,), jnp.int32),
         ),
         use_static_tensors=True,
         width=camera.width,
@@ -46,7 +54,7 @@ def packed_forward(
         capacity=config.max_gaussians,
         collect_stats=int(collect_stats),
     )
-    params, rgb, trans, last, stats = call(
+    params, rgb, trans, last, stats, backward_work, _ = call(
         projected.mean.reshape(-1),
         projected.conic.reshape(-1),
         projected.color.reshape(-1),
@@ -54,7 +62,7 @@ def packed_forward(
         table.gaussian_ids,
         table.tile_offsets,
     )
-    return rgb.reshape(camera.height, camera.width, 3), (params, trans, last), stats
+    return rgb.reshape(camera.height, camera.width, 3), (params, trans, last, backward_work), stats
 
 
 def packed_backward(
@@ -85,6 +93,7 @@ def packed_backward(
         output_shape_dtype=(
             *(jax.ShapeDtypeStruct((value.size,), jnp.float32) for value in fields),
             jax.ShapeDtypeStruct((config.max_gaussians if collect_stats else 1,), jnp.float32),
+            jax.ShapeDtypeStruct((_tile_count(camera, config),), jnp.int32),
         ),
         use_static_tensors=True,
         width=camera.width,
@@ -95,9 +104,16 @@ def packed_backward(
         collect_stats=int(collect_stats),
         symmetric_conic=symmetric_conic,
     )
-    params, trans, last = cache
+    params, trans, last, backward_work = cache
     grads = call(
-        params, table.gaussian_ids, table.tile_offsets, trans, last, image_grad.reshape(-1), scale
+        params,
+        table.gaussian_ids,
+        table.tile_offsets,
+        trans,
+        last,
+        backward_work,
+        image_grad.reshape(-1),
+        scale,
     )
     cotangents = projected.replace(
         mean=grads[0].reshape(projected.mean.shape),

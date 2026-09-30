@@ -180,8 +180,8 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q \
   --cov=jaxgs --cov-report=term-missing --cov-report=html
 ```
 
-The GPU suite passes **151 tests**, including 15 Chex contract cases. Python line
-and branch coverage are both **100%** (1,532 statements and 224 branch outcomes).
+The GPU suite passes **279 tests**, including 15 Chex contract cases. Python line
+and branch coverage are both **100%** (1,694 statements and 250 branch outcomes).
 The report enforces a 99% combined threshold. The exclusion policy is unchanged:
 only bodies decorated with `@cute.kernel`, `@cute.jit`, or `@dsl_user_op` are
 excluded, because they compile to GPU code. Python bindings and launch setup
@@ -320,6 +320,39 @@ and [validation record](benchmarks/results/bicycle_optax_default_validation.json
 include checkpoint checks and the 61 GPU test cases (the new fixture was
 corrected and retested separately).
 
+### Load-balanced rasterization and binning
+
+Heavy tiles, not total work, set the packed rasterizer's time: on the fixed
+bicycle view the single heaviest tile (2,732 pairs) alone took 294 µs of a
+595 µs forward pass. Tiles now launch heaviest first from a one-block counting
+sort, and each single-warp block stages 32 splats at a time in shared memory
+while its lanes load the next batch (see [Pipeline](#pipeline)). Pair emission
+walks Gaussians in depth order and hands large Gaussians to a whole warp.
+Forward outputs are bit-identical to the previous kernels, as are the sorted
+pair tables; the counting and emitting kernels now share explicitly rounded
+ellipse slices, which also fixed one Gaussian whose previous count exceeded its
+emitted pairs. LiteGS parity is unchanged.
+
+Exclusive RTX 5090 measurements with the protocol of the
+[exclusive comparison](benchmarks/results/exclusive_performance_20260930.md)
+(1,000,064 points, 8M pairs; 30k default training with an evaluation split):
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Fixed-count update, Optax (median of 3) | 3.851 ms | **2.980 ms** |
+| Fixed-count update, CuTe Adam (median of 3) | 3.514 ms | **2.652 ms** |
+| Forward kernels / backward kernels | 616 / 1,227 µs | 272 / 872 µs |
+| Pair emission | 240 µs | 100 µs |
+| 30k training, Optax | 89.43 s | **74.48 / 74.06 s** |
+| 30k training, CuTe Adam | 71.05 s | **55.41 s** |
+
+LiteGS recorded 3.837 ms per fixed-count update under the same protocol.
+Held-out PSNR was 25.428 dB before and 25.465 / 25.444 dB after with Optax,
+within the 25.426–25.510 dB spread of earlier runs. The
+[kernel balance record](benchmarks/results/kernel_balance_20260930.md) contains
+the analysis, rejected variants, sanitizer checks and raw timings. The dense
+Optax update (about 1 ms per update) is now the largest remaining cost.
+
 ### CuTe integration
 
 The call structure follows NVIDIA's
@@ -450,13 +483,22 @@ JAX shapes without limiting the number of Gaussians in any individual tile.
 The count, emit and tile range kernels use CuTe; prefix sums and stable sorting
 use XLA. Tile sort keys use uint16 when the tile count and padding sentinel fit,
 otherwise uint32. Gaussian IDs and tile offsets stay int32.
+Emission visits Gaussians in depth order, so neighboring lanes write neighboring
+prefix-sum segments. A Gaussian with more than 16 pairs is emitted by its whole
+warp: lanes compute 32 slice rows at a time and write pairs with coalesced stores.
+Counting and emission evaluate the same explicitly rounded ellipse slices, so each
+Gaussian writes exactly the pairs it counted.
 Production tile sorting uses the full fixed arena. Exclusive profiling found
 that runtime selection of a sorted prefix added a device-to-host counter copy
 on each update; that variant was withdrawn to retain asynchronous training.
 Gaussian depth sorting also retains the full Gaussian capacity.
 
-The packed rasterizer ports LiteGS's `raster.cu`: each warp processes one tile,
-with four warps per forward block and one per backward block. It uses
+The packed rasterizer ports LiteGS's `raster.cu`: each single-warp block
+processes one tile. Tiles launch heaviest first: a one-block counting sort orders
+them by pair count for the forward pass, and by the pairs before each tile's last
+contributor (reported by the forward pass) for the backward pass. A warp stages
+32 splats at a time in shared memory while each lane loads one splat of the next
+batch; the forward pass composites two splats per loop iteration. It uses
 vertical pixel pairs, half2 FMA, forward differences, transmittance
 scaled by 128, and warp reductions before global gradient adds. RG/BA use
 paired half2 reductions; geometric gradients use LiteGS's shared-exponent

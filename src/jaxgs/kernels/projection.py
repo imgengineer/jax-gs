@@ -121,32 +121,47 @@ def _projection_kernel(
         direction_norm = cute.rsqrt(cute.max(dx * dx + dy * dy + dz * dz, cute.Float32(1e-16)))
         dx, dy, dz = dx * direction_norm, dy * direction_norm, dz * direction_norm
         xx, yy, zz = dx * dx, dy * dy, dz * dz
+        # Each point's coefficients are contiguous: load the active degree's
+        # prefix with 128-bit loads instead of strided scalar loads.
+        stride = sh_dim * 3
+        coefficients = cute.make_rmem_tensor(
+            min(stride, ((degree + 1) * (degree + 1) * 3 + 3) // 4 * 4), cute.Float32
+        )
+        cute.autovec_copy(
+            cute.make_tensor(
+                sh.iterator + cute.assume(gid * stride, divby=4 if stride % 4 == 0 else 1),
+                coefficients.layout,
+            ),
+            coefficients,
+        )
         for channel in cutlass.range_constexpr(3):
-            base = gid * sh_dim * 3 + channel
-            value = 0.28209479177387814 * sh[base]
+            value = 0.28209479177387814 * coefficients[channel]
             if degree >= 1:
                 value += (
-                    -0.4886025119029199 * dy * sh[base + 3]
-                    + 0.4886025119029199 * dz * sh[base + 6]
-                    - 0.4886025119029199 * dx * sh[base + 9]
+                    -0.4886025119029199 * dy * coefficients[channel + 3]
+                    + 0.4886025119029199 * dz * coefficients[channel + 6]
+                    - 0.4886025119029199 * dx * coefficients[channel + 9]
                 )
             if degree >= 2:
                 value += (
-                    1.0925484305920792 * dx * dy * sh[base + 12]
-                    - 1.0925484305920792 * dy * dz * sh[base + 15]
-                    + 0.31539156525252005 * (2 * zz - xx - yy) * sh[base + 18]
-                    - 1.0925484305920792 * dx * dz * sh[base + 21]
-                    + 0.5462742152960396 * (xx - yy) * sh[base + 24]
+                    1.0925484305920792 * dx * dy * coefficients[channel + 12]
+                    - 1.0925484305920792 * dy * dz * coefficients[channel + 15]
+                    + 0.31539156525252005 * (2 * zz - xx - yy) * coefficients[channel + 18]
+                    - 1.0925484305920792 * dx * dz * coefficients[channel + 21]
+                    + 0.5462742152960396 * (xx - yy) * coefficients[channel + 24]
                 )
             if degree >= 3:
                 value += (
-                    -0.5900435899266435 * dy * (3 * xx - yy) * sh[base + 27]
-                    + 2.890611442640554 * dx * dy * dz * sh[base + 30]
-                    - 0.4570457994644658 * dy * (4 * zz - xx - yy) * sh[base + 33]
-                    + 0.3731763325901154 * dz * (2 * zz - 3 * xx - 3 * yy) * sh[base + 36]
-                    - 0.4570457994644658 * dx * (4 * zz - xx - yy) * sh[base + 39]
-                    + 1.445305721320277 * dz * (xx - yy) * sh[base + 42]
-                    - 0.5900435899266435 * dx * (xx - 3 * yy) * sh[base + 45]
+                    -0.5900435899266435 * dy * (3 * xx - yy) * coefficients[channel + 27]
+                    + 2.890611442640554 * dx * dy * dz * coefficients[channel + 30]
+                    - 0.4570457994644658 * dy * (4 * zz - xx - yy) * coefficients[channel + 33]
+                    + 0.3731763325901154
+                    * dz
+                    * (2 * zz - 3 * xx - 3 * yy)
+                    * coefficients[channel + 36]
+                    - 0.4570457994644658 * dx * (4 * zz - xx - yy) * coefficients[channel + 39]
+                    + 1.445305721320277 * dz * (xx - yy) * coefficients[channel + 42]
+                    - 0.5900435899266435 * dx * (xx - 3 * yy) * coefficients[channel + 45]
                 )
             out_color[gid * 3 + channel] = cute.max(value + 0.5, cute.Float32(0.0))
 
