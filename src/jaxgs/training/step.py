@@ -70,7 +70,7 @@ def compute_training_step(
     # LiteGS's half2 kernel needs at least 64 pixels per tile. Small diagnostic
     # scenes retain the float32 path; production uses LiteGS's packed path.
     loss_and_grad = (
-        partial(packed_loss_and_grad, symmetric_conic=True)
+        partial(packed_loss_and_grad, symmetric_conic=True, visible_clusters=visible_clusters)
         if config.tile_size in (8, 16)
         else rasterize_loss_and_grad
     )
@@ -96,6 +96,7 @@ def compute_training_step(
             compact_gradients=True,
             optimization=optimization,
             active_degree=active_degree,
+            compacted_clusters=visible_clusters,
         )
     elif optimizer == "cute":
         pool, state = sparse_adam_update(

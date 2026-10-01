@@ -94,7 +94,11 @@ def test_sorted_tile_ranges_cover_gaps_padding_and_full_capacity(capacity, num_t
     for keys in cases:
         keys = np.sort(keys.astype(dtype))
         expected = np.searchsorted(keys, np.arange(num_tiles + 1), side="left")
-        np.testing.assert_array_equal(ranges(jnp.asarray(keys)), expected)
+        pair_count = np.sum(keys < num_tiles, dtype=np.int32).reshape(1)
+        np.testing.assert_array_equal(ranges(jnp.asarray(keys), pair_count), expected)
+        # Entries past the pair count are never read.
+        padded = np.where(np.arange(capacity) < pair_count, keys, 0).astype(dtype)
+        np.testing.assert_array_equal(ranges(jnp.asarray(padded), pair_count), expected)
 
 
 @pytest.mark.parametrize("tiles_x", [255, 256])

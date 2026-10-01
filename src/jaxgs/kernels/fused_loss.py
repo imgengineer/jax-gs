@@ -1,7 +1,24 @@
-"""CuTe port of LiteGS fused_ssim/ssim.cu's separable L1 + SSIM kernels.
+"""CuTe port of LiteGS fused_ssim/ssim.cu's L1 + SSIM loss and image gradient.
 
-The source's MIT notice is in LICENSE.fused_ssim. Images use HWC layout;
-loss/derivative caches keep LiteGS's CHW planes for coalesced access.
+The source's MIT notice is in LICENSE.fused_ssim. Images use HWC layout.
+
+The source runs two kernels: one writes per-pixel losses and SSIM partial
+derivatives, the other blurs those partials into the image gradient. Here one
+block computes a 32x16 output tile end to end. It recomputes the window
+statistics over the 5-pixel halo its gradient needs, so neither the loss map
+nor the partials reach global memory. Per channel, the block
+
+1. copies the image and target tiles (36x52, zero padded) to shared memory,
+   asynchronously while the previous channel finishes;
+2. sums x, x^2, y, y^2 and xy horizontally (36x42);
+3. sums them vertically into the window statistics of the 26x42 partials
+   region, then evaluates SSIM, its partial derivatives and the loss;
+4. blurs the partials horizontally (26x32), then vertically into the image
+   gradient of the output tile.
+
+Every blur adds its taps in the source's order. The partial derivatives use
+approximate reciprocals of the SSIM denominators instead of the source's
+divisions, which changes the gradient by ~1e-6 relative.
 """
 
 import chex
@@ -10,6 +27,8 @@ import cutlass
 import cutlass.cute as cute
 import jax
 import jax.numpy as jnp
+from cutlass._mlir.dialects import llvm
+from cutlass.cutlass_dsl import dsl_user_op
 from cutlass.memory import SmemAllocator
 
 _GAUSS = (
@@ -25,40 +44,129 @@ _GAUSS = (
     0.0075987582094967365,
     0.001028380123898387,
 )
+_RADIUS = 5
+_TAPS = 2 * _RADIUS + 1
+_TILE_W, _TILE_H = 32, 16
+# Statistics and partials cover the tile and its halo; the image tile one more halo.
+_STAT_W, _STAT_H = _TILE_W + 2 * _RADIUS, _TILE_H + 2 * _RADIUS
+_IMAGE_W, _IMAGE_H = _STAT_W + 2 * _RADIUS, _STAT_H + 2 * _RADIUS
+_THREADS = 256
+# Consecutive outputs per thread in each pass; neighbors share their inputs.
+_ROW_SUMS = 6
+_COLUMN_SUMS = 5
+_ROW_PARTIALS = 4
+_COLUMN_PARTIALS = 2
+# Padded row stride of the horizontally blurred partials (fewer bank conflicts).
+_BLUR_STRIDE = _TILE_W + 1
+
+
+@dsl_user_op
+def _copy_async(destination, source, size, *, loc=None, ip=None):
+    """cp.async of one float to shared memory; zero-filled when size is 0."""
+    llvm.inline_asm(
+        None,
+        [
+            cutlass.Int32(destination.toint(loc=loc, ip=ip)).ir_value(loc=loc, ip=ip),
+            cutlass.Int64(source.toint(loc=loc, ip=ip)).ir_value(loc=loc, ip=ip),
+            cutlass.Int32(size).ir_value(loc=loc, ip=ip),
+        ],
+        "cp.async.ca.shared.global [$0], [$1], 4, $2;",
+        "r,l,r",
+        has_side_effects=True,
+        loc=loc,
+        ip=ip,
+    )
+
+
+@cute.jit
+def _copy_tiles(image, target, tiles, tid, x0, y0, c, width, height):
+    """Start copying channel c of the image and target tiles (zero padded)."""
+    rows = _THREADS // _IMAGE_W
+    if tid < rows * _IMAGE_W:
+        col = tid % _IMAGE_W
+        gx = x0 + col - 2 * _RADIUS
+        r = tid // _IMAGE_W
+        while r < _IMAGE_H:
+            gy = y0 + r - 2 * _RADIUS
+            p = cutlass.Int32(c)
+            size = 0
+            if gx >= 0 and gx < width and gy >= 0 and gy < height:
+                p = (gy * width + gx) * 3 + c
+                size = 4
+            _copy_async(tiles.iterator + (r * _IMAGE_W + col), image.iterator + p, size)
+            _copy_async(
+                tiles.iterator + (_IMAGE_H * _IMAGE_W + r * _IMAGE_W + col),
+                target.iterator + p,
+                size,
+            )
+            r += rows
+    cute.arch.cp_async_commit_group()
 
 
 @cute.kernel
-def _forward(
+def _loss(
     image: cute.Tensor,
     target: cute.Tensor,
-    loss: cute.Tensor,
-    partials: cute.Tensor,
+    block_loss: cute.Tensor,
+    gradient: cute.Tensor,
     width: cutlass.Constexpr,
     height: cutlass.Constexpr,
 ):
     tid, _, _ = cute.arch.thread_idx()
     bx, by, _ = cute.arch.block_idx()
-    lx, ly = tid % 16, tid // 16
-    px, py = bx * 16 + lx, by * 16 + ly
+    x0, y0 = bx * _TILE_W, by * _TILE_H
+    image_size = _IMAGE_H * _IMAGE_W
+    stat_size = _STAT_H * _STAT_W
     smem = SmemAllocator()
-    tile = smem.allocate_tensor(cute.Float32, cute.make_layout((26, 26, 2), stride=(52, 2, 1)))
-    scratch = smem.allocate_tensor(cute.Float32, cute.make_layout((26, 16, 5), stride=(80, 5, 1)))
+    # The image tiles are dead once summed, the row sums once the partials exist.
+    first = smem.allocate_tensor(
+        cutlass.Float32, cute.make_layout(max(2 * image_size, 3 * stat_size)), byte_alignment=16
+    )
+    second = smem.allocate_tensor(
+        cutlass.Float32,
+        cute.make_layout(max(5 * _IMAGE_H * _STAT_W, 3 * _STAT_H * _BLUR_STRIDE)),
+        byte_alignment=16,
+    )
+    warp_loss = smem.allocate_tensor(cutlass.Float32, cute.make_layout(_THREADS // 32))
+    tiles = cute.make_tensor(
+        first.iterator, cute.make_layout((2, _IMAGE_H, _IMAGE_W), stride=(image_size, _IMAGE_W, 1))
+    )
+    partials = cute.make_tensor(
+        first.iterator, cute.make_layout((3, _STAT_H, _STAT_W), stride=(stat_size, _STAT_W, 1))
+    )
+    row_sums = cute.make_tensor(
+        second.iterator,
+        cute.make_layout((5, _IMAGE_H, _STAT_W), stride=(_IMAGE_H * _STAT_W, _STAT_W, 1)),
+    )
+    blurred = cute.make_tensor(
+        second.iterator,
+        cute.make_layout(
+            (3, _STAT_H, _BLUR_STRIDE), stride=(_STAT_H * _BLUR_STRIDE, _BLUR_STRIDE, 1)
+        ),
+    )
+    # Each pass's first row and column for this thread.
+    row_groups = _STAT_W // _ROW_SUMS
+    sum_row, sum_col = tid // row_groups, tid % row_groups * _ROW_SUMS
+    stat_col, stat_row = tid % _STAT_W, tid // _STAT_W * _COLUMN_SUMS
+    blur_groups = _TILE_W // _ROW_PARTIALS
+    blur_row, blur_col = tid // blur_groups, tid % blur_groups * _ROW_PARTIALS
+    out_col, out_row = tid % _TILE_W, tid // _TILE_W * _COLUMN_PARTIALS
+    stat_tasks = _STAT_W * ((_STAT_H + _COLUMN_SUMS - 1) // _COLUMN_SUMS)
+    # Pixel values needed after the image tiles are overwritten.
+    stat_pixels = cute.make_rmem_tensor((2, _COLUMN_SUMS), cutlass.Float32)
+    out_pixels = cute.make_rmem_tensor((2, _COLUMN_PARTIALS), cutlass.Float32)
+    loss = cute.Float32(0)
+    _copy_tiles(image, target, tiles, tid, x0, y0, 0, width, height)
     for c in range(3):
-        for step in cutlass.range_constexpr(3):
-            i = step * 256 + tid
-            if i < 26 * 26:
-                y, x = i // 26, i % 26
-                gy, gx = by * 16 + y - 5, bx * 16 + x - 5
-                a, b = cute.Float32(0), cute.Float32(0)
-                if gx >= 0 and gx < width and gy >= 0 and gy < height:
-                    p = (gy * width + gx) * 3 + c
-                    a, b = image[p], target[p]
-                tile[y, x, 0], tile[y, x, 1] = a, b
+        cute.arch.cp_async_wait_group(0)
         cute.arch.sync_threads()
-        l1 = cute.abs(tile[ly + 5, lx + 5, 0] - tile[ly + 5, lx + 5, 1])
-        for step in cutlass.range_constexpr(2):
-            y = ly + step * 16
-            if y < 26:
+        if tid < _IMAGE_H * row_groups:
+            xs = cute.make_rmem_tensor(_ROW_SUMS + _TAPS - 1, cutlass.Float32)
+            ys = cute.make_rmem_tensor(_ROW_SUMS + _TAPS - 1, cutlass.Float32)
+            for i in cutlass.range_constexpr(_ROW_SUMS + _TAPS - 1):
+                xs[i] = tiles[0, sum_row, sum_col + i]
+                ys[i] = tiles[1, sum_row, sum_col + i]
+            for o in cutlass.range_constexpr(_ROW_SUMS):
                 sx, sx2, sy, sy2, sxy = (
                     cute.Float32(0),
                     cute.Float32(0),
@@ -66,103 +174,112 @@ def _forward(
                     cute.Float32(0),
                     cute.Float32(0),
                 )
-                for d in cutlass.range_constexpr(11):
+                for d in cutlass.range_constexpr(_TAPS):
                     w = _GAUSS[d]
-                    a, b = tile[y, lx + d, 0], tile[y, lx + d, 1]
+                    a, b = xs[o + d], ys[o + d]
                     sx += a * w
                     sx2 += a * a * w
                     sy += b * w
                     sy2 += b * b * w
                     sxy += a * b * w
-                scratch[y, lx, 0], scratch[y, lx, 1] = sx, sx2
-                scratch[y, lx, 2], scratch[y, lx, 3] = sy, sy2
-                scratch[y, lx, 4] = sxy
+                row_sums[0, sum_row, sum_col + o] = sx
+                row_sums[1, sum_row, sum_col + o] = sx2
+                row_sums[2, sum_row, sum_col + o] = sy
+                row_sums[3, sum_row, sum_col + o] = sy2
+                row_sums[4, sum_row, sum_col + o] = sxy
+        if tid < stat_tasks:
+            for r in cutlass.range_constexpr(_COLUMN_SUMS):
+                if stat_row + r < _STAT_H:
+                    stat_pixels[0, r] = tiles[0, stat_row + r + _RADIUS, stat_col + _RADIUS]
+                    stat_pixels[1, r] = tiles[1, stat_row + r + _RADIUS, stat_col + _RADIUS]
+        for r in cutlass.range_constexpr(_COLUMN_PARTIALS):
+            out_pixels[0, r] = tiles[0, out_row + r + 2 * _RADIUS, out_col + 2 * _RADIUS]
+            out_pixels[1, r] = tiles[1, out_row + r + 2 * _RADIUS, out_col + 2 * _RADIUS]
         cute.arch.sync_threads()
-        if px < width and py < height:
-            mx, xx, my, yy, xy = (
-                cute.Float32(0),
-                cute.Float32(0),
-                cute.Float32(0),
-                cute.Float32(0),
-                cute.Float32(0),
-            )
-            for d in cutlass.range_constexpr(11):
-                w = _GAUSS[d]
-                mx += scratch[ly + d, lx, 0] * w
-                xx += scratch[ly + d, lx, 1] * w
-                my += scratch[ly + d, lx, 2] * w
-                yy += scratch[ly + d, lx, 3] * w
-                xy += scratch[ly + d, lx, 4] * w
-            a = mx * mx + my * my + 0.0001
-            b = (xx - mx * mx) + (yy - my * my) + 0.0009
-            cc = 2.0 * mx * my + 0.0001
-            dd = 2.0 * (xy - mx * my) + 0.0009
-            loss[c * width * height + py * width + px] = 0.2 * (1.0 - cc * dd / (a * b)) + 0.8 * l1
-            partials[c * width * height + py * width + px] = (
-                2.0 * my * dd / (a * b)
-                - 2.0 * my * cc / (a * b)
-                - 2.0 * mx * cc * dd / (a * a * b)
-                + 2.0 * mx * cc * dd / (a * b * b)
-            )
-            partials[(3 + c) * width * height + py * width + px] = -cc * dd / (a * b * b)
-            partials[(6 + c) * width * height + py * width + px] = 2.0 * cc / (a * b)
-        cute.arch.sync_threads()
-
-
-@cute.kernel
-def _backward(
-    image: cute.Tensor,
-    target: cute.Tensor,
-    partials: cute.Tensor,
-    gradient: cute.Tensor,
-    width: cutlass.Constexpr,
-    height: cutlass.Constexpr,
-):
-    tid, _, _ = cute.arch.thread_idx()
-    bx, by, _ = cute.arch.block_idx()
-    lx, ly = tid % 16, tid // 16
-    px, py = bx * 16 + lx, by * 16 + ly
-    smem = SmemAllocator()
-    tile = smem.allocate_tensor(cute.Float32, cute.make_layout((26, 26, 3), stride=(78, 3, 1)))
-    scratch = smem.allocate_tensor(cute.Float32, cute.make_layout((26, 16, 3), stride=(48, 3, 1)))
-    for c in range(3):
-        for step in cutlass.range_constexpr(3):
-            i = step * 256 + tid
-            if i < 26 * 26:
-                y, x = i // 26, i % 26
-                gy, gx = by * 16 + y - 5, bx * 16 + x - 5
-                for k in cutlass.range_constexpr(3):
-                    v = cute.Float32(0)
+        if tid < stat_tasks:
+            # Rows stream through the window sums; each still adds its taps in order.
+            sums = cute.make_rmem_tensor((5, _COLUMN_SUMS), cutlass.Float32)
+            sums.fill(0)
+            for i in cutlass.range_constexpr(_COLUMN_SUMS + _TAPS - 1):
+                if stat_row + i < _IMAGE_H:
+                    for q in cutlass.range_constexpr(5):
+                        value = row_sums[q, stat_row + i, stat_col]
+                        for r in cutlass.range_constexpr(_COLUMN_SUMS):
+                            if cutlass.const_expr(0 <= i - r < _TAPS):
+                                sums[q, r] += value * _GAUSS[i - r]
+            for r in cutlass.range_constexpr(_COLUMN_SUMS):
+                if stat_row + r < _STAT_H:
+                    mx, xx, my, yy, xy = sums[0, r], sums[1, r], sums[2, r], sums[3, r], sums[4, r]
+                    a = mx * mx + my * my + 0.0001
+                    b = (xx - mx * mx) + (yy - my * my) + 0.0009
+                    cc = 2.0 * mx * my + 0.0001
+                    dd = 2.0 * (xy - mx * my) + 0.0009
+                    gy, gx = y0 + stat_row + r - _RADIUS, x0 + stat_col - _RADIUS
+                    # The partials blurred into the gradient include the
+                    # source's -0.2 / N loss weight; outside the image they are 0.
+                    p0, p1, p2 = cute.Float32(0), cute.Float32(0), cute.Float32(0)
                     if gx >= 0 and gx < width and gy >= 0 and gy < height:
-                        v = partials[(k * 3 + c) * width * height + gy * width + gx] * (
-                            -0.2 / (width * height * 3)
-                        )
-                    tile[y, x, k] = v
+                        weight = -0.2 / (width * height * 3)
+                        inv_a, inv_b = cute.arch.rcp_approx(a), cute.arch.rcp_approx(b)
+                        ssim = cc * dd * inv_a * inv_b
+                        p0 = (
+                            2.0 * my * (dd - cc) * inv_a * inv_b + 2.0 * mx * ssim * (inv_b - inv_a)
+                        ) * weight
+                        p1 = -ssim * inv_b * weight
+                        p2 = 2.0 * cc * inv_a * inv_b * weight
+                        if (
+                            stat_row + r >= _RADIUS
+                            and stat_row + r < _RADIUS + _TILE_H
+                            and stat_col >= _RADIUS
+                            and stat_col < _RADIUS + _TILE_W
+                        ):
+                            l1 = cute.abs(stat_pixels[0, r] - stat_pixels[1, r])
+                            loss += 0.2 * (1.0 - ssim) + 0.8 * l1
+                    partials[0, stat_row + r, stat_col] = p0
+                    partials[1, stat_row + r, stat_col] = p1
+                    partials[2, stat_row + r, stat_col] = p2
         cute.arch.sync_threads()
-        for step in cutlass.range_constexpr(2):
-            y = ly + step * 16
-            if y < 26:
-                for k in cutlass.range_constexpr(3):
+        if tid < _STAT_H * blur_groups:
+            for k in cutlass.range_constexpr(3):
+                values = cute.make_rmem_tensor(_ROW_PARTIALS + _TAPS - 1, cutlass.Float32)
+                for i in cutlass.range_constexpr(_ROW_PARTIALS + _TAPS - 1):
+                    values[i] = partials[k, blur_row, blur_col + i]
+                for o in cutlass.range_constexpr(_ROW_PARTIALS):
                     v = cute.Float32(0)
-                    for d in cutlass.range_constexpr(11):
-                        v += tile[y, lx + d, k] * _GAUSS[d]
-                    scratch[y, lx, k] = v
+                    for d in cutlass.range_constexpr(_TAPS):
+                        v += values[o + d] * _GAUSS[d]
+                    blurred[k, blur_row, blur_col + o] = v
         cute.arch.sync_threads()
-        if px < width and py < height:
+        # The partials are consumed: start the next channel's tiles.
+        if c < 2:
+            _copy_tiles(image, target, tiles, tid, x0, y0, c + 1, width, height)
+        for r in cutlass.range_constexpr(_COLUMN_PARTIALS):
             s0, s1, s2 = cute.Float32(0), cute.Float32(0), cute.Float32(0)
-            for d in cutlass.range_constexpr(11):
-                s0 += scratch[ly + d, lx, 0] * _GAUSS[d]
-                s1 += scratch[ly + d, lx, 1] * _GAUSS[d]
-                s2 += scratch[ly + d, lx, 2] * _GAUSS[d]
-            p = (py * width + px) * 3 + c
-            a, b = image[p], target[p]
-            sign = cute.Float32(0)
-            if a > b:
-                sign = 1.0
-            elif a < b:
-                sign = -1.0
-            gradient[p] = s0 + 2.0 * a * s1 + b * s2 + 0.8 * sign / (width * height * 3)
-        cute.arch.sync_threads()
+            for d in cutlass.range_constexpr(_TAPS):
+                s0 += blurred[0, out_row + r + d, out_col] * _GAUSS[d]
+                s1 += blurred[1, out_row + r + d, out_col] * _GAUSS[d]
+                s2 += blurred[2, out_row + r + d, out_col] * _GAUSS[d]
+            px, py = x0 + out_col, y0 + out_row + r
+            if px < width and py < height:
+                a, b = out_pixels[0, r], out_pixels[1, r]
+                sign = cute.Float32(0)
+                if a > b:
+                    sign = 1.0
+                elif a < b:
+                    sign = -1.0
+                gradient[(py * width + px) * 3 + c] = (
+                    s0 + 2.0 * a * s1 + b * s2 + 0.8 * sign / (width * height * 3)
+                )
+    for level in cutlass.range_constexpr(5):
+        loss += cute.arch.shuffle_sync_bfly(loss, 16 >> level)
+    if tid % 32 == 0:
+        warp_loss[tid // 32] = loss
+    cute.arch.sync_threads()
+    if tid == 0:
+        total = cute.Float32(0)
+        for w in cutlass.range_constexpr(_THREADS // 32):
+            total += warp_loss[w]
+        block_loss[by * ((width + _TILE_W - 1) // _TILE_W) + bx] = total
 
 
 @cute.jit
@@ -170,19 +287,15 @@ def _launch(
     stream: cuda.CUstream,
     image: cute.Tensor,
     target: cute.Tensor,
-    loss: cute.Tensor,
-    partials: cute.Tensor,
+    block_loss: cute.Tensor,
     gradient: cute.Tensor,
     *,
     width: cutlass.Constexpr,
     height: cutlass.Constexpr,
 ):
-    grid = [(width + 15) // 16, (height + 15) // 16, 1]
-    _forward(image, target, loss, partials, width, height).launch(
-        grid=grid, block=[256, 1, 1], stream=stream
-    )
-    _backward(image, target, partials, gradient, width, height).launch(
-        grid=grid, block=[256, 1, 1], stream=stream
+    grid = [(width + _TILE_W - 1) // _TILE_W, (height + _TILE_H - 1) // _TILE_H, 1]
+    _loss(image, target, block_loss, gradient, width, height).launch(
+        grid=grid, block=[_THREADS, 1, 1], stream=stream
     )
 
 
@@ -195,16 +308,16 @@ def fused_loss_and_grad(
     height, width, channels = prediction.shape
     if channels != 3 or target.shape != prediction.shape:
         raise ValueError("L1+SSIM expects matching HWC RGB images")
+    blocks = -(-width // _TILE_W) * -(-height // _TILE_H)
     call = cutlass_call(
         _launch,
         output_shape_dtype=(
-            jax.ShapeDtypeStruct((prediction.size,), jnp.float32),
-            jax.ShapeDtypeStruct((prediction.size * 3,), jnp.float32),
+            jax.ShapeDtypeStruct((blocks,), jnp.float32),
             jax.ShapeDtypeStruct((prediction.size,), jnp.float32),
         ),
         use_static_tensors=True,
         width=width,
         height=height,
     )
-    loss, _, gradient = call(prediction.reshape(-1), target.reshape(-1))
-    return jnp.mean(loss), gradient.reshape(prediction.shape)
+    block_loss, gradient = call(prediction.reshape(-1), target.reshape(-1))
+    return jnp.sum(block_loss) / prediction.size, gradient.reshape(prediction.shape)

@@ -71,6 +71,15 @@ def _clear_projected(
 
 
 @cute.kernel
+def _clear_visible(visible: cute.Tensor, capacity: int):
+    tid, _, _ = cute.arch.thread_idx()
+    block, _, _ = cute.arch.block_idx()
+    i = block * 256 + tid
+    if i < capacity:
+        visible[i] = cutlass.Int8(0)
+
+
+@cute.kernel
 def _clear_parameter_grads(
     xyz: cute.Tensor,
     scale: cute.Tensor,

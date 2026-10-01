@@ -11,6 +11,11 @@ A warp stages 32 splats at a time in shared memory; each lane loads the
 next batch's parameters into registers while the current batch composites,
 and the forward loop composites two splats per iteration. None of these
 changes alters any pixel's compositing order or arithmetic.
+
+A splat's warp sums (backward gradients, forward statistics) share one
+transposed shuffle butterfly (half2.warp_sums), after which each lane adds
+one sum with a single atomic instruction for the warp. The float sums round
+differently from LiteGS's shared-exponent integer reductions.
 """
 
 import cuda.bindings.driver as cuda
@@ -120,19 +125,67 @@ def _power(dx, dy, c00, c01, c11):
     return value, h.ffma(c11, -0.5, bxcy)
 
 
+@cute.jit
+def _gradient_target(
+    lane,
+    norm,
+    gmean,
+    gconic,
+    gcolor,
+    gopacity,
+    square_error,
+    collect_stats: cutlass.Constexpr,
+    symmetric_conic: cutlass.Constexpr,
+):
+    """Where this lane adds a backward sum: (address, stride, factor, source).
+
+    After h.warp_sums, lane l holds geometry sum l >> 2 (x, y, c00, c01, c11,
+    squared error); lanes 0-15 hold the RG sums and lanes 16-31 the BA sums.
+    Source 0 adds the geometry sum, 1/2 a low/high color half, -1 nothing.
+    The address points to Gaussian 0's entry; Gaussian g is stride * g later.
+    """
+    geometry, part = lane >> 2, lane & 3
+    address = gmean.iterator.toint()
+    stride, factor, source = cutlass.Int32(0), norm, cutlass.Int32(-1)
+    if part == 0 and geometry < 2:
+        address, stride, source = (gmean.iterator + geometry).toint(), 2, 0
+    if part == 0 and geometry >= 2 and geometry < 5:
+        address, stride, source = (gconic.iterator + geometry - 2).toint(), 4, 0
+        if geometry == 4:
+            address = (gconic.iterator + 3).toint()
+        if cutlass.const_expr(symmetric_conic):
+            if geometry == 3:
+                factor = norm * 2
+    if cutlass.const_expr(not symmetric_conic):
+        if lane == 13:
+            address, stride, source = (gconic.iterator + 2).toint(), 4, 0
+    if cutlass.const_expr(collect_stats):
+        if lane == 20:
+            address, stride, factor, source = square_error.iterator.toint(), 1, 1.0, 0
+    if lane == 1 or lane == 2:
+        address, stride, source = (gcolor.iterator + lane - 1).toint(), 3, lane
+    if lane == 17:
+        address, stride, source = (gcolor.iterator + 2).toint(), 3, 1
+    if lane == 18:
+        address, stride, source = gopacity.iterator.toint(), 1, 2
+    return address, stride, factor, source
+
+
 @cute.kernel
 def _pack(
     mean: cute.Tensor,
     conic: cute.Tensor,
     color: cute.Tensor,
     opacity: cute.Tensor,
+    visible: cute.Tensor,
     params: cute.Tensor,
     capacity: int,
 ):
     tid, _, _ = cute.arch.thread_idx()
     block, _, _ = cute.arch.block_idx()
     g = block * 256 + tid
-    if g < capacity:
+    # Binning emits pairs only for visible Gaussians; skip the others' records.
+    if g < capacity and visible[g] != 0:
         point = cute.make_rmem_tensor(8, cutlass.Uint32)
         point[0] = h.float_bits(mean[g * 2] - 0.5)
         point[1] = h.float_bits(mean[g * 2 + 1] - 0.5)
@@ -265,6 +318,9 @@ def _forward(
                 cute.arch.sync_warp()
             # Consecutive splats' exponentials overlap; only T is sequential.
             # A splat past the end is masked, and staged words stay finite.
+            # Each splat's fragment count and weight sum, and its Gaussian ID.
+            sums, splat_ids = [], []
+            seen = cutlass.Int32(0)
             for u in cutlass.range_constexpr(_FORWARD_UNROLL):
                 g = _unstage(staged, staged_ids, k + u, points[u, None])
                 present = index + u < end
@@ -282,11 +338,20 @@ def _forward(
                     collect_stats,
                 )
                 if cutlass.const_expr(collect_stats):
-                    count = cute.arch.warp_redux_sync(fragments, "add")
-                    (total_weight,) = h.warp_sum_scaled((h.sum_pair(weights) / 128,))
-                    if lane == 0 and present:
-                        cute.arch.atomic_add(stats.iterator + g * 2, cute.Float32(count))
-                        cute.arch.atomic_add(stats.iterator + g * 2 + 1, total_weight)
+                    sums += [cute.Float32(fragments), h.sum_pair(weights) / 128]
+                    splat_ids.append(g)
+                    seen |= fragments
+            if cutlass.const_expr(collect_stats):
+                # Splats without valid fragments would only add zeros.
+                if cute.arch.vote_any_sync(seen != 0):
+                    total = h.warp_sums(sums, lane)
+                    stat = lane >> (6 - len(sums).bit_length())
+                    g = splat_ids[0]
+                    for u in cutlass.range_constexpr(1, _FORWARD_UNROLL):
+                        if stat >> 1 == u:
+                            g = splat_ids[u]
+                    if lane % (32 // len(sums)) == 0 and total != 0:
+                        cute.arch.atomic_add(stats.iterator + g * 2 + (stat & 1), total)
             index += _FORWARD_UNROLL
         # The backward pass visits exactly the pairs before the last contributor.
         tile_last = cutlass.Int32(0)
@@ -368,6 +433,17 @@ def _backward(
                 grad[i, c] = h.pack(v0, v1)
         index = cute.arch.warp_redux_sync(index, "max") - 1
         top = index
+        address, stride, factor, source = _gradient_target(
+            lane,
+            scale / 128,
+            gmean,
+            gconic,
+            gcolor,
+            gopacity,
+            square_error,
+            collect_stats,
+            symmetric_conic,
+        )
         staged, staged_ids = _staging()
         point = cute.make_rmem_tensor(8, cutlass.Uint32)
         mine = cute.make_rmem_tensor(8, cutlass.Uint32)
@@ -450,44 +526,69 @@ def _backward(
             # Test fragment validity so arbitrary RGB cotangents also work when
             # their opacity gradient cancels but their color gradient does not.
             if contributes:
-                norm = scale / 128
-                gx, gy = h.warp_sum_scaled(
+                total = h.warp_sums(
                     (
                         -(c00 * dx + c01 * dy) * basic + c01 * linear,
                         -(c11 * dy + c01 * dx) * basic + c11 * linear,
-                    )
-                )
-                gc00, gc01, gc11 = h.warp_sum_scaled(
-                    (
                         -0.5 * dx * dx * basic,
                         (-dx * dy * basic + dx * linear) * 0.5,
                         -0.5 * dy * dy * basic + dy * linear - 0.5 * quadratic,
-                    )
+                        h.sum_pair(err) / 128,
+                        cute.Float32(0),
+                        cute.Float32(0),
+                    ),
+                    lane,
                 )
-                gx, gy = gx * norm, gy * norm
-                gc00, gc01, gc11 = gc00 * norm, gc01 * norm, gc11 * norm
-                # Native half2 reduction keeps RG and BA paired across the warp.
-                rg_sum = h.warp_sum(h.pack(h.sum_pair(gr), h.sum_pair(gg)))
-                ba_sum = h.warp_sum(h.pack(h.sum_pair(gb), h.sum_pair(ga)))
-                if lane == 0:
-                    cute.arch.atomic_add(gmean.iterator + g * 2, gx)
-                    cute.arch.atomic_add(gmean.iterator + g * 2 + 1, gy)
-                    cute.arch.atomic_add(gconic.iterator + g * 4, gc00)
-                    if cutlass.const_expr(symmetric_conic):
-                        cute.arch.atomic_add(gconic.iterator + g * 4 + 1, gc01 * 2)
-                    else:
-                        cute.arch.atomic_add(gconic.iterator + g * 4 + 1, gc01)
-                        cute.arch.atomic_add(gconic.iterator + g * 4 + 2, gc01)
-                    cute.arch.atomic_add(gconic.iterator + g * 4 + 3, gc11)
-                    cute.arch.atomic_add(gcolor.iterator + g * 3, h.get(rg_sum) * norm)
-                    cute.arch.atomic_add(gcolor.iterator + g * 3 + 1, h.get(rg_sum, True) * norm)
-                    cute.arch.atomic_add(gcolor.iterator + g * 3 + 2, h.get(ba_sum) * norm)
-                    cute.arch.atomic_add(gopacity.iterator + g, h.get(ba_sum, True) * norm)
-                if cutlass.const_expr(collect_stats):
-                    (error,) = h.warp_sum_scaled((h.sum_pair(err) / 128,))
-                    if lane == 0:
-                        cute.arch.atomic_add(square_error.iterator + g, error)
+                # Native half2 sums keep RG and BA paired across the warp.
+                colors = h.warp_sums(
+                    (
+                        h.pack(h.sum_pair(gr), h.sum_pair(gg)),
+                        h.pack(h.sum_pair(gb), h.sum_pair(ga)),
+                    ),
+                    lane,
+                    True,
+                )
+                if source == 1:
+                    total = h.get(colors)
+                if source == 2:
+                    total = h.get(colors, True)
+                if source >= 0:
+                    target = cute.make_ptr(
+                        cutlass.Float32,
+                        address + cutlass.Int64(g * stride) * 4,
+                        cute.AddressSpace.gmem,
+                    )
+                    cute.arch.atomic_add(target, total * factor)
             index -= 1
+
+
+@cute.kernel
+def _zero_cluster_grads(
+    cluster_ids: cute.Tensor,
+    cluster_count: cute.Tensor,
+    gmean: cute.Tensor,
+    gconic: cute.Tensor,
+    gcolor: cute.Tensor,
+    gopacity: cute.Tensor,
+    capacity: int,
+    cluster_size: cutlass.Constexpr,
+):
+    """Zero the cotangents of one listed cluster per 128-thread block."""
+    tid, _, _ = cute.arch.thread_idx()
+    block, _, _ = cute.arch.block_idx()
+    if block < cluster_count[0]:
+        first = cluster_ids[block] * cluster_size
+        slot = tid
+        while slot < cluster_size and first + slot < capacity:
+            g = first + slot
+            for k in cutlass.range_constexpr(2):
+                gmean[g * 2 + k] = cute.Float32(0)
+            for k in cutlass.range_constexpr(4):
+                gconic[g * 4 + k] = cute.Float32(0)
+            for k in cutlass.range_constexpr(3):
+                gcolor[g * 3 + k] = cute.Float32(0)
+            gopacity[g] = cute.Float32(0)
+            slot += 128
 
 
 @cute.jit
@@ -512,6 +613,7 @@ def launch_forward(
     conic: cute.Tensor,
     color: cute.Tensor,
     opacity: cute.Tensor,
+    visible: cute.Tensor,
     ids: cute.Tensor,
     offsets: cute.Tensor,
     params: cute.Tensor,
@@ -532,7 +634,7 @@ def launch_forward(
     tiles_x = (width + tile_size - 1) // tile_size
     tiles = tiles_x * ((height + tile_height - 1) // tile_height)
     launch_tile_order(stream, offsets, order, tiles=tiles, from_offsets=True)
-    _pack(mean, conic, color, opacity, params, capacity).launch(
+    _pack(mean, conic, color, opacity, visible, params, capacity).launch(
         grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
     )
     if cutlass.const_expr(collect_stats):
@@ -570,6 +672,8 @@ def launch_backward(
     backward_work: cute.Tensor,
     image_grad: cute.Tensor,
     grad_scale: cute.Tensor,
+    cluster_ids: cute.Tensor,
+    cluster_count: cute.Tensor,
     gmean: cute.Tensor,
     gconic: cute.Tensor,
     gdepth: cute.Tensor,
@@ -585,13 +689,33 @@ def launch_backward(
     capacity: int,
     collect_stats: cutlass.Constexpr,
     symmetric_conic: cutlass.Constexpr = False,
+    cluster_size: cutlass.Constexpr = 0,
 ):
+    """Zero the projected-field cotangents, then accumulate them per tile.
+
+    With cluster_size, only the listed clusters' cotangents are zeroed: the
+    table must reference no other Gaussian. Depth cotangents then stay
+    unwritten, and opacity cotangents are zeroed everywhere for statistics.
+    """
     tiles_x = (width + tile_size - 1) // tile_size
     tiles = tiles_x * ((height + tile_height - 1) // tile_height)
     launch_tile_order(stream, backward_work, order, tiles=tiles, from_offsets=False)
-    _zero_grads(gmean, gconic, gdepth, gcolor, gopacity, capacity).launch(
-        grid=[(capacity * 4 + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
-    )
+    if cutlass.const_expr(cluster_size == 0):
+        _zero_grads(gmean, gconic, gdepth, gcolor, gopacity, capacity).launch(
+            grid=[(capacity * 4 + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
+        )
+    else:
+        _zero_cluster_grads(
+            cluster_ids, cluster_count, gmean, gconic, gcolor, gopacity, capacity, cluster_size
+        ).launch(
+            grid=[(capacity + cluster_size - 1) // cluster_size, 1, 1],
+            block=[128, 1, 1],
+            stream=stream,
+        )
+        if cutlass.const_expr(collect_stats):
+            _zero_fragments(gopacity, capacity).launch(
+                grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
+            )
     if cutlass.const_expr(collect_stats):
         _zero_fragments(square_error, capacity).launch(
             grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream

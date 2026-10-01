@@ -197,14 +197,21 @@ def launch_projection(
     far: float,
     cluster_size: cutlass.Constexpr,
     compacted: cutlass.Constexpr,
+    clear_invisible: cutlass.Constexpr = True,
 ):
     block = 128
-    if cutlass.const_expr(compacted):
+    if cutlass.const_expr(compacted and clear_invisible):
         from .cluster_compact import _clear_projected
 
         _clear_projected(
             out_mean, out_depth, out_conic, out_radius, out_color, out_alpha, out_visible, capacity
         ).launch(grid=[(capacity * 4 + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream)
+    elif cutlass.const_expr(compacted):
+        from .cluster_compact import _clear_visible
+
+        _clear_visible(out_visible, capacity).launch(
+            grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
+        )
     _projection_kernel(
         xyz,
         log_scale,

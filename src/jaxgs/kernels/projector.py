@@ -30,8 +30,13 @@ def _project_gaussian_arrays(
     far: float,
     active_degree: int | None = None,
     compacted_clusters: VisibleClusters | None = None,
+    clear_invisible: bool = True,
 ) -> tuple[chex.Array, ...]:
-    """Launch projection with the pool layout and optional visible-cluster prefix."""
+    """Launch projection with the pool layout and optional visible-cluster prefix.
+
+    Without clear_invisible, slots outside the visible clusters define only
+    visible (False); their other fields are left unwritten.
+    """
     from cutlass.jax import cutlass_call
 
     from .projection import launch_projection
@@ -61,6 +66,7 @@ def _project_gaussian_arrays(
         far=far,
         cluster_size=config.cluster_size,
         compacted=compacted_clusters is not None,
+        clear_invisible=clear_invisible,
     )
     cluster_arrays = (
         (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))
@@ -312,6 +318,8 @@ def project_with_compact_pullback(
     rgb_only specializes the pullback for zero depth and radius cotangents.
     active_sh_only returns only (active_degree + 1)**2 SH gradient coefficients;
     parameter storage remains unchanged. Optax restores the zero gradient tail.
+    Outside the visible clusters, only projected.visible is defined (False):
+    binning and rasterization read the other fields of visible Gaussians only.
     """
     if not 0 <= active_degree <= config.sh_degree:
         raise ValueError("active_degree must fit the pool's SH coefficients")
@@ -331,6 +339,7 @@ def project_with_compact_pullback(
             camera.far,
             active_degree,
             clusters,
+            clear_invisible=False,
         )
     )
 

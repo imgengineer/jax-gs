@@ -180,8 +180,8 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q \
   --cov=jaxgs --cov-report=term-missing --cov-report=html
 ```
 
-The GPU suite passes **279 tests**, including 15 Chex contract cases. Python line
-and branch coverage are both **100%** (1,694 statements and 250 branch outcomes).
+The GPU suite passes **328 tests**, including 15 Chex contract cases. Python line
+and branch coverage are both **100%** (1,866 statements and 278 branch outcomes).
 The report enforces a 99% combined threshold. The exclusion policy is unchanged:
 only bodies decorated with `@cute.kernel`, `@cute.jit`, or `@dsl_user_op` are
 excluded, because they compile to GPU code. Python bindings and launch setup
@@ -247,8 +247,19 @@ Adam rule: beta1=0.9, beta2=0.999, epsilon=1e-15, no bias correction, the same
 per-field learning rates, and frozen parameters/moments in invisible or free
 slots. This is a custom Optax transformation, because
 [Optax's built-in Adam](https://optax.readthedocs.io/en/latest/api/generated/optax.scale_by_adam.html)
-applies bias correction. Compact gradients are mapped back to pool slots
-with masked gathers; undefined gradient capacity is never consumed.
+applies bias correction.
+
+In training, the transformation runs only on the rows of visible clusters.
+[visible_optax.py](src/jaxgs/kernels/visible_optax.py) traces the unmodified
+`tx.update` and `optax.apply_updates` on padded blocks of 32 pool rows inside
+one Pallas kernel, reading compact gradients in visible-cluster order; free
+rows in those clusters and all other clusters keep their parameters and state.
+Any row-local Optax transformation works this way (the tests also run a
+clip/trace/scale chain); state leaves need one row per pool slot. On sm_120,
+Pallas lowers through its Triton backend, which JAX 0.11 marks as deprecated
+(Mosaic GPU does not support sm_120); without it, the dense update maps compact
+gradients back to pool slots with masked gathers instead. Undefined gradient
+capacity is never consumed on either path.
 
 On the RTX 5090 bicycle fixed-count benchmark (975,104 Gaussians), three
 interleaved trials measured medians of **3.444 ms/update for CuTe Adam** and
@@ -352,6 +363,42 @@ within the 25.426–25.510 dB spread of earlier runs. The
 [kernel balance record](benchmarks/results/kernel_balance_20260930.md) contains
 the analysis, rejected variants, sanitizer checks and raw timings. The dense
 Optax update (about 1 ms per update) is now the largest remaining cost.
+
+### Visible-cluster Optax and per-step fixed costs
+
+The dense Optax update traversed every pool slot (about 0.93 ms per update even
+with 10% of the slots alive), and binning, sorting and the loss paid for the
+full Gaussian and pair capacities. Optax remains the default and unmodified:
+the update now runs on visible clusters only (see [Optax optimizer](#optax-optimizer)).
+Other changes, all measured on the RTX 5090 bicycle protocol of the previous
+round against `8becbae`:
+
+- one CuTe kernel computes L1+SSIM and its image gradient per 32x16 tile
+  (118.6 -> 75.8 µs);
+- splat sums share one transposed shuffle butterfly and a single atomic
+  instruction per warp (backward 858 -> 817 µs, 988 -> 865 µs with statistics;
+  forward statistics 458 -> 369 µs);
+- binning sorts only the emitted pairs, scans counts in CuTe, sorts depths
+  with uint32 keys and queues large Gaussians for whole-warp emission
+  (visibility table 243 -> 103 µs at 10% occupancy, 337 -> 223 µs at 100%);
+- the training path clears only visibility flags and visible clusters'
+  cotangents.
+
+| Measurement | `8becbae` | Now |
+| --- | ---: | ---: |
+| Fixed-count update, Optax (median of 3) | 2.979 ms | **2.392 ms** |
+| 30k training, Optax | 74.76 s | **43.72 / 43.67 s** |
+| GPU kernels per update, 10% / 100% of a 1M pool alive | 1,629 / 2,741 µs | **442 / 1,938 µs** |
+
+Held-out PSNR was 25.458 dB before and 25.428 / 25.444 dB after, within the
+spread of earlier runs. Projection outputs, pair tables, forward RGB,
+transmittance, last indices and loss values are bit-identical to `8becbae`;
+gradients differ by at most 2e-5 relative because the sums round differently
+(the RG/BA half2 sums now use LiteGS's xor order). LiteGS parity is equal or
+closer for every field. Compilation adds about 3 s of warmup. The
+[2026-10-01 record](benchmarks/results/visible_optax_fixed_costs_20261001.md)
+contains the analysis, ablations, rejected variants, sanitizer checks and raw
+timings.
 
 ### CuTe integration
 
@@ -462,17 +509,20 @@ scene and GPU have enough memory. CuTe training stops on global pair overflow.
 The bound production step culls world-space clusters, compacts visible cluster IDs,
 projects those clusters, builds a visibility table, renders, evaluates fused
 L1+SSIM, and applies Optax Adam to visible live slots. Projection
-gradients stay in visible-cluster order until Adam maps them to pool slots;
-unused gradient capacity is neither cleared nor read. The general projection
+gradients stay in visible-cluster order, which the visible-cluster Optax
+update reads directly; unused gradient capacity is neither cleared nor read. The general projection
 custom VJP still returns dense gradients for ordinary autodiff. Parameter and
 moment buffers keep fixed capacity; JIT buffer donation allows in-place GPU
 updates. The full trainer accumulates overflow on device and checks it at
 each epoch boundary, without synchronizing after every update.
 
 The Optax path stores only active SH coefficients in compact projection-gradient
-buffers. It restores a zero gradient tail before the update, so higher-order SH
-moments still decay and update visible parameters. Parameter and moment shapes
-remain unchanged. The packed training pullback combines the symmetric conic
+buffers. The update reads the missing coefficients as zero gradients, so
+higher-order SH moments still decay and update visible parameters. Parameter and
+moment shapes remain unchanged. Outside the visible clusters the training
+projection defines only the visibility flags, and the training pullback zeroes
+and writes only those clusters' cotangents (the alpha cotangent everywhere when
+collecting statistics); the general APIs keep fully defined outputs. The packed training pullback combines the symmetric conic
 off-diagonal contributions into one atomic add; the general rasterizer VJP
 retains its matrix-gradient convention.
 
@@ -480,18 +530,23 @@ Binning ports LiteGS's `binning.cu` and `speedy_splat.cuh`: count ellipse slices
 sort Gaussians by depth, prefix-sum their counts, emit Gaussian/tile pairs,
 stably sort by tile, and build tile ranges. A fixed global pair arena preserves
 JAX shapes without limiting the number of Gaussians in any individual tile.
-The count, emit and tile range kernels use CuTe; prefix sums and stable sorting
-use XLA. Tile sort keys use uint16 when the tile count and padding sentinel fit,
-otherwise uint32. Gaussian IDs and tile offsets stay int32.
+The count kernel also writes radix-sortable depth keys (Gaussians without pairs
+sort last), which XLA sorts as uint32/int32 pairs over the Gaussian capacity.
+CuTe kernels gather the counts in depth order and prefix-sum them, emit pairs,
+sort the pairs by tile and build tile ranges. Tile keys use uint16 when the
+tile count fits, otherwise uint32; Gaussian IDs and tile offsets stay int32.
 Emission visits Gaussians in depth order, so neighboring lanes write neighboring
-prefix-sum segments. A Gaussian with more than 16 pairs is emitted by its whole
-warp: lanes compute 32 slice rows at a time and write pairs with coalesced stores.
+prefix-sum segments. Gaussians with more than 16 pairs are queued; a second
+kernel emits each with a whole warp, computing 32 slice rows at a time and
+writing wide rows one row at a time and narrow ones in coalesced 32-pair chunks.
 Counting and emission evaluate the same explicitly rounded ellipse slices, so each
 Gaussian writes exactly the pairs it counted.
-Production tile sorting uses the full fixed arena. Exclusive profiling found
-that runtime selection of a sorted prefix added a device-to-host counter copy
-on each update; that variant was withdrawn to retain asynchronous training.
-Gaussian depth sorting also retains the full Gaussian capacity.
+The tile sort ([pair_sort.py](src/jaxgs/kernels/pair_sort.py)) is a stable LSD
+radix sort of only the emitted pairs: per-block digit histograms, per-digit
+scans over blocks, and warp-ranked (`match.any`) scatters staged in shared
+memory, with one or two passes of at most 8 bits. It reads the pair count on
+the device, so training stays asynchronous, and arena slots past the pairs are
+never cleared or read. Gaussian depth sorting retains the full Gaussian capacity.
 
 The packed rasterizer ports LiteGS's `raster.cu`: each single-warp block
 processes one tile. Tiles launch heaviest first: a one-block counting sort orders
@@ -500,9 +555,13 @@ contributor (reported by the forward pass) for the backward pass. A warp stages
 32 splats at a time in shared memory while each lane loads one splat of the next
 batch; the forward pass composites two splats per loop iteration. It uses
 vertical pixel pairs, half2 FMA, forward differences, transmittance
-scaled by 128, and warp reductions before global gradient adds. RG/BA use
-paired half2 reductions; geometric gradients use LiteGS's shared-exponent
-integer reductions. Noncontributing splats skip reductions and atomic adds. Backward saves
+scaled by 128, and warp reductions before global gradient adds. A splat's
+sums share one transposed shuffle butterfly: eight float sums (geometry and
+squared error) take 9 shuffles and RG/BA stay paired half2 sums, after which
+each lane adds one sum with a single atomic instruction for the warp; forward
+statistics are summed the same way. These float sums round differently from
+LiteGS's shared-exponent integer reductions. Noncontributing splats skip
+reductions and atomic adds. Backward saves
 only final transmittance and the last record per pixel. Last indices use int32
 to avoid the source's uint16 counter limit. `rasterize_packed_cute_vjp` exposes
 RGB autodiff; the training pullback additionally returns fragment statistics.
@@ -535,7 +594,8 @@ depth and alpha pullbacks. The JAX reference supports rectangular tiles;
 the float32 CuTe diagnostic interfaces require square tiles. The production
 `jaxgs-train` path uses the packed RGB renderer. Both geometry pullbacks compute xyz, log scale, rotation,
 opacity and SH gradients in CuTe. JAX manages the fixed pool and training
-loop and Optax parameter updates; the fused loss executes CuTe kernels.
+loop and Optax parameter updates; the fused loss is one CuTe kernel per 32x16
+tile that recomputes the SSIM window statistics over its halo.
 
 ## Fixed-count comparison
 

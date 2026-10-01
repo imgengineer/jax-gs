@@ -170,6 +170,12 @@ def create_adam_transform() -> optax.GradientTransformationExtraArgs:
 _ADAM_TRANSFORM = create_adam_transform()
 
 
+def _visible_kernel_available() -> bool:
+    from ..kernels.visible_optax import available
+
+    return available()
+
+
 def optax_adam_update(
     pool: GaussianArrays,
     state: AdamState,
@@ -183,11 +189,14 @@ def optax_adam_update(
     compact_gradients: bool = False,
     optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
     active_degree: int | None = None,
+    compacted_clusters: VisibleClusters | None = None,
 ) -> tuple[GaussianArrays, AdamState]:
     """Apply Optax to fixed pool slots, preserving momentum in every SH band.
 
     active_degree declares that higher-order projection gradients are zero.
     Their moments still decay and update parameters when slots are visible.
+    With compacted_clusters and compact gradients, the same transformation
+    runs on the GPU only over visible clusters, instead of every pool slot.
     """
     sh_dim = pool.sh.shape[1]
     active_sh_dim = sh_dim if active_degree is None else (active_degree + 1) ** 2
@@ -195,6 +204,25 @@ def optax_adam_update(
         raise ValueError("active_degree must fit the pool's SH coefficients")
     if active_sh_dim < sh_dim:
         gradients = (*gradients[:-1], gradients[-1][:, :active_sh_dim])
+    learning_rates = _parameter_learning_rates(
+        pool.sh.shape[1], step, spatial_scale, max_steps, optimization
+    )
+    parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))
+    if compacted_clusters is not None and compact_gradients and _visible_kernel_available():
+        from ..kernels.visible_optax import update_visible_clusters
+
+        # The compact SH gradient prefix is read as is; omitted coefficients are zero.
+        parameters, state = update_visible_clusters(
+            _ADAM_TRANSFORM,
+            parameters,
+            state,
+            ParameterArrays(*gradients),
+            pool.alive,
+            compacted_clusters,
+            cluster_size=cluster_size,
+            rates=learning_rates,
+        )
+        return pool.replace(**{name: getattr(parameters, name) for name in PARAMETER_NAMES}), state
     active_slots = visible & pool.alive
     if compact_gradients:
         # compact_visible_clusters preserves cluster order. Invert that order
@@ -219,10 +247,6 @@ def optax_adam_update(
             *gradients[:-1],
             jnp.pad(gradients[-1], ((0, 0), (0, sh_dim - active_sh_dim), (0, 0))),
         )
-    parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))
-    learning_rates = _parameter_learning_rates(
-        pool.sh.shape[1], step, spatial_scale, max_steps, optimization
-    )
     parameter_updates, state = _ADAM_TRANSFORM.update(
         ParameterArrays(*gradients), state, parameters, active=active_slots, rates=learning_rates
     )

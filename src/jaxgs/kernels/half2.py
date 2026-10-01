@@ -1,7 +1,7 @@
 """PTX half2 and explicitly rounded float32 operations used by the CuTe kernels."""
 
 import cutlass.cute as cute
-from cutlass import Float32, Uint32
+from cutlass import Constexpr, Float32, Uint32, const_expr
 from cutlass._mlir.dialects import llvm
 from cutlass.cutlass_dsl import dsl_user_op
 
@@ -197,34 +197,31 @@ def fma(a, b, c, *, loc=None, ip=None):
 
 
 @cute.jit
-def warp_sum(a):
-    a = add(a, cute.arch.shuffle_sync_down(a, 16))
-    a = add(a, cute.arch.shuffle_sync_down(a, 8))
-    a = add(a, cute.arch.shuffle_sync_down(a, 4))
-    a = add(a, cute.arch.shuffle_sync_down(a, 2))
-    a = add(a, cute.arch.shuffle_sync_down(a, 1))
-    return a
+def warp_sums(values, lane, half2: Constexpr = False):
+    """Warp sums of 2**k values; lane l receives the sum of values[l >> (5 - k)].
 
+    Each butterfly step halves the values a lane keeps (sending the rest to
+    its partner), so 2**k sums take 2**k + 4 - k shuffles instead of 5 each.
+    half2 values are added as packed halves.
+    """
+    from cutlass import range_constexpr
 
-@cute.jit
-def warp_sum_scaled(values):
-    """LiteGS's shared-exponent integer redux for float/float2/float3."""
-    from cutlass import Int32, range_constexpr
-
-    exponent = Uint32(0)
-    for i in range_constexpr(len(values)):
-        exponent = cute.max(exponent, (float_bits(values[i]) >> 23) & 255)
-    exponent = Int32(cute.arch.warp_redux_sync(exponent, "max")) - 127
-    shift = 23 - exponent
-    valid = exponent > -127 and shift < 128
-    factor = Float32(0)
-    inverse = Float32(0)
-    if valid:
-        factor = bits_float(Uint32(shift + 127) << 23)
-        inverse = bits_float(Uint32(127 - shift) << 23)
-    result = ()
-    for i in range_constexpr(len(values)):
-        scaled = Int32(values[i] * factor)
-        summed = cute.arch.warp_redux_sync(scaled, "add")
-        result += (Float32(summed) * inverse,)
-    return result
+    level = list(values)
+    steps = len(level).bit_length() - 1
+    for step in range_constexpr(5):
+        bit = 4 - step
+        if const_expr(step < steps):
+            half = len(level) // 2
+            upper = ((lane >> bit) & 1) != 0
+            merged = []
+            for j in range_constexpr(half):
+                keep, send = level[j], level[j + half]
+                if upper:
+                    keep, send = send, keep
+                received = cute.arch.shuffle_sync_bfly(send, 1 << bit)
+                merged.append(add(keep, received) if half2 else keep + received)
+            level = merged
+        else:
+            received = cute.arch.shuffle_sync_bfly(level[0], 1 << bit)
+            level = [add(level[0], received) if half2 else level[0] + received]
+    return level[0]

@@ -30,7 +30,7 @@ class VisibilityTable:
 class SortedVisibilityTable:
     """Global depth-ordered tile/Gaussian pairs in a fixed-capacity arena."""
 
-    gaussian_ids: chex.Array  # [P_MAX], valid prefix ends at pair_count
+    gaussian_ids: chex.Array  # [P_MAX], valid prefix ends at pair_count; the rest is undefined
     tile_offsets: chex.Array  # [T + 1]
     point_counts: chex.Array  # [C]
     pair_count: chex.Array  # scalar

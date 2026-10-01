@@ -128,6 +128,51 @@ def test_symmetric_conic_accumulation_preserves_parameter_pullback(degree, colle
         np.testing.assert_allclose(actual, expected, rtol=3e-5, atol=3e-6)
 
 
+@pytest.mark.parametrize("collect_stats", [False, True])
+def test_cluster_backward_defines_the_cotangents_training_reads(collect_stats):
+    from jaxgs.kernels.cluster_compact import compact_visible_clusters
+    from jaxgs.kernels.packed_rasterizer import packed_backward, packed_forward
+    from jaxgs.kernels.projector import project_with_compact_pullback
+    from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
+
+    config = CapacityConfig(17, 2, 16, 16, 3, 1024, tile_height=8)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
+    pool = seed_gaussians(
+        create_gaussians(config),
+        jnp.stack(
+            (jnp.linspace(-0.3, 0.3, 17), jnp.linspace(0.1, -0.1, 17), jnp.linspace(2.0, 3.0, 17)),
+            axis=1,
+        ),
+        jnp.full((17, 3), 0.4),
+        scale=0.15,
+        opacity=0.3,
+    )
+    visible = jnp.arange(17) // 2 % 3 != 1
+    clusters = compact_visible_clusters(visible, config.cluster_size)
+    projected, _ = project_with_compact_pullback(
+        pool.replace(alive=pool.alive & visible), camera, config, 3, clusters, rgb_only=True
+    )
+    table = build_sorted_visibility_table_cute(projected, camera, config)
+    image, cache, _ = packed_forward(projected, table, camera, config, collect_stats)
+    image_grad = jax.random.normal(jax.random.key(3), image.shape) * 0.1
+    args = (projected, table, cache, image_grad, camera, config, collect_stats)
+    full, full_stats = packed_backward(*args, symmetric_conic=True)
+    restricted, restricted_stats = packed_backward(
+        *args, symmetric_conic=True, visible_clusters=clusters
+    )
+    assert np.any(np.asarray(full.alpha)[np.asarray(visible)] != 0)
+    for field in ("mean", "conic", "color", "alpha"):
+        np.testing.assert_allclose(
+            np.asarray(getattr(restricted, field))[np.asarray(visible)],
+            np.asarray(getattr(full, field))[np.asarray(visible)],
+            rtol=1e-6,
+            atol=1e-9,
+        )
+    if collect_stats:
+        np.testing.assert_allclose(restricted.alpha, full.alpha, rtol=1e-6, atol=1e-9)
+        np.testing.assert_allclose(restricted_stats, full_stats, rtol=1e-6, atol=1e-9)
+
+
 @pytest.mark.parametrize("tile_height,tile_width", [(8, 8), (8, 16), (12, 16), (16, 16)])
 def test_packed_partial_tiles_and_parameter_pullback(tile_height, tile_width):
     from jaxgs.kernels.packed_rasterizer import (

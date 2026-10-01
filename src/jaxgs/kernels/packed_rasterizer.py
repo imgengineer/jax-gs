@@ -12,6 +12,7 @@ from ..render.types import (
     SortedVisibilityTable,
 )
 from ..scene.camera import Camera
+from ..scene.types import VisibleClusters
 
 
 def _tile_count(camera: Camera, config: CapacityConfig) -> int:
@@ -26,7 +27,10 @@ def packed_forward(
     config: CapacityConfig,
     collect_stats: bool = False,
 ) -> tuple[chex.Array, PackedRasterCache, chex.Array]:
-    """Return RGB, (packed params, final T, last pair, backward tile work), and stats."""
+    """Return RGB, (packed params, final T, last pair, backward tile work), and stats.
+
+    The table may reference only visible Gaussians; others are not packed.
+    """
     from cutlass.jax import cutlass_call
 
     from .packed_rasterize import launch_forward
@@ -59,6 +63,7 @@ def packed_forward(
         projected.conic.reshape(-1),
         projected.color.reshape(-1),
         projected.alpha,
+        projected.visible.astype(jnp.int8),
         table.gaussian_ids,
         table.tile_offsets,
     )
@@ -75,12 +80,16 @@ def packed_backward(
     collect_stats: bool = False,
     *,
     symmetric_conic: bool = False,
+    visible_clusters: VisibleClusters | None = None,
 ) -> tuple[ProjectedGaussians, chex.Array]:
     """Return field cotangents and per-Gaussian squared alpha gradients.
 
     symmetric_conic stores both off-diagonal contributions in [0, 1] for
     the analytic parameter pullback; [1, 0] remains zero. General VJPs use
-    the default matrix-gradient convention.
+    the default matrix-gradient convention. With visible_clusters, which must
+    contain every Gaussian in the table, mean, conic and color cotangents are
+    defined only in those clusters, depth cotangents nowhere, and alpha
+    cotangents everywhere when collecting statistics.
     """
     from cutlass.jax import cutlass_call
 
@@ -103,8 +112,14 @@ def packed_backward(
         capacity=config.max_gaussians,
         collect_stats=int(collect_stats),
         symmetric_conic=symmetric_conic,
+        cluster_size=0 if visible_clusters is None else config.cluster_size,
     )
     params, trans, last, backward_work = cache
+    clusters = (
+        (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))
+        if visible_clusters is None
+        else visible_clusters
+    )
     grads = call(
         params,
         table.gaussian_ids,
@@ -114,6 +129,7 @@ def packed_backward(
         backward_work,
         image_grad.reshape(-1),
         scale,
+        *clusters,
     )
     cotangents = projected.replace(
         mean=grads[0].reshape(projected.mean.shape),
@@ -136,8 +152,12 @@ def packed_loss_and_grad(
     collect_stats: bool,
     *,
     symmetric_conic: bool = False,
+    visible_clusters: VisibleClusters | None = None,
 ) -> tuple[chex.Array, ProjectedGaussians, FragmentStatistics]:
-    """Loss, projected-field gradients and detached [C, 4] fragment statistics."""
+    """Loss, projected-field gradients and detached [C, 4] fragment statistics.
+
+    visible_clusters limits the defined gradients as in packed_backward.
+    """
     from .fused_loss import fused_loss_and_grad
 
     image, cache, fragments = packed_forward(projected, table, camera, config, collect_stats)
@@ -151,6 +171,7 @@ def packed_loss_and_grad(
         config,
         collect_stats,
         symmetric_conic=symmetric_conic,
+        visible_clusters=visible_clusters,
     )
     stats = (
         jnp.stack((fragments[0::2], fragments[1::2], gradients.alpha, alpha_grad_sq_sum), axis=1)
@@ -169,18 +190,24 @@ def rasterize_packed_cute_vjp(
     """Differentiable LiteGS RGB rendering; parameter gradients stay in CuTe."""
 
     @jax.custom_vjp
-    def render(mean, conic, color, alpha):
-        current = projected.replace(mean=mean, conic=conic, color=color, alpha=alpha)
+    def render(mean, conic, color, alpha, visible):
+        current = projected.replace(
+            mean=mean, conic=conic, color=color, alpha=alpha, visible=visible
+        )
         return packed_forward(current, table, camera, config)[0]
 
-    def forward(mean, conic, color, alpha):
-        current = projected.replace(mean=mean, conic=conic, color=color, alpha=alpha)
+    def forward(mean, conic, color, alpha, visible):
+        current = projected.replace(
+            mean=mean, conic=conic, color=color, alpha=alpha, visible=visible
+        )
         image, cache, _ = packed_forward(current, table, camera, config)
         return image, cache
 
     def backward(cache, image_grad):
         gradients, _ = packed_backward(projected, table, cache, image_grad, camera, config)
-        return gradients.mean, gradients.conic, gradients.color, gradients.alpha
+        return gradients.mean, gradients.conic, gradients.color, gradients.alpha, None
 
     render.defvjp(forward, backward)
-    return render(projected.mean, projected.conic, projected.color, projected.alpha)
+    return render(
+        projected.mean, projected.conic, projected.color, projected.alpha, projected.visible
+    )

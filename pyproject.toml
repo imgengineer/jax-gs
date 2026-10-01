@@ -35,6 +35,12 @@ dev = [
     "ruff>=0.16.9",
 ]
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    # kernels/visible_optax.py documents its use of this backend and the dense fallback.
+    "ignore:The Pallas Triton backend is deprecated:DeprecationWarning",
+]
+
 [tool.coverage.run]
 branch = true
 source = ["jaxgs"]

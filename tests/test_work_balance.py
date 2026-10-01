@@ -76,6 +76,8 @@ def test_every_emission_path_fills_exactly_the_counted_segments(tile_height, til
             output_shape_dtype=(
                 jax.ShapeDtypeStruct((max_pairs,), jnp.uint16),
                 jax.ShapeDtypeStruct((max_pairs,), jnp.int32),
+                jax.ShapeDtypeStruct((capacity,), jnp.int32),
+                jax.ShapeDtypeStruct((1,), jnp.int32),
             ),
             use_static_tensors=True,
             capacity=capacity,
@@ -85,18 +87,25 @@ def test_every_emission_path_fills_exactly_the_counted_segments(tile_height, til
             tiles_x=tiles_x,
             tiles_y=tiles_y,
             lane_pairs=lane_pairs,
+            fill_padding=True,
         )
         mean, conic = projected.mean.reshape(-1), projected.conic.reshape(-1)
-        return tuple(map(np.asarray, call(mean, conic, projected.alpha, order, ordered, ends)))
+        outputs = call(mean, conic, projected.alpha, order, ordered, ends)
+        return tuple(map(np.asarray, outputs))
 
-    keys, ids = emit(1 << 30)
-    for lane_pairs in (0, 16):
-        np.testing.assert_array_equal(emit(lane_pairs)[0], keys)
-        np.testing.assert_array_equal(emit(lane_pairs)[1], ids)
     total = int(table.pair_count)
     assert total == int(ends[-1]) == counts.sum()
-    # The counting and emitting kernels agree: no segment keeps a padding key.
+    keys, ids, _, queued = emit(1 << 30)
+    assert queued[0] == 0
+    for lane_pairs in (0, 16):
+        shared_keys, shared_ids, _, queued = emit(lane_pairs)
+        np.testing.assert_array_equal(shared_keys, keys)
+        np.testing.assert_array_equal(shared_ids, ids)
+        assert queued[0] == np.sum(counts > lane_pairs)
+    # The counting and emitting kernels agree: every counted pair is written
+    # and nothing past the pairs.
     assert (keys[:total] < tiles).all() and (keys[total:] == tiles).all()
+    assert (ids[total:] == -1).all()
     np.testing.assert_array_equal(ids[:total], np.repeat(np.asarray(order), np.asarray(ordered)))
     pairs = ids[:total].astype(np.int64) * tiles + keys[:total]
     assert np.unique(pairs).size == total
@@ -109,6 +118,31 @@ def test_every_emission_path_fills_exactly_the_counted_segments(tile_height, til
     rank = np.argsort(np.asarray(order))[sorted_ids]
     assert (np.diff(depth)[same_tile] >= 0).all()
     assert (np.diff(rank)[same_tile] > 0).all()
+
+
+@pytest.mark.parametrize("capacity", [1, 5, 1023, 1024, 1025, 70001])
+def test_pair_offsets_scan_depth_ordered_counts(capacity):
+    from cutlass.jax import cutlass_call
+
+    from jaxgs.kernels.sorted_visibility import _SCAN_ITEMS, _SCAN_THREADS, launch_pair_offsets
+
+    rng = np.random.default_rng(capacity)
+    counts = rng.integers(0, 300, capacity).astype(np.int32)
+    counts[rng.random(capacity) < 0.5] = 0
+    order = rng.permutation(capacity).astype(np.int32)
+    call = cutlass_call(
+        launch_pair_offsets,
+        output_shape_dtype=(
+            jax.ShapeDtypeStruct((capacity,), jnp.int32),
+            jax.ShapeDtypeStruct((capacity,), jnp.int32),
+            jax.ShapeDtypeStruct((-(-capacity // (_SCAN_THREADS * _SCAN_ITEMS)),), jnp.int32),
+        ),
+        use_static_tensors=True,
+        capacity=capacity,
+    )
+    ordered, ends, _ = call(jnp.asarray(order), jnp.asarray(counts))
+    np.testing.assert_array_equal(ordered, counts[order])
+    np.testing.assert_array_equal(ends, np.cumsum(counts[order]))
 
 
 @pytest.mark.parametrize("tiles", [1, 7, 1025, 9000])
