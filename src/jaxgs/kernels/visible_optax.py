@@ -3,17 +3,18 @@
 A dense Optax update traverses every pool slot, including free slots and
 clusters outside the view. This Pallas (Triton) kernel instead traces the
 transformation's own update code on blocks of rows from visible clusters;
-other rows keep their parameters and state. Each program loads a block of
-rows from every parameter, state and compact gradient leaf, calls
-``tx.update`` and ``optax.apply_updates`` on those blocks, and stores the
-rows that are alive.
+other rows keep their parameters and state. Each program walks a few blocks
+of one visible cluster: it loads a block of rows from every parameter, state
+and compact gradient leaf, calls ``tx.update`` and ``optax.apply_updates`` on
+those blocks, and stores the rows that are alive.
 
 The transformation must be row-local: a slot's update may depend only on
 that slot's gradient, state and parameters, on scalar arguments and on
 constants broadcast against a parameter row. Every state array leaf must
 have the pool capacity as its leading dimension. Triton requires power-of-two
 block sizes, so each row is padded to power-of-two dimensions; padded
-elements are masked on load (as zeros) and on store.
+elements are masked on load (as zeros) and on store. State leaves that the
+transformation returns unchanged are neither stored nor, consequently, loaded.
 
 On this GPU generation Pallas lowers only through its Triton backend, which
 JAX 0.11 marks as deprecated (Mosaic GPU does not support sm_120). When that
@@ -24,6 +25,7 @@ Optax update.
 import functools
 import math
 from collections.abc import Sequence
+from typing import NamedTuple
 
 import chex
 import jax
@@ -33,9 +35,19 @@ import optax
 
 from ..scene.types import VisibleClusters
 
-# Rows per program; each visible cluster is covered by ceil(cluster_size / _ROWS) programs.
-_ROWS = 32
-_NUM_WARPS = 4
+
+class ProgramShape(NamedTuple):
+    """Pallas program shape: `blocks` blocks of `rows` pool rows on `warps` warps.
+
+    The default suits elementwise transformations such as Adam. Reductions
+    within a row (such as Muon's per-Gaussian matrices) are several times
+    faster when one warp owns each block, since Triton then keeps them
+    inside the warp.
+    """
+
+    rows: int = 32
+    warps: int = 4
+    blocks: int = 1
 
 
 @functools.cache
@@ -92,6 +104,7 @@ def update_visible_clusters(
     clusters: VisibleClusters,
     *,
     cluster_size: int,
+    program_shape: ProgramShape = ProgramShape(),
     **extra_args: chex.ArrayTree,
 ) -> tuple[chex.ArrayTree, chex.ArrayTree]:
     """Run ``tx`` on the alive rows of visible clusters; return new params and state.
@@ -102,6 +115,7 @@ def update_visible_clusters(
     ``tx.update`` receives ``active`` (alive rows of the block) and
     ``extra_args``, whose leaves are Python scalars, 0-d arrays or arrays
     broadcastable against a parameter row with a leading unit dimension.
+    ``program_shape`` only affects speed.
     """
     from jax.experimental import pallas as pl
     from jax.experimental.pallas import triton as plt
@@ -125,7 +139,9 @@ def update_visible_clusters(
     row_shapes = [leaf.shape[1:] for leaf in pooled]
     padded_shapes = [tuple(_power_of_two(d) for d in shape) for shape in row_shapes]
     array_extras = [i for i, leaf in enumerate(extra_leaves) if isinstance(leaf, jax.Array)]
-    parts = -(-cluster_size // _ROWS)
+    rows, blocks = program_shape.rows, program_shape.blocks
+    parts = -(-cluster_size // rows)
+    programs = -(-parts // blocks)
     inputs = [ids, count, alive.astype(jnp.int8)]
     inputs += [leaf.reshape(-1) for leaf in pooled]
     inputs += [leaf.reshape(-1) for leaf in grad_leaves]
@@ -141,33 +157,11 @@ def update_visible_clusters(
         k += len(grad_leaves)
         extra_refs = refs[k : k + len(array_extras)]
         out_refs = refs[k + len(array_extras) :]
-        program = pl.program_id(0)
-        visible = program // parts
+        visible = pl.program_id(0) // programs
+        first_part = pl.program_id(0) % programs * blocks
 
         @pl.when(visible < count_ref[0])
         def _():
-            local = jax.lax.broadcasted_iota(jnp.int32, (_ROWS,), 0)
-            row0 = ids_ref[visible] * cluster_size + program % parts * _ROWS
-            compact0 = visible * cluster_size + program % parts * _ROWS
-            row = row0 + local
-            rows_valid = (program % parts * _ROWS + local < cluster_size) & (row < capacity)
-            active = rows_valid & (plt.load(alive_ref.at[row], mask=rows_valid, other=0) != 0)
-            blocks, offsets, store_masks = [], [], []
-            for ref, shape, padded in zip(pooled_refs, row_shapes, padded_shapes, strict=True):
-                expand = (_ROWS,) + (1,) * len(padded)
-                offset, mask = _offsets(row0, _ROWS, shape, padded)
-                blocks.append(_load(ref.at[offset], _with_rows(mask, rows_valid.reshape(expand))))
-                offsets.append(offset)
-                store_masks.append(_with_rows(mask, active.reshape(expand)))
-            gradient_blocks = []
-            for ref, gradient, padded in zip(
-                grad_refs, grad_leaves, padded_shapes[: len(param_leaves)], strict=True
-            ):
-                expand = (_ROWS,) + (1,) * len(padded)
-                offset, mask = _offsets(compact0, _ROWS, gradient.shape[1:], padded)
-                gradient_blocks.append(
-                    _load(ref.at[offset], _with_rows(mask, rows_valid.reshape(expand)))
-                )
             extras = list(extra_leaves)
             for ref, i in zip(extra_refs, array_extras, strict=True):
                 shape = extra_leaves[i].shape
@@ -176,27 +170,60 @@ def update_visible_clusters(
                     continue
                 offset, mask = _offsets(0, None, shape, tuple(_power_of_two(d) for d in shape))
                 extras[i] = _load(ref.at[offset], mask)
-            parameters = param_tree.unflatten(blocks[: len(param_leaves)])
-            updates, new_state = tx.update(
-                param_tree.unflatten(gradient_blocks),
-                state_tree.unflatten(blocks[len(param_leaves) :]),
-                parameters,
-                active=active,
-                **extra_tree.unflatten(extras),
-            )
-            results = jax.tree.leaves(optax.apply_updates(parameters, updates))
-            results += state_tree.flatten_up_to(new_state)
-            for out, value, offset, mask in zip(
-                out_refs, results, offsets, store_masks, strict=True
-            ):
-                plt.store(out.at[offset], value.astype(out.dtype), mask=mask)
+            cluster_row = ids_ref[visible] * cluster_size
+
+            def update_rows(part, carry):
+                local = jax.lax.broadcasted_iota(jnp.int32, (rows,), 0)
+                row0 = cluster_row + part * rows
+                compact0 = visible * cluster_size + part * rows
+                row = row0 + local
+                rows_valid = (part * rows + local < cluster_size) & (row < capacity)
+                active = rows_valid & (plt.load(alive_ref.at[row], mask=rows_valid, other=0) != 0)
+                blocks, offsets, store_masks = [], [], []
+                for ref, shape, padded in zip(pooled_refs, row_shapes, padded_shapes, strict=True):
+                    expand = (rows,) + (1,) * len(padded)
+                    offset, mask = _offsets(row0, rows, shape, padded)
+                    blocks.append(
+                        _load(ref.at[offset], _with_rows(mask, rows_valid.reshape(expand)))
+                    )
+                    offsets.append(offset)
+                    store_masks.append(_with_rows(mask, active.reshape(expand)))
+                gradient_blocks = []
+                for ref, gradient, padded in zip(
+                    grad_refs, grad_leaves, padded_shapes[: len(param_leaves)], strict=True
+                ):
+                    expand = (rows,) + (1,) * len(padded)
+                    offset, mask = _offsets(compact0, rows, gradient.shape[1:], padded)
+                    gradient_blocks.append(
+                        _load(ref.at[offset], _with_rows(mask, rows_valid.reshape(expand)))
+                    )
+                parameters = param_tree.unflatten(blocks[: len(param_leaves)])
+                updates, new_state = tx.update(
+                    param_tree.unflatten(gradient_blocks),
+                    state_tree.unflatten(blocks[len(param_leaves) :]),
+                    parameters,
+                    active=active,
+                    **extra_tree.unflatten(extras),
+                )
+                results = jax.tree.leaves(optax.apply_updates(parameters, updates))
+                results += state_tree.flatten_up_to(new_state)
+                for out, value, block, offset, mask in zip(
+                    out_refs, results, blocks, offsets, store_masks, strict=True
+                ):
+                    # A leaf returned as loaded keeps its aliased buffer; skipping
+                    # its store also lets Triton drop the unused load.
+                    if value is not block:
+                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask)
+                return carry
+
+            jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)
 
     outputs = pl.pallas_call(
         kernel,
         out_shape=[jax.ShapeDtypeStruct((leaf.size,), leaf.dtype) for leaf in pooled],
-        grid=(ids.shape[0] * parts,),
+        grid=(ids.shape[0] * programs,),
         input_output_aliases=aliases,
-        compiler_params=plt.CompilerParams(num_warps=_NUM_WARPS, num_stages=1),
+        compiler_params=plt.CompilerParams(num_warps=program_shape.warps, num_stages=1),
     )(*inputs)
     outputs = [out.reshape(leaf.shape) for out, leaf in zip(outputs, pooled, strict=True)]
     return (

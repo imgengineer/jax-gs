@@ -14,7 +14,13 @@ from ..scene.camera import Camera
 from ..scene.cluster import frustum_cluster_mask
 from ..scene.point import GaussianArrays, GaussianModel
 from ..scene.types import WorldClusterBounds
-from .optimizer import AdamState, optax_adam_update, sparse_adam_update
+from .optimizer import (
+    MUON_PROGRAM_SHAPE,
+    AdamState,
+    create_muon_transform,
+    optax_update,
+    sparse_adam_update,
+)
 from .state import TrainingState
 
 _DEFAULT_OPTIMIZATION = load_config().optimization
@@ -62,7 +68,7 @@ def compute_training_step(
         active_degree,
         visible_clusters,
         rgb_only=True,
-        active_sh_only=optimizer == "optax",
+        active_sh_only=optimizer in ("optax", "muon"),
     )
     visibility_table = build_sorted_visibility_table_cute(
         jax.lax.stop_gradient(projected_gaussians), camera, config
@@ -83,8 +89,9 @@ def compute_training_step(
         collect_stats,
     )
     gradients = projection_pullback(projected_gradients)
-    if optimizer == "optax":
-        pool, state = optax_adam_update(
+    if optimizer in ("optax", "muon"):
+        muon = optimizer == "muon"
+        pool, state = optax_update(
             pool,
             state,
             gradients,
@@ -97,6 +104,8 @@ def compute_training_step(
             optimization=optimization,
             active_degree=active_degree,
             compacted_clusters=visible_clusters,
+            transform=create_muon_transform((active_degree + 1) ** 2) if muon else None,
+            program_shape=MUON_PROGRAM_SHAPE if muon else None,
         )
     elif optimizer == "cute":
         pool, state = sparse_adam_update(

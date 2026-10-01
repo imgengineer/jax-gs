@@ -8,7 +8,7 @@ from jaxgs import CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.training.optimizer import (
     create_adam_state,
     create_adam_transform,
-    optax_adam_update,
+    optax_update,
     reset_adam_slots,
     sparse_adam_update,
 )
@@ -35,7 +35,7 @@ def test_optax_matches_sparse_adam_with_visibility_changes_and_slot_reuse(compac
     names = ("xyz", "log_scale", "rotation", "opacity", "sh")
     rng = np.random.default_rng(3)
     update = jax.jit(
-        lambda p, s, g, visible, step: optax_adam_update(
+        lambda p, s, g, visible, step: optax_update(
             p, s, g, visible, step, 2.0, cluster_size=cluster_size, compact_gradients=compact
         )
     )
@@ -127,7 +127,7 @@ def test_active_sh_gradients_preserve_existing_higher_order_momentum(degree, com
         supplied = tuple(jnp.full_like(g, jnp.nan).at[: len(ids)].set(g[ids]) for g in gradients)
     expected = sparse_adam_update(pool, state, gradients, visible, jnp.array(7), 2.0)
     update = jax.jit(
-        lambda p, s, g: optax_adam_update(
+        lambda p, s, g: optax_update(
             p,
             s,
             g,
@@ -158,6 +158,6 @@ def test_optax_rejects_invalid_active_sh_degree(degree):
         getattr(pool, name) for name in ("xyz", "log_scale", "rotation", "opacity", "sh")
     )
     with pytest.raises(ValueError, match="active_degree"):
-        optax_adam_update(
+        optax_update(
             pool, create_adam_state(pool), gradients, pool.alive, 0, 1.0, active_degree=degree
         )

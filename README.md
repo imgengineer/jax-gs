@@ -180,8 +180,8 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q \
   --cov=jaxgs --cov-report=term-missing --cov-report=html
 ```
 
-The GPU suite passes **328 tests**, including 15 Chex contract cases. Python line
-and branch coverage are both **100%** (1,866 statements and 278 branch outcomes).
+The GPU suite passes **344 tests**, including 15 Chex contract cases. Python line
+and branch coverage are both **100%** (1,928 statements and 282 branch outcomes).
 The report enforces a 99% combined threshold. The exclusion policy is unchanged:
 only bodies decorated with `@cute.kernel`, `@cute.jit`, or `@dsl_user_op` are
 excluded, because they compile to GPU code. Python bindings and launch setup
@@ -260,6 +260,37 @@ Pallas lowers through its Triton backend, which JAX 0.11 marks as deprecated
 (Mosaic GPU does not support sm_120); without it, the dense update maps compact
 gradients back to pool slots with masked gathers instead. Undefined gradient
 capacity is never consumed on either path.
+
+`--optimizer muon` (or `[runtime] optimizer = "muon"`) runs Muon through the
+same Optax path. A Gaussian's SH coefficients are a linear map from the SH
+basis to RGB, so [create_muon_transform](src/jaxgs/training/optimizer.py)
+orthogonalizes each Gaussian's DC row and its higher coefficients as two
+matrices, with `optax.contrib.muon`'s Newton-Schulz iteration (five steps)
+after Nesterov momentum 0.95, bias-corrected per slot. Position, scale,
+rotation and opacity are per-Gaussian vectors and keep LiteGS Adam, as
+`optax.contrib.muon` keeps Adam for parameters that are not matrices. Like
+Muon's `consistent_rms`, each orthogonalized update is scaled to an RMS of
+0.4, so LiteGS's learning rates apply unchanged: LiteGS Adam's normalized
+updates settle at an RMS of 0.42-0.50, and in 30k bicycle training 0.2-0.6
+gave equal held-out PSNR while 0.1 and 0.8 were worse. Muon reuses Adam's
+per-slot state (its SH second moments stay zero and are not read or written),
+so densification, slot reuse, reordering, opacity resets and checkpoints are
+unchanged. Muon on the geometry vectors as well lowered PSNR to 25.27 dB, and
+keeping Adam for the DC row removed Muon's benefit.
+
+| Bicycle protocol | Optax Adam | Muon |
+| --- | ---: | ---: |
+| Fixed-count update (1,000,064 points) | 2.38-2.40 ms | **2.23-2.24 ms** |
+| 30k training | 43.4-43.7 s | **41.5-42.0 s** |
+| Held-out PSNR | 25.410-25.458 dB (4 runs, mean 25.435) | 25.438-25.519 dB (6 runs, mean 25.473) |
+
+Muon needs single-warp Pallas programs: its per-Gaussian reductions were
+several times slower when Triton spread them over warps. Its compilation adds
+about 3 s of warmup. On the fixed-count benchmark, which refits one view from
+a converged model, Muon ends at a higher loss (0.0138 versus 0.0129): its
+per-matrix step size does not shrink with noisy gradients, and LiteGS keeps
+the SH learning rate constant. See the
+[Muon record](benchmarks/results/muon_optimizer_20261001.md).
 
 On the RTX 5090 bicycle fixed-count benchmark (975,104 Gaussians), three
 interleaved trials measured medians of **3.444 ms/update for CuTe Adam** and

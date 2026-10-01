@@ -255,7 +255,9 @@ def main():
     parser.add_argument("ply", type=Path)
     parser.add_argument("--backend", choices=("jaxgs", "litegs"), required=True)
     parser.add_argument(
-        "--optimizer", choices=("optax", "cute"), help="jaxgs optimizer backend (default: optax)"
+        "--optimizer",
+        choices=("optax", "muon", "cute"),
+        help="jaxgs optimizer backend (default: optax)",
     )
     parser.add_argument("--litegs-root", type=Path)
     parser.add_argument("--images", default="images_4")

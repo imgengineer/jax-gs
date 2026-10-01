@@ -10,7 +10,7 @@ import pytest
 
 from jaxgs import CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.scene.types import PARAMETER_NAMES, ParameterArrays
-from jaxgs.training.optimizer import create_adam_state, optax_adam_update
+from jaxgs.training.optimizer import create_adam_state, optax_update
 
 pytestmark = pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
@@ -71,11 +71,11 @@ def test_visible_update_matches_dense_optax(cluster_size, capacity, degree):
         visible, clusters = _visible(capacity, cluster_size, pattern)
         dense, compact = _compact(rng, pool, visible, cluster_size, (degree + 1) ** 2)
         kwargs = dict(cluster_size=cluster_size, compact_gradients=True, active_degree=degree)
-        expected = jax.jit(lambda p, s, g: optax_adam_update(p, s, g, visible, 37, 2.0, **kwargs))(
+        expected = jax.jit(lambda p, s, g: optax_update(p, s, g, visible, 37, 2.0, **kwargs))(
             pool, state, tuple(compact)
         )
         actual = jax.jit(
-            lambda p, s, g: optax_adam_update(
+            lambda p, s, g: optax_update(
                 p, s, g, visible, 37, 2.0, compacted_clusters=clusters, **kwargs
             )
         )(pool, state, tuple(compact))
@@ -177,9 +177,9 @@ def test_dense_update_without_the_triton_backend(monkeypatch):
     visible, clusters = _visible(300, 128, [True, False, True])
     _, compact = _compact(rng, pool, visible, 128, 16)
     kwargs = dict(cluster_size=128, compact_gradients=True, active_degree=3)
-    expected = optax_adam_update(pool, state, tuple(compact), visible, 5, 1.0, **kwargs)
+    expected = optax_update(pool, state, tuple(compact), visible, 5, 1.0, **kwargs)
     monkeypatch.setattr(optimizer, "_visible_kernel_available", lambda: False)
-    actual = optax_adam_update(
+    actual = optax_update(
         pool, state, tuple(compact), visible, 5, 1.0, compacted_clusters=clusters, **kwargs
     )
     for result, reference in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):

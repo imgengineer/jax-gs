@@ -418,7 +418,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-visibility-pairs", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument(
-        "--optimizer", choices=("optax", "cute"), help="optimizer backend (default: optax)"
+        "--optimizer",
+        choices=("optax", "muon", "cute"),
+        help="optimizer backend (default: optax; muon uses Muon for SH colors)",
     )
     args = parser.parse_args(argv)
     train(

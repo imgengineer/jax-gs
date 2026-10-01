@@ -53,7 +53,7 @@ def test_model_parameters_pool_views_and_fixed_shape_updates():
     reason="CuTe protocol requires JAX CUDA",
 )
 @pytest.mark.parametrize("degree,collect", [(0, False), (3, True)])
-@pytest.mark.parametrize("optimizer", ["cute", "optax"])
+@pytest.mark.parametrize("optimizer", ["cute", "optax", "muon"])
 @pytest.mark.parametrize("bound", [False, True])
 def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bound):
     from jaxgs.scene.cluster import world_cluster_bounds

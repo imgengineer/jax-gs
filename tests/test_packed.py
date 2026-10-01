@@ -329,7 +329,7 @@ def test_compacted_projection_and_sparse_adam_preserve_invisible_slots():
 def test_compact_gradient_prefix_matches_dense_pullback(cluster_size, capacity, optimizer):
     from jaxgs.kernels.cluster_compact import compact_visible_clusters
     from jaxgs.kernels.projector import project_cute_vjp, project_with_compact_pullback
-    from jaxgs.training.optimizer import create_adam_state, optax_adam_update, sparse_adam_update
+    from jaxgs.training.optimizer import create_adam_state, optax_update, sparse_adam_update
 
     config = CapacityConfig(capacity, cluster_size, 16, 16, 3, 4096, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
@@ -366,7 +366,7 @@ def test_compact_gradient_prefix_matches_dense_pullback(cluster_size, capacity, 
         pool, state, tuple(getattr(full, name) for name in names), visible, 0, 1.0
     )
     if optimizer == "optax":
-        actual, actual_state = optax_adam_update(
+        actual, actual_state = optax_update(
             pool, state, compact, visible, 0, 1.0, cluster_size=cluster_size, compact_gradients=True
         )
     else:
@@ -460,7 +460,7 @@ def test_rgb_projection_pullback_matches_general_and_reference(cluster_size, deg
 def test_empty_compact_projection_pullback_preserves_parameters(rgb_only):
     from jaxgs.kernels.cluster_compact import compact_visible_clusters
     from jaxgs.kernels.projector import project_with_compact_pullback
-    from jaxgs.training.optimizer import create_adam_state, optax_adam_update
+    from jaxgs.training.optimizer import create_adam_state, optax_update
 
     config = CapacityConfig(257, 65, 16, 16, 3, 4096, tile_height=8)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 9, 8, 19, 17)
@@ -476,7 +476,7 @@ def test_empty_compact_projection_pullback_preserves_parameters(rgb_only):
         )
         cotangents = jax.grad(lambda x: jnp.sum(x.color), allow_int=True)(projected)
         gradients = pullback(cotangents)
-        return optax_adam_update(
+        return optax_update(
             p, s, gradients, visible, 0, 1.0, cluster_size=65, compact_gradients=True
         )
 

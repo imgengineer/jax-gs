@@ -129,8 +129,8 @@ class TrainingConfig:
             raise ValueError("target_primitives exceeds runtime.max_gaussians")
         if self.pipeline.tile_size not in ((8, 8), (8, 16), (12, 16), (16, 16)):
             raise ValueError("production tile_size must be 8x8, 8x16, 12x16 or 16x16")
-        if self.runtime.optimizer not in ("optax", "cute"):
-            raise ValueError("optimizer must be optax or cute")
+        if self.runtime.optimizer not in ("optax", "muon", "cute"):
+            raise ValueError("optimizer must be optax, muon or cute")
         # These source switches are recorded for parity, but their nondefault
         # paths are not implemented by the production RGB training backend.
         supported_settings = {

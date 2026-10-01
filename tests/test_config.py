@@ -9,7 +9,7 @@ import pytest
 
 from jaxgs import create_gaussians, seed_gaussians
 from jaxgs.config import CapacityConfig, load_config
-from jaxgs.training.optimizer import create_adam_state, optax_adam_update
+from jaxgs.training.optimizer import create_adam_state, optax_update
 
 
 def test_packaged_defaults_match_native_source():
@@ -76,6 +76,10 @@ def test_toml_overrides_and_cli_forwarding(tmp_path, monkeypatch):
     assert kwargs["settings"] == config
     assert kwargs["iterations"] == 42 and kwargs["optimizer"] == "cute"
     assert kwargs["images"] is None  # CLI defaults do not clobber TOML values.
+    path.write_text('[runtime]\noptimizer="muon"\n')
+    assert load_config(path).runtime.optimizer == "muon"
+    trainer.main([str(tmp_path), "--optimizer", "muon"])
+    assert calls[1][1]["optimizer"] == "muon"
 
 
 @pytest.mark.parametrize(
@@ -125,7 +129,7 @@ def test_default_position_schedule_reaches_native_endpoints(step):
         jnp.ones_like(getattr(pool, name))
         for name in ("xyz", "log_scale", "rotation", "opacity", "sh")
     )
-    updated, _ = optax_adam_update(pool, create_adam_state(pool), grads, pool.alive, step, 2.0)
+    updated, _ = optax_update(pool, create_adam_state(pool), grads, pool.alive, step, 2.0)
     # Independent closed-form first sparse Adam step at four schedule positions.
     expected_rate = [1.6e-4, 1.6e-5, 1.6e-6, 1.6e-6][step // 15000]
     np.testing.assert_allclose(updated.xyz, 1 - 2 * expected_rate * np.sqrt(10), atol=1e-7)
@@ -146,7 +150,7 @@ def test_each_property_uses_configured_rate_and_zero_xyz_schedule():
     )
     fields = ("xyz", "log_scale", "rotation", "opacity", "sh")
     grads = tuple(jnp.ones_like(getattr(pool, name)) for name in fields)
-    updated, _ = optax_adam_update(
+    updated, _ = optax_update(
         pool, create_adam_state(pool), grads, pool.alive, 15000, 2.0, optimization=op
     )
     for name, rate in zip(fields[:4], [0.0, 0.002, 0.007, 0.03], strict=True):

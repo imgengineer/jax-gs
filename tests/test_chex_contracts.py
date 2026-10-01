@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from jaxgs import Camera, CapacityConfig, GaussianModel, create_gaussians, seed_gaussians
-from jaxgs.training.optimizer import create_adam_state, optax_adam_update
+from jaxgs.training.optimizer import create_adam_state, optax_update
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_optimizer_rejects_incompatible_state_at_trace_time(invalid):
         gradients = (gradients[0].astype(jnp.float16), *gradients[1:])
     else:
         state = state.replace(step=jnp.array(0, jnp.int32))
-    update = jax.jit(lambda p, s, g, v: optax_adam_update(p, s, g, v, 0, 1.0))
+    update = jax.jit(lambda p, s, g, v: optax_update(p, s, g, v, 0, 1.0))
     with pytest.raises(AssertionError, match="Chex"):
         update.lower(pool, state, gradients, visible)
 
@@ -93,7 +93,7 @@ def test_static_checks_do_not_add_device_work_or_retrace(monkeypatch):
         return check(*args)
 
     monkeypatch.setattr(chex, "assert_trees_all_equal_shapes_and_dtypes", checked)
-    update = jax.jit(lambda p, s, g, v, t: optax_adam_update(p, s, g, v, t, 1.0))
+    update = jax.jit(lambda p, s, g, v, t: optax_update(p, s, g, v, t, 1.0))
     args = (pool, state, gradients, pool.alive, jnp.array(0))
     lowered = update.lower(*args)
     compiled = lowered.compile()
