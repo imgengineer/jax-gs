@@ -1,5 +1,6 @@
 # Algorithm defaults from LiteGS litegs/arguments.py, commit
 # 004b95215c90c36cdaf4b354301132b700ac287b (get_default_arg, not a benchmark preset).
+# The training iteration budget defaults to 10k in this project.
 # Scene and output paths are supplied on the command line.
 [model]
 sh_degree = 3
@@ -19,7 +20,7 @@ enable_depth = false
 input_color_type = "sh"
 
 [optimization]
-iterations = 30000
+iterations = 10000
 position_lr_init = 0.00016
 position_lr_final = 0.0000016
 position_lr_max_steps = 30000

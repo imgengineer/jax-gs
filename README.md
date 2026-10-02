@@ -10,23 +10,28 @@ small-scene correctness checks on CPU.
 
 ## Training performance
 
-Measured on an RTX 5090 with the default 30k schedule, Optax, 8×16 tiles and a
+Measured on an RTX 5090 with a 30k iteration budget, Optax, 8×16 tiles and a
 one-million-slot pool. The bicycle experiment uses `images_4` at 1237×822,
 169 training views and 25 held-out views.
 
 | Scene | Actual updates | Final Gaussians | Training loop | Held-out PSNR |
 | --- | ---: | ---: | ---: | ---: |
-| bicycle | 29,913 | 993,152 | 41.28 s | 25.433 dB |
+| bicycle | 29,913 | 993,152 | 41.17 s | 25.479 dB |
 
-Time is the median of three runs; PSNR is the mean of the three held-out
+Time is the median of four runs; PSNR is the mean of the four held-out
 scores. Timing includes densification, pruning, opacity decay and spatial
 refinement, and excludes initialization, image preload, compilation and
 checkpoint writing. These measurements cover one scene and GPU.
 
-Contribution pruning reduced the matched JAX baseline from 43.28 to 41.28 s
-(4.6% less time), with mean PSNR changing by −0.043 dB. The
-[measurement and validation record](benchmarks/results/contribution_pruning_20261002.md)
-contains all samples, configuration, quality differences and GPU checks.
+Omitting redundant warp votes in ordinary backward gradients reduced the latest
+matched baseline from 41.34 to 41.17 s (0.41% less time), with mean PSNR changing
+by +0.027 dB. All four paired runs were faster, but run ranges overlap; this is
+a small measured improvement on one scene. A separate fixed-model comparison
+across four views took 0.76–0.97% less time. The
+[measurement and validation record](benchmarks/results/warp_vote_20261002.md)
+contains every sample and the rejected Tokamax-inspired prototypes. Earlier
+[contribution pruning](benchmarks/results/contribution_pruning_20261002.md)
+reduced its separate matched baseline from 43.28 to 41.28 s.
 
 ## Features
 
@@ -34,7 +39,8 @@ contains all samples, configuration, quality differences and GPU checks.
   tables and rasterization have separate Python interfaces.
 - **NNX model state:** Gaussian parameters, occupancy, Adam moments and fragment
   statistics retain fixed shapes through growth and pruning. Compiled training
-  donates parameter and optimizer buffers for reuse.
+  donates parameter and optimizer buffers for reuse, and warmup compiles only
+  the SH/statistics combinations used by the selected training schedule.
 - **CuTe kernels:** packed half2 rasterization, contribution pruning in backward,
   fused uint8 L1+SSIM loss and compact projection pullbacks.
 - **Optimizer choices:** Optax Adam by default; Muon for SH colors and a CuTe
@@ -85,16 +91,22 @@ rescaled to its image dimensions. The default resolution caps image width at
 uv run --extra cute jaxgs-train /path/to/scene --output output/model.npz
 ```
 
+The default budget is 10,000 iterations. Use `--iterations 20000` to request
+a different budget, or set `optimization.iterations` in a TOML configuration.
+
 The trainer writes the Gaussian pool to `output/model.npz` and its resolved
 configuration, epoch history and timing to `output/model.json`. Checkpoints
 include parameters and occupancy in the project's NPZ format.
 
-For bicycle `images_4` with held-out evaluation, create `experiment.toml`:
+For bicycle with held-out evaluation, create `experiment.toml`:
 
 ```toml
 [model]
 images = "images_4"
 eval = true
+
+[optimization]
+iterations = 10000
 ```
 
 ```bash
@@ -104,7 +116,9 @@ uv run --extra cute jaxgs-train /path/to/bicycle \
 
 Evaluation mode uses `train_test_split.json` when present; otherwise every
 eighth image is held out. The default `eval=false` trains on all registered
-views. Requested iterations are rounded down to complete epochs.
+views. Requested iterations are rounded down to complete epochs, following
+LiteGS. For example, 10,000 requested iterations with 169 training views produce
+9,971 updates. The budget must cover at least one complete epoch.
 
 ### Configuration
 
@@ -113,7 +127,7 @@ CLI options override TOML values; run `jaxgs-train --help` for available flags.
 
 | Setting | Default |
 | --- | --- |
-| Iterations / position LR schedule | 30,000 / 30,000 |
+| Iterations / position LR schedule | 10,000 / 30,000 |
 | Images / resolution / evaluation split | `images` / width capped at 1600 / disabled |
 | Optimizer | Optax Adam |
 | SH degree / cluster size / tile height × width | 3 / 128 / 8 × 16 |
@@ -121,9 +135,13 @@ CLI options override TOML values; run `jaxgs-train --help` for available flags.
 | Visibility pair capacity | 8,000,000 |
 | Densify from / interval / opacity reset | epoch 3 / 5 / 10 |
 
-Densification intervals use epochs. Changing `iterations` leaves the position
-LR schedule length unchanged unless `position_lr_max_steps` is also overridden.
-The model, optimization, pipeline and densification defaults follow LiteGS;
+Densification intervals use epochs, following
+[LiteGS's training loop](https://github.com/MooreThreads/LiteGS/blob/004b95215c90c36cdaf4b354301132b700ac287b/litegs/training/trainer.py#L93);
+the iteration budget and position learning-rate schedule use optimizer steps.
+Changing `iterations` leaves the position LR schedule length unchanged unless
+`position_lr_max_steps` is also overridden.
+The model, optimization, pipeline and densification defaults follow LiteGS,
+except for this project's 10,000-iteration budget;
 `runtime` contains JAX capacity, optimizer and seed settings.
 
 Use `--optimizer muon` for SH Muon or `--optimizer cute` for CuTe sparse Adam.
@@ -208,12 +226,13 @@ to both rendering calls.
 ```text
 src/jaxgs/
 ├── config/          # Typed settings and fixed capacities
+├── data.py          # Image frames and Grain decoding
 ├── scene/           # NNX Gaussian model, cameras and spatial organization
 ├── render/          # Preprocessing, rendering and shared PyTrees
 ├── kernels/         # CuTe kernels and JAX bindings
-├── training/        # Compiled steps, optimizers and epoch orchestration
+├── training/        # Initialization, warmup, compiled steps and epoch orchestration
 ├── reference/       # JAX correctness implementations
-└── io_manager/      # COLMAP readers and NPZ checkpoints
+└── io_manager/      # COLMAP readers, NPZ checkpoints and training reports
 ```
 
 `GaussianModel(nnx.Module)` owns trainable `nnx.Param` values and occupancy
@@ -256,7 +275,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q \
   --cov=jaxgs --cov-report=term-missing
 ```
 
-The verified GPU suite passes **390 tests** with **100% Python line and branch
+The contribution-pruning validation passed **390 tests** with **100% Python line and branch
 coverage**: 2,001 statements and 292 branches. GPU DSL bodies are excluded from
 Python coverage; parity, gradient, training and CUDA device checks verify their
 behavior. The [contribution pruning record](benchmarks/results/contribution_pruning_20261002.md)

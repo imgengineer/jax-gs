@@ -13,7 +13,8 @@ from PIL import Image
 from jaxgs.config import load_config
 from jaxgs.io_manager.checkpoint import load_gaussians, save_gaussians
 from jaxgs.training import start
-from jaxgs.training.trainer import load_training_frames, train
+from jaxgs.training.initialization import initialize_pool, load_training_frames
+from jaxgs.training.trainer import train
 
 
 @pytest.fixture
@@ -77,7 +78,7 @@ def test_grouped_start_defaults_capacity_to_growth_target(scene, monkeypatch):
         assert source_path == scene and config.max_gaussians == target.target_primitives
         raise RuntimeError("initialization boundary")
 
-    monkeypatch.setattr(trainer, "_initialize_pool", initialize)
+    monkeypatch.setattr(trainer, "initialize_pool", initialize)
     with pytest.raises(RuntimeError, match="initialization boundary"):
         start(
             settings.model,
@@ -98,8 +99,8 @@ def test_grouped_start_defaults_capacity_to_growth_target(scene, monkeypatch):
     ],
 )
 def test_training_report_preserves_checkpoint(tmp_path, filename, report_name):
+    from jaxgs.io_manager.report import write_training_report
     from jaxgs.scene.point import create_gaussians, seed_gaussians
-    from jaxgs.training.trainer import _write_training_report
 
     settings = load_config()
     settings = replace(
@@ -125,7 +126,7 @@ def test_training_report_preserves_checkpoint(tmp_path, filename, report_name):
         "jit_cache_size": 1,
     }
     output = tmp_path / "output" / filename
-    report = _write_training_report(output, pool, settings, metrics)
+    report = write_training_report(output, pool, settings, metrics)
     for actual, expected in zip(
         jax.tree.leaves(load_gaussians(output)), jax.tree.leaves(pool), strict=True
     ):
@@ -143,9 +144,9 @@ def test_training_report_preserves_checkpoint(tmp_path, filename, report_name):
 def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_resolution):
     from jaxgs.scene.cluster import world_cluster_bounds
     from jaxgs.scene.point import GaussianModel
-    from jaxgs.training import trainer
     from jaxgs.training.state import TrainingState
     from jaxgs.training.step import bind_train_step
+    from jaxgs.training.warmup import precompile_training
 
     settings = load_config()
     settings = replace(
@@ -155,7 +156,7 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
         runtime=replace(settings.runtime, max_gaussians=256, max_visibility_pairs=4096),
     )
     config = settings.capacity
-    pool, state, initial_count, _ = trainer._initialize_pool(scene, config)
+    pool, state, initial_count, _ = initialize_pool(scene, config)
     stats = jnp.zeros((config.max_gaussians, 4), jnp.float32)
     training = TrainingState(GaussianModel(pool), state, stats)
     update = bind_train_step(
@@ -191,6 +192,7 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
         initial_count,
         jnp.array(1.0, jnp.float32),
         settings,
+        [(0, False), (1, False), (1, True), (1, True)],
     )
     if fail:
 
@@ -199,9 +201,9 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
             raise RuntimeError("warmup interrupted")
 
         with pytest.raises(RuntimeError, match="warmup interrupted"):
-            trainer._precompile_training(training, interrupted_update, *args)
+            precompile_training(training, interrupted_update, *args)
     else:
-        trainer._precompile_training(training, update, *args)
+        precompile_training(training, update, *args)
 
     assert all(not value.is_deleted() for value in originals)
     assert [value.unsafe_buffer_pointer() for value in originals] == pointers
@@ -213,7 +215,7 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
     assert all(value is original for value, original in zip(restored, originals, strict=True))
     if not fail:
         cache_size = update.jitted_fn._cache_size()
-        assert cache_size == 4 * (2 if mixed_resolution else 1)
+        assert cache_size == 3 * (2 if mixed_resolution else 1)
         training.adam.set_value(state.replace(v=jax.tree.map(jnp.copy, state.v)))
         for camera, target in views:
             jax.block_until_ready(
@@ -237,8 +239,9 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
     reason="production training requires JAX CUDA and CuTe",
 )
 @pytest.mark.parametrize("grouped", [False, True])
-def test_complete_training_schedule_and_checkpoint(scene, monkeypatch, grouped):
-    from jaxgs.training import trainer
+@pytest.mark.parametrize("iterations", [63, 64])
+def test_complete_training_schedule_and_checkpoint(scene, monkeypatch, grouped, iterations):
+    from jaxgs.training import trainer, warmup
 
     config = load_config()
     config = replace(
@@ -258,11 +261,12 @@ def test_complete_training_schedule_and_checkpoint(scene, monkeypatch, grouped):
         return result
 
     monkeypatch.setattr(trainer, "decay_opacity", decay)
+    monkeypatch.setattr(warmup, "decay_opacity", decay)
     output = scene / "output" / "pool.npz"
     if grouped:
         report = start(
             config.model,
-            replace(config.optimization, iterations=63),
+            replace(config.optimization, iterations=iterations),
             config.pipeline,
             config.densify,
             source_path=scene,
@@ -274,19 +278,21 @@ def test_complete_training_schedule_and_checkpoint(scene, monkeypatch, grouped):
             scene,
             output,
             settings=config,
-            iterations=63,
+            iterations=iterations,
             images="images",
             seed=7,
             optimizer="optax",
             pair_capacity=4096,
         )
-    assert report["actual_updates"] == 63
+    assert report["actual_updates"] == 63  # Both budgets complete 21 epochs of three views.
     assert report["training_images"] == 3 and report["densify_until"] == 11
     assert report["initial_sparse_gaussians"] == 129 and report["initial_padded_gaussians"] == 256
     assert report["config"]["optimization"]["position_lr_max_steps"] == 30000
     assert report["config"]["densify"]["densification_interval"] == 5
+    assert report["jit_cache_size"] == 3  # SH0 never collects statistics in this schedule.
     assert len(resets) == 2  # warmup and epoch 10
     history = report["history"]
+    assert [row["step"] for row in history] == list(range(3, 64, 3))
     assert any(row["born"] > 0 for row in history)
     assert all(row["born"] == 0 for row in history if row["epoch"] not in (5, 10))
     assert all(np.isfinite(row["loss"]) and row["peak_pairs"] <= 4096 for row in history)
@@ -370,7 +376,8 @@ def test_nonfinite_loss_preserves_existing_checkpoint(scene, monkeypatch, loss):
 @pytest.mark.filterwarnings(
     "ignore:.*found in sys.modules after import of package.*:RuntimeWarning"
 )
-def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch):
+@pytest.mark.parametrize("iterations", [3, 4])
+def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch, iterations):
     path = scene / "cli.toml"
     path.write_text(
         "[model]\nsh_degree=0\n[optimization]\niterations=6\n"
@@ -389,15 +396,17 @@ def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch):
             "--output",
             str(output),
             "--iterations",
-            "3",
+            str(iterations),
         ],
     )
     runpy.run_module("jaxgs.training.trainer", run_name="__main__")
     report = json.loads(output.with_suffix(".json").read_text())
     assert report["actual_updates"] == 3
-    assert report["config"]["optimization"]["iterations"] == 3
+    assert report["config"]["optimization"]["iterations"] == iterations
+    assert [row["step"] for row in report["history"]] == [3]
     assert report["config"]["optimization"]["position_lr_max_steps"] == 30000
     assert report["config"]["model"]["sh_degree"] == 0
+    assert report["jit_cache_size"] == 1
     pool = load_gaussians(output)
     assert pool.xyz.shape == (256, 3) and pool.sh.shape == (256, 1, 3)
     assert int(pool.n_active) == 256

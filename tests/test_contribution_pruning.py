@@ -112,3 +112,42 @@ def test_contribution_bits_and_backward_ignore_unwritten_words(
     np.testing.assert_array_equal(np.asarray(grads.color)[:, 0] > 0, expected)
     np.testing.assert_array_equal(grads.color[:, 1], -grads.color[:, 0])
     np.testing.assert_array_equal(grads.color[:, 2], 0)
+
+
+@pytest.mark.parametrize("tile_height,tile_width", [(8, 8), (8, 16), (12, 16), (16, 16)])
+def test_empty_pixel_groups_preserve_accumulated_gradients(tile_height, tile_width):
+    from jaxgs.kernels.packed_rasterizer import packed_backward, packed_forward
+
+    count = 65
+    groups = tile_height * tile_width // 64
+    width, height = tile_width + 3, tile_height + 1
+    config = CapacityConfig(count, 1, count, tile_width, 0, 96, tile_height=tile_height)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 20, 20, 8, 4, width, height)
+    rng = np.random.default_rng(14)
+    # Each narrow splat hits exactly one group, leaving the other groups
+    # empty before or after a nonzero partial opacity/color gradient.
+    mean = np.stack((np.arange(count) % 3 * 2 + 0.7, np.arange(count) % groups * 2 + 0.4), 1)
+    projected = ProjectedGaussians(
+        jnp.asarray(mean, jnp.float32),
+        jnp.arange(count, dtype=jnp.float32),
+        jnp.broadcast_to(jnp.eye(2) * 20, (count, 2, 2)),
+        jnp.ones(count),
+        jnp.asarray(rng.random((count, 3)), jnp.float32),
+        jnp.asarray(np.where(np.arange(count) % 5 == 0, 0.001, 0.3), jnp.float32),
+        jnp.ones(count, jnp.bool_),
+    )
+    table = SortedVisibilityTable(
+        jnp.pad(jnp.arange(count, dtype=jnp.int32), (0, 96 - count), constant_values=-1),
+        jnp.array([0, count, count, count, count], jnp.int32),
+        jnp.ones(count, jnp.int32),
+        jnp.array(count, jnp.int32),
+        jnp.array(False),
+    )
+    image, cache, _ = packed_forward(projected, table, camera, config, True)
+    incoming = jnp.asarray(rng.normal(size=image.shape), jnp.float32)
+    ordinary, _ = packed_backward(projected, table, cache, incoming, camera, config, False)
+    with_stats, _ = packed_backward(projected, table, cache, incoming, camera, config, True)
+    for field in ("mean", "conic", "color", "alpha"):
+        expected = np.asarray(getattr(with_stats, field))
+        assert np.any(expected != 0), field
+        np.testing.assert_allclose(getattr(ordinary, field), expected, rtol=1e-5, atol=1e-8)

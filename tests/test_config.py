@@ -12,7 +12,7 @@ from jaxgs.config import CapacityConfig, load_config
 from jaxgs.training.optimizer import create_adam_state, optax_update
 
 
-def test_packaged_defaults_match_native_source():
+def test_packaged_defaults_match_native_source_except_iterations():
     source = Path(os.environ.get("LITEGS_ROOT", Path(__file__).resolve().parents[2] / "LiteGS"))
     source = source / "litegs" / "arguments.py"
     if not source.exists():
@@ -36,14 +36,18 @@ def test_packaged_defaults_match_native_source():
         }
         if section == "model":
             del native["source_path"], native["model_path"]  # CLI positional paths
-        assert asdict(getattr(config, section)) == native
+        actual = asdict(getattr(config, section))
+        if section == "optimization":
+            del native["iterations"], actual["iterations"]  # Project-specific training budget
+        assert actual == native
 
 
 def test_default_schedule_and_capacity():
     config = load_config()
     assert config.model.images == "images" and config.model.resolution == -1
     assert not config.model.eval and config.runtime.optimizer == "optax"
-    assert config.optimization.iterations == config.optimization.position_lr_max_steps == 30000
+    assert config.optimization.iterations == 10000
+    assert config.optimization.position_lr_max_steps == 30000
     assert config.densify.densification_interval == 5
     assert config.densify.end_epoch(155) == 121
     assert replace(config.densify, densify_until=17).end_epoch(155) == 17

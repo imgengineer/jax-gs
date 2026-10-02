@@ -21,18 +21,32 @@ boundaries; the decisions below follow jaxgs's fixed shapes and custom kernels.
 | Location | Responsibility |
 | --- | --- |
 | `config/` | Immutable typed settings and TOML loading; capacities determine compiled shapes. |
+| `data.py` | Image frames and bounded, threaded decoding with Grain. |
+| `io_manager/colmap.py`, `io_manager/checkpoint.py` | COLMAP readers and shared NPZ checkpoint serialization. |
+| `io_manager/report.py` | Final checkpoint and production training report output. |
 | `scene/point.py` | `GaussianModel` owns NNX parameters and occupancy; `GaussianArrays` exposes the same buffers to kernels. |
 | `render/types.py`, `scene/types.py` | Shared PyTrees and the parameter ordering used across rendering and optimization. |
 | `kernels/`, `reference/` | GPU implementations and numerical correctness implementations. |
 | `training/state.py` | Ownership of model buffers, optimizer moments and fragment statistics. |
 | `training/step.py` | Pure single-step computation and thin JAX/NNX compilation boundaries. |
 | `training/optimizer.py`, `training/muon.py` | Fixed-capacity Adam updates and the separate SH Muon transform. |
-| `training/trainer.py` | Dataset setup, precompilation, epoch scheduling, densification and checkpoint/report I/O. |
+| `training/initialization.py` | Training-view selection, sparse-cloud seeding and cluster padding. |
+| `training/warmup.py` | Compilation of scheduled variants using disposable copies of training buffers. |
+| `training/trainer.py` | CLI and Python entry points, image preload and epoch orchestration. |
+| `training/densify.py` | Fixed-capacity growth, pruning and opacity decay at epoch boundaries. |
+| `training/reference_trainer.py`, `training/reference_densify.py` | Small-scene reference training and density control for correctness checks. |
 
 Keep dependencies pointed toward shared data types and numerical components.
 The single-step computation does not load images, write files or run the epoch
 schedule. Reference implementations use the shared types and remain usable on
 CPU. GPU bindings are imported when the production step is traced.
+
+`trainer.start` selects views and initializes the pool through `initialization`,
+binds a compiled update from `step`, then calls `warmup` before timing the epoch
+loop. At completion it delegates checkpoint and report writing to `io_manager`.
+These helpers do not import the trainer. The public `training.start`,
+`render.render_preprocess`, `render.render` and command-line entry points retain
+their existing signatures.
 
 ## Expressing training functions
 
@@ -134,15 +148,20 @@ The names `TrainingState.adam`, `fragments` and `model` determine tree ordering
 and donation pairing. Preserve these names and Variable identities when
 changing array contents. Precompilation updates an independent working copy
 and restores the original buffers in `finally`.
+Warmup deduplicates the SH degree/statistics modes from the same epoch schedule
+that training executes. It compiles seven modes for the 169-view bicycle 10k
+schedule, instead of all eight combinations; a one-epoch SH0 run needs one.
+The [performance sweep](../benchmarks/results/performance_sweep_20261002.md)
+records this change and the deferred SH-gradient reconstruction prototype.
 
 The optimizer uses per-slot moments, visibility masks and compact gradients.
 Preserve this update contract when changing a training interface. GPU tests
 compare array and NNX results for all three optimizer backends, check donated
 buffer addresses, and verify that changing scalar values reuses compiled steps.
 Mixed-resolution warmup and complete training schedules are tested separately.
-The full GPU suite passes 390 tests with 100% Python line and branch coverage;
-the [latest validation](../benchmarks/results/contribution_pruning_20261002.md)
-records the contribution-pruning regressions and CUDA checks. At the structure
+The warp-vote optimization passed 394 GPU tests with 100% Python line and branch coverage;
+its [validation record](../benchmarks/results/warp_vote_20261002.md)
+records the gradient regressions and CUDA checks. At the initial interface
 review, the CPU reference and configuration checks passed 33 tests. Interface tests cover
 fixed shapes, shared parameter buffers, SH gradients and updates to NNX Variables.
 At capacity 128, the interface change preserves StableHLO after normalizing the
@@ -150,10 +169,15 @@ module name for all three optimizers, each with SH0 without statistics and SH3
 with statistics. Argument, output, alias and temporary memory footprints are
 also identical. Per-step array/NNX comparisons use `rtol=2e-5, atol=2e-6`.
 
+The 2026-10-02 module split passed all 56 configuration, production-training and
+NNX regression cases below. The moved functions and training loop preserve
+their ASTs after normalizing the three renamed helpers; compiled steps and
+kernel files are unchanged. CPU imports, the installed CLI and existing Python
+entry points were also checked. This validation covers behavior, with no new
+performance measurement.
+
 ```bash
 PYTHONDONTWRITEBYTECODE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false \
   uv run --extra cute --no-sync pytest -q -p no:cacheprovider \
-  tests/test_nnx.py tests/test_production_training.py \
-  tests/test_training_protocol.py tests/test_fixed_benchmark.py \
-  tests/test_call_interfaces.py tests/test_evaluate_protocol.py
+  tests/test_config.py tests/test_production_training.py tests/test_nnx.py
 ```

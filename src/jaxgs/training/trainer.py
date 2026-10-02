@@ -2,19 +2,16 @@
 
 import argparse
 import json
-from collections.abc import Callable, Iterable
 from contextlib import closing
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 
-import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from ..config import (
-    CapacityConfig,
     DensifyConfig,
     ModelConfig,
     OptimizationConfig,
@@ -23,205 +20,18 @@ from ..config import (
     TrainingConfig,
     load_config,
 )
-from ..data import Frame, image_dataset
-from ..io_manager.checkpoint import save_gaussians
-from ..io_manager.colmap import load_colmap_images, load_colmap_points
-from ..scene.camera import Camera
+from ..data import image_dataset
+from ..io_manager.report import write_training_report
 from ..scene.cluster import world_cluster_bounds
-from ..scene.point import (
-    GaussianArrays,
-    GaussianModel,
-    create_gaussians,
-    estimate_initial_scales,
-    seed_gaussians,
-)
+from ..scene.point import GaussianModel
 from ..scene.spatial_refine import reorder_gaussians
-from ..scene.types import WorldClusterBounds
 from .densify import decay_opacity, densify_step
-from .optimizer import AdamState, create_adam_state
+from .initialization import initialize_pool, load_training_frames
 from .state import TrainingState
 from .step import array_train_step as array_train_step  # public compatibility export
 from .step import bind_train_step
 from .step import train_step as train_step  # public compatibility export
-
-
-def load_training_frames(scene: str | Path, model_config: ModelConfig) -> list[Frame]:
-    """Load configured views and apply the training split when evaluation is enabled."""
-    frames = load_colmap_images(scene, model_config.images, resolution=model_config.resolution)
-    if model_config.eval:
-        split_path = Path(scene) / "train_test_split.json"
-        if split_path.exists():
-            names = set(json.loads(split_path.read_text())["train"])
-            frames = [
-                frame
-                for frame in frames
-                if frame.image_path.stem in names or frame.image_path.name in names
-            ]
-        else:
-            frames = [frame for index, frame in enumerate(frames) if index % 8 != 0]
-    if not frames:
-        raise ValueError("no training images selected")
-    return frames
-
-
-def _initialize_pool(
-    scene: str | Path, config: CapacityConfig
-) -> tuple[GaussianArrays, AdamState, int, int]:
-    """Create the fixed pool; return sparse and cluster-padded initial counts."""
-    xyz, rgb = load_colmap_points(scene)
-    initial_point_count = len(xyz)
-    if initial_point_count == 0:
-        raise ValueError("initial cloud is empty")
-    initial_scales = estimate_initial_scales(xyz)
-    # LiteGS cluster_points pads its initial cloud with copies of the final
-    # points. Gather those same copies into slots without resizing the pool.
-    cluster_padding = (-initial_point_count) % config.cluster_size
-    point_indices = np.arange(initial_point_count + cluster_padding)
-    point_indices[initial_point_count:] = (
-        np.arange(initial_point_count - cluster_padding, initial_point_count) % initial_point_count
-    )
-    if len(point_indices) > config.max_gaussians:
-        raise ValueError("initial cloud including cluster padding exceeds capacity")
-    pool = seed_gaussians(
-        create_gaussians(config),
-        xyz[point_indices],
-        rgb[point_indices],
-        scale=initial_scales[point_indices],
-        opacity=0.1,
-    )
-    adam_state = create_adam_state(pool)
-    # Share the initial zeros only during precompilation. The epoch loop
-    # separates v after warmup, preserving the existing peak memory budget.
-    adam_state = adam_state.replace(v=adam_state.m)
-    return pool, adam_state, initial_point_count, len(point_indices)
-
-
-def _precompile_training(
-    training_state: TrainingState,
-    train_step_fn: Callable[..., tuple[chex.Array, chex.Array, chex.Array]],
-    cluster_bounds: WorldClusterBounds,
-    views: Iterable[tuple[Camera, chex.Array]],
-    key: chex.Array,
-    initial_sparse_count: int,
-    scene_radius: chex.Array,
-    settings: TrainingConfig,
-) -> float:
-    """Compile SH/statistics variants for each view shape before timing."""
-    capacity_config = settings.capacity
-    densification = settings.densify
-    warmup_start = perf_counter()
-    pool = training_state.model.as_arrays()
-    adam_state = training_state.adam.get_value()
-    fragment_stats = training_state.fragments.get_value()
-    # Donation consumes only this working copy; reuse its returned buffers
-    # across variants instead of copying the full-capacity state every time.
-    warm_pool, warm_adam_state, warm_fragment_stats = jax.tree.map(
-        jnp.copy, (pool, adam_state, fragment_stats)
-    )
-    training_state.model.update_from_arrays(warm_pool)
-    training_state.adam.set_value(warm_adam_state)
-    training_state.fragments.set_value(warm_fragment_stats)
-    try:
-        compiled_view_signatures = set()
-        for camera, target in views:
-            view_signature = (camera.width, camera.height, camera.near, camera.far)
-            if view_signature in compiled_view_signatures:
-                continue
-            compiled_view_signatures.add(view_signature)
-            for sh_degree in range(capacity_config.sh_degree + 1):
-                for collect_stats in (False, True):
-                    step_result = train_step_fn(
-                        cluster_bounds,
-                        camera,
-                        target,
-                        jnp.array(0, jnp.int32),
-                        scene_radius,
-                        active_degree=sh_degree,
-                        collect_stats=collect_stats,
-                        overflow=jnp.array(False),
-                        peak_pairs=jnp.array(0, jnp.int32),
-                    )
-                    jax.block_until_ready(
-                        (
-                            step_result,
-                            training_state.adam.get_value(),
-                            training_state.fragments.get_value(),
-                            training_state.model.as_arrays(),
-                        )
-                    )
-    finally:
-        training_state.model.update_from_arrays(pool)
-        training_state.adam.set_value(adam_state)
-        training_state.fragments.set_value(fragment_stats)
-    densify_step.lower(
-        pool,
-        adam_state,
-        fragment_stats,
-        key,
-        jnp.array(initial_sparse_count, jnp.int32),
-        scene_radius,
-        cluster_size=capacity_config.cluster_size,
-        percent_dense=densification.percent_dense,
-    ).compile()
-    jax.block_until_ready(decay_opacity(pool, adam_state))
-    jax.block_until_ready(reorder_gaussians(pool, adam_state))
-    return perf_counter() - warmup_start
-
-
-def _write_training_report(
-    output: str | Path,
-    pool: GaussianArrays,
-    settings: TrainingConfig,
-    metrics: dict[str, object],
-) -> dict[str, object]:
-    """Save the final pool and preserve the training report schema."""
-    output = Path(output)
-    save_gaussians(output, pool)
-    capacity_config = settings.capacity
-    report = {
-        "scene": metrics["scene"],
-        "gpu": jax.devices()[0].device_kind,
-        "images": settings.model.images,
-        "image_shape": metrics["image_shape"],
-        "training_images": metrics["training_images"],
-        "actual_updates": metrics["actual_updates"],
-        "initial_sparse_gaussians": metrics["initial_sparse_gaussians"],
-        "initial_padded_gaussians": metrics["initial_padded_gaussians"],
-        "target_gaussians": settings.densify.target_primitives,
-        "final_gaussians": int(pool.n_active),
-        "pair_capacity": settings.runtime.max_visibility_pairs,
-        "cluster_size": capacity_config.cluster_size,
-        "tile_size": capacity_config.tile_size,
-        "tile_height": capacity_config.raster_tile_height,
-        "warmup_seconds": metrics["warmup_seconds"],
-        "image_load_seconds": metrics["image_load_seconds"],
-        "data_loader": "grain.MapDataset, 4 decode threads, 8 prefetched images; GPU uint8 preload",
-        "training_seconds": metrics["training_seconds"],
-        "densify_until": metrics["densify_until"],
-        "seed": settings.runtime.seed,
-        "history": metrics["history"],
-        "config": asdict(settings),
-        "model": "flax.nnx.Module",
-        "jit": "nnx.jit_partial(graph=False)",
-        "optimizer": settings.runtime.optimizer,
-        "jit_cache_size": metrics["jit_cache_size"],
-        "donation": True,
-        "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
-        "remaining_differences": [
-            "JAX world cluster bounds and frustum mask",
-            "fixed-capacity intermediates with valid compact prefixes",
-            "XLA prefix sums and stable sorting",
-            "reduction rounding and partial-tile masks",
-            "analytic SH view-direction gradient for xyz",
-            "independent RNG implementations",
-        ],
-    }
-    report_path = output.with_suffix(".json")
-    if report_path == output:
-        report_path = output.with_suffix(".report.json")
-    report_path.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"training: {metrics['training_seconds']:.3f}s; report: {report_path}", flush=True)
-    return report
+from .warmup import precompile_training
 
 
 def train(
@@ -299,8 +109,15 @@ def start(
         densification.opacity_reset_interval,
     )
     densify_until = densification.end_epoch(num_epochs)
+    training_modes = [
+        (
+            min(epoch // 5, settings.model.sh_degree),
+            densify_from <= epoch < densify_until and epoch % densify_interval == 0,
+        )
+        for epoch in range(num_epochs)
+    ]
     capacity_config = settings.capacity
-    pool, adam_state, initial_sparse_count, initial_padded_count = _initialize_pool(
+    pool, adam_state, initial_sparse_count, initial_padded_count = initialize_pool(
         scene, capacity_config
     )
     cluster_bounds = world_cluster_bounds(pool, capacity_config.cluster_size)
@@ -327,7 +144,7 @@ def start(
         optimizer=optimizer,
         optimization=optimization,
     )
-    warmup_seconds = _precompile_training(
+    warmup_seconds = precompile_training(
         training_state,
         train_step_fn,
         cluster_bounds,
@@ -336,6 +153,7 @@ def start(
         initial_sparse_count,
         scene_radius,
         settings,
+        training_modes,
     )
     print(f"warmup: {warmup_seconds:.3f}s; {len(frames)} views x {num_epochs} epochs", flush=True)
     # Keep the initial shared zeros during warmup to avoid another full moment
@@ -347,13 +165,12 @@ def start(
     training_start = perf_counter()
     history = []
     step = 0
-    for epoch in range(num_epochs):
+    for epoch, (active_degree, collect_stats) in enumerate(training_modes):
         if (epoch - 1) % densify_interval == 0:
             pool, adam_state = reorder_gaussians(model.as_arrays(), adam_state)
             model.update_from_arrays(pool)
             training_state.adam.set_value(adam_state)
             cluster_bounds = world_cluster_bounds(pool, capacity_config.cluster_size)
-        collect_stats = densify_from <= epoch < densify_until and epoch % densify_interval == 0
         overflow, peak_pairs = jnp.array(False), jnp.array(0, jnp.int32)
         for frame_index in order_rng.permutation(len(frames)):
             loss, overflow, peak_pairs = train_step_fn(
@@ -362,7 +179,7 @@ def start(
                 targets[frame_index],
                 jnp.array(step, jnp.int32),
                 scene_radius,
-                active_degree=min(epoch // 5, capacity_config.sh_degree),
+                active_degree=active_degree,
                 collect_stats=collect_stats,
                 overflow=overflow,
                 peak_pairs=peak_pairs,
@@ -414,7 +231,7 @@ def start(
             raise RuntimeError("non-finite training loss")
     jax.block_until_ready((pool, adam_state))
     training_seconds = perf_counter() - training_start
-    return _write_training_report(
+    return write_training_report(
         output,
         pool,
         settings,

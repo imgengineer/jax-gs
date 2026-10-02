@@ -1,0 +1,3091 @@
+{
+  "date": "2026-10-02",
+  "status": "startup optimization validated; SH fusion awaits exclusive GPU timing",
+  "baseline_commit": "ca365efd0e3abe4591173863dfc34630ffedaeda",
+  "baseline_working_patch": "--- a/src/jaxgs/config/default.toml\n+++ b/src/jaxgs/config/default.toml\n@@ -1,5 +1,6 @@\n # Algorithm defaults from LiteGS litegs/arguments.py, commit\n # 004b95215c90c36cdaf4b354301132b700ac287b (get_default_arg, not a benchmark preset).\n+# The training iteration budget defaults to 10k in this project.\n # Scene and output paths are supplied on the command line.\n [model]\n sh_degree = 3\n@@ -19,7 +20,7 @@\n input_color_type = \"sh\"\n \n [optimization]\n-iterations = 30000\n+iterations = 10000\n position_lr_init = 0.00016\n position_lr_final = 0.0000016\n position_lr_max_steps = 30000\n--- a/src/jaxgs/kernels/packed_rasterize.py\n+++ b/src/jaxgs/kernels/packed_rasterize.py\n@@ -529,7 +529,10 @@\n                         mask &= cutlass.Uint32(0xFFFF0000)\n                     if index >= lst[i, 1]:\n                         mask &= cutlass.Uint32(0x0000FFFF)\n-                    if cute.arch.vote_any_sync(mask != 0):\n+                    # Masked fragments leave ordinary gradient sums unchanged.\n+                    # Statistics must skip empty groups: their squared-error\n+                    # term depends on the opacity gradient accumulated so far.\n+                    if not collect_stats or cute.arch.vote_any_sync(mask != 0):\n                         contributes = True\n                         alpha &= mask\n                         gaussian &= mask\n",
+  "baseline_sha256": {
+    "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+    "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+    "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+    "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+    "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+    "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+    "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/io_manager/checkpoint.py": "e7c01629de7a494b007bd241e53d9fab00e768bc416c86359dab5e84e55c1c9e",
+    "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+    "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+    "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+    "src/jaxgs/kernels/__init__.py": "f82fc629b1912fe8e8a27ea807fcb0d7d06897398b9df92477503d60de7e2d99",
+    "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+    "src/jaxgs/kernels/allocator.py": "15b3e617316333322b55f7f6cba15b079b0bafe28a197c33020895835d12832f",
+    "src/jaxgs/kernels/binning.py": "3054e87acaffd9be96c284a441abafb5b1d874d3a4cbccbf71a912a37bffad81",
+    "src/jaxgs/kernels/cluster_compact.py": "de8baaefede08e73f90ce70b5fa50e0ad054842dfd8cb57526d41442d6289024",
+    "src/jaxgs/kernels/fused_loss.py": "20a626e7f7023f863a34e502186b7488854d341ae4247329ad2c731e8615ebe7",
+    "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+    "src/jaxgs/kernels/packed_rasterize.py": "93c2ce0e89a99607e9e22eb37251435e90ed570cd6bdcb8ec5a4c99f4347e548",
+    "src/jaxgs/kernels/packed_rasterizer.py": "a0304d7ca3fb9b2fcaa23bcba8c5062eaa72b38dd131d2b0c1ba75a4bb586c3c",
+    "src/jaxgs/kernels/pair_sort.py": "a84df9b79f8aef963ac4f4944ff5d972fa7ed8a3be9d6449ae0c32ce9725c5b9",
+    "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+    "src/jaxgs/kernels/partitioner.py": "329ed25e855272f9ce2c2c61357a9d8180fc79065261481da093ef84029c35ec",
+    "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+    "src/jaxgs/kernels/projection_backward.py": "39261974a735ce64da6650e100ef16dffee76acae15fa48d94444a66a1ba3850",
+    "src/jaxgs/kernels/projector.py": "a32a369aab7ecf5f7df2b44bf70b1fc010f6a5fb1989ae432494a07f7eae338f",
+    "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+    "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+    "src/jaxgs/kernels/rasterizer.py": "81e858f0fbf6d855138b0835ec49d2fbd853fcb74b306ac363a13bcaf85efe43",
+    "src/jaxgs/kernels/sorted_binning.py": "7c3befbd563760f2e982238a666143044ae2377ad22cb7584fd59f5a5736e485",
+    "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+    "src/jaxgs/kernels/sorted_rasterizer.py": "228aa4577a0db4bb9ede130e518fb62718b61577571bc57ecaaea0ae9a1a3601",
+    "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+    "src/jaxgs/kernels/sparse_adam.py": "a4499c2adc61f68c30f5867cd5568fd2a2e4292891d048c8fe924559ab0a5d0a",
+    "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+    "src/jaxgs/kernels/visible_optax.py": "65e5ddace1342cc1a07d3d83d94b909f98b80feedf71613184ab5e786963502d",
+    "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+    "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+    "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+    "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+    "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+    "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+    "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+    "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+    "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+    "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+    "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+    "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+    "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+    "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+    "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+    "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+    "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+    "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+    "src/jaxgs/training/optimizer.py": "7b4ec12d37a9e9323b0dae67fd108d16e7d14c6ffbed8a5bbfdd611d290e2f47",
+    "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+    "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+    "src/jaxgs/training/reference_trainer.py": "a4f33b9004b193af8d909216285324af729e28e08b012246c36c8080db24ca2d",
+    "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+    "src/jaxgs/training/step.py": "4732703328ade1ddaeff4df4fd11bd72194e721b5106d3d130466418bc6167e9",
+    "src/jaxgs/training/trainer.py": "8a19ffe2592b511685293c6715b54ff0d53de2169103fd42abfda3ff944ee5b9"
+  },
+  "protocol": {
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "config": "[model]\nimages=\"images_4\"\nresolution=1\neval=true\n",
+    "iterations": 10000,
+    "actual_updates": 9971,
+    "optimizer": "optax",
+    "capacity": 1000000,
+    "pair_capacity": 8000000,
+    "tile": [
+      8,
+      16
+    ],
+    "training_views": 169,
+    "held_out_views": 25,
+    "lr_horizon": 30000,
+    "seed": 0,
+    "screening": "one frozen checkpoint, SH3, 30 warmup updates then 400 timed updates; single-view screening only",
+    "profile": "20 device-traced updates after the fixed-model pilot; profiler timings are diagnostic, not matched full-training measurements"
+  },
+  "frozen_model": {
+    "sha256": "e0b898720ab8f6c4f54ebe87409467cd0897424a94b226934534e1ebbf21c176",
+    "active": 975104
+  },
+  "production_patch": "--- a/src/jaxgs/training/trainer.py\n+++ b/src/jaxgs/training/trainer.py\n@@ -105,10 +105,12 @@\n     initial_sparse_count: int,\n     scene_radius: chex.Array,\n     settings: TrainingConfig,\n+    training_modes: Iterable[tuple[int, bool]],\n ) -> float:\n-    \"\"\"Compile SH/statistics variants for each view shape before timing.\"\"\"\n+    \"\"\"Compile scheduled SH/statistics modes for each view shape before timing.\"\"\"\n     capacity_config = settings.capacity\n     densification = settings.densify\n+    training_modes = sorted(set(training_modes))\n     warmup_start = perf_counter()\n     pool = training_state.model.as_arrays()\n     adam_state = training_state.adam.get_value()\n@@ -128,27 +130,26 @@\n             if view_signature in compiled_view_signatures:\n                 continue\n             compiled_view_signatures.add(view_signature)\n-            for sh_degree in range(capacity_config.sh_degree + 1):\n-                for collect_stats in (False, True):\n-                    step_result = train_step_fn(\n-                        cluster_bounds,\n-                        camera,\n-                        target,\n-                        jnp.array(0, jnp.int32),\n-                        scene_radius,\n-                        active_degree=sh_degree,\n-                        collect_stats=collect_stats,\n-                        overflow=jnp.array(False),\n-                        peak_pairs=jnp.array(0, jnp.int32),\n+            for sh_degree, collect_stats in training_modes:\n+                step_result = train_step_fn(\n+                    cluster_bounds,\n+                    camera,\n+                    target,\n+                    jnp.array(0, jnp.int32),\n+                    scene_radius,\n+                    active_degree=sh_degree,\n+                    collect_stats=collect_stats,\n+                    overflow=jnp.array(False),\n+                    peak_pairs=jnp.array(0, jnp.int32),\n+                )\n+                jax.block_until_ready(\n+                    (\n+                        step_result,\n+                        training_state.adam.get_value(),\n+                        training_state.fragments.get_value(),\n+                        training_state.model.as_arrays(),\n                     )\n-                    jax.block_until_ready(\n-                        (\n-                            step_result,\n-                            training_state.adam.get_value(),\n-                            training_state.fragments.get_value(),\n-                            training_state.model.as_arrays(),\n-                        )\n-                    )\n+                )\n     finally:\n         training_state.model.update_from_arrays(pool)\n         training_state.adam.set_value(adam_state)\n@@ -299,6 +300,13 @@\n         densification.opacity_reset_interval,\n     )\n     densify_until = densification.end_epoch(num_epochs)\n+    training_modes = [\n+        (\n+            min(epoch // 5, settings.model.sh_degree),\n+            densify_from <= epoch < densify_until and epoch % densify_interval == 0,\n+        )\n+        for epoch in range(num_epochs)\n+    ]\n     capacity_config = settings.capacity\n     pool, adam_state, initial_sparse_count, initial_padded_count = _initialize_pool(\n         scene, capacity_config\n@@ -336,6 +344,7 @@\n         initial_sparse_count,\n         scene_radius,\n         settings,\n+        training_modes,\n     )\n     print(f\"warmup: {warmup_seconds:.3f}s; {len(frames)} views x {num_epochs} epochs\", flush=True)\n     # Keep the initial shared zeros during warmup to avoid another full moment\n@@ -347,13 +356,12 @@\n     training_start = perf_counter()\n     history = []\n     step = 0\n-    for epoch in range(num_epochs):\n+    for epoch, (active_degree, collect_stats) in enumerate(training_modes):\n         if (epoch - 1) % densify_interval == 0:\n             pool, adam_state = reorder_gaussians(model.as_arrays(), adam_state)\n             model.update_from_arrays(pool)\n             training_state.adam.set_value(adam_state)\n             cluster_bounds = world_cluster_bounds(pool, capacity_config.cluster_size)\n-        collect_stats = densify_from <= epoch < densify_until and epoch % densify_interval == 0\n         overflow, peak_pairs = jnp.array(False), jnp.array(0, jnp.int32)\n         for frame_index in order_rng.permutation(len(frames)):\n             loss, overflow, peak_pairs = train_step_fn(\n@@ -362,7 +370,7 @@\n                 targets[frame_index],\n                 jnp.array(step, jnp.int32),\n                 scene_radius,\n-                active_degree=min(epoch // 5, capacity_config.sh_degree),\n+                active_degree=active_degree,\n                 collect_stats=collect_stats,\n                 overflow=overflow,\n                 peak_pairs=peak_pairs,\n--- a/tests/test_production_training.py\n+++ b/tests/test_production_training.py\n@@ -191,6 +191,7 @@\n         initial_count,\n         jnp.array(1.0, jnp.float32),\n         settings,\n+        [(0, False), (1, False), (1, True), (1, True)],\n     )\n     if fail:\n \n@@ -213,7 +214,7 @@\n     assert all(value is original for value, original in zip(restored, originals, strict=True))\n     if not fail:\n         cache_size = update.jitted_fn._cache_size()\n-        assert cache_size == 4 * (2 if mixed_resolution else 1)\n+        assert cache_size == 3 * (2 if mixed_resolution else 1)\n         training.adam.set_value(state.replace(v=jax.tree.map(jnp.copy, state.v)))\n         for camera, target in views:\n             jax.block_until_ready(\n@@ -286,6 +287,7 @@\n     assert report[\"initial_sparse_gaussians\"] == 129 and report[\"initial_padded_gaussians\"] == 256\n     assert report[\"config\"][\"optimization\"][\"position_lr_max_steps\"] == 30000\n     assert report[\"config\"][\"densify\"][\"densification_interval\"] == 5\n+    assert report[\"jit_cache_size\"] == 3  # SH0 never collects statistics in this schedule.\n     assert len(resets) == 2  # warmup and epoch 10\n     history = report[\"history\"]\n     assert [row[\"step\"] for row in history] == list(range(3, 64, 3))\n@@ -402,6 +404,7 @@\n     assert [row[\"step\"] for row in report[\"history\"]] == [3]\n     assert report[\"config\"][\"optimization\"][\"position_lr_max_steps\"] == 30000\n     assert report[\"config\"][\"model\"][\"sh_degree\"] == 0\n+    assert report[\"jit_cache_size\"] == 1\n     pool = load_gaussians(output)\n     assert pool.xyz.shape == (256, 3) and pool.sh.shape == (256, 1, 3)\n     assert int(pool.n_active) == 256\n",
+  "production_source_sha256": {
+    "src/jaxgs/training/trainer.py": "9bbfe5ff2ea59a8c809185e51f75f7f66e4f7dd7986a2d5f4454882c842c8d24",
+    "tests/test_production_training.py": "17dcb2ce34a9a36a8ae3fe16c916af30628359d7053fe270b2acb4a4db3129ad"
+  },
+  "production_validation": {
+    "config_and_gpu_training_tests": 43,
+    "seconds": 74.12,
+    "includes": [
+      "warmup restores original buffers on success and failure",
+      "mixed-resolution compilation",
+      "deduplicated scheduled variants",
+      "complete epochs, densification and opacity decay",
+      "CLI override and checkpoint checks"
+    ],
+    "performance": "no exclusive startup timing claimed; foreign jimm benchmark active during correctness checks",
+    "command": "XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.02 .venv/bin/python -m pytest -q tests/test_config.py tests/test_production_training.py",
+    "lint": true,
+    "format": true,
+    "diff_check": true,
+    "patch_restores_source": true,
+    "local_links": true
+  },
+  "candidate_patches": {
+    "rows16_warps2": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,8 +45,8 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n-    warps: int = 4\n+    rows: int = 16\n+    warps: int = 2\n     blocks: int = 1\n \n \n",
+    "rows16_warps4": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,7 +45,7 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n+    rows: int = 16\n     warps: int = 4\n     blocks: int = 1\n \n",
+    "rows32_warps2": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -46,7 +46,7 @@\n     \"\"\"\n \n     rows: int = 32\n-    warps: int = 4\n+    warps: int = 2\n     blocks: int = 1\n \n \n",
+    "rows32_warps8": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -46,7 +46,7 @@\n     \"\"\"\n \n     rows: int = 32\n-    warps: int = 4\n+    warps: int = 8\n     blocks: int = 1\n \n \n",
+    "rows64_warps2": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,8 +45,8 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n-    warps: int = 4\n+    rows: int = 64\n+    warps: int = 2\n     blocks: int = 1\n \n \n",
+    "rows64_warps4": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,7 +45,7 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n+    rows: int = 64\n     warps: int = 4\n     blocks: int = 1\n \n",
+    "rows64_warps8": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,8 +45,8 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n-    warps: int = 4\n+    rows: int = 64\n+    warps: int = 8\n     blocks: int = 1\n \n \n",
+    "rows128_warps4": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,7 +45,7 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n+    rows: int = 128\n     warps: int = 4\n     blocks: int = 1\n \n",
+    "single_pass": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -216,7 +216,10 @@\n                         plt.store(out.at[offset], value.astype(out.dtype), mask=mask)\n                 return carry\n \n-            jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n+            if blocks == 1:\n+                update_rows(first_part, 0)\n+            else:\n+                jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n \n     outputs = pl.pallas_call(\n         kernel,\n",
+    "stream_load": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -92,7 +92,7 @@\n def _load(ref, mask):\n     from jax.experimental.pallas import triton as plt\n \n-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)\n+    return plt.load(ref, cache_modifier=\"cg\") if mask is None else plt.load(ref, mask=mask, other=0, cache_modifier=\"cg\")\n \n \n def update_visible_clusters(\n",
+    "stream_store": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -213,7 +213,7 @@\n                     # A leaf returned as loaded keeps its aliased buffer; skipping\n                     # its store also lets Triton drop the unused load.\n                     if value is not block:\n-                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask)\n+                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask, cache_modifier=\"cs\")\n                 return carry\n \n             jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n",
+    "single_stream": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -92,7 +92,7 @@\n def _load(ref, mask):\n     from jax.experimental.pallas import triton as plt\n \n-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)\n+    return plt.load(ref, cache_modifier=\"cg\") if mask is None else plt.load(ref, mask=mask, other=0, cache_modifier=\"cg\")\n \n \n def update_visible_clusters(\n@@ -216,7 +216,10 @@\n                         plt.store(out.at[offset], value.astype(out.dtype), mask=mask)\n                 return carry\n \n-            jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n+            if blocks == 1:\n+                update_rows(first_part, 0)\n+            else:\n+                jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n \n     outputs = pl.pallas_call(\n         kernel,\n",
+    "split4": "--- a/src/jaxgs/kernels/packed_rasterize.py\n+++ b/src/jaxgs/kernels/packed_rasterize.py\n@@ -32,6 +32,8 @@\n _ORDER_BUCKETS = 256\n # Splats per forward loop iteration; divides the 32-splat staging batch.\n _FORWARD_UNROLL = 2\n+_BACKWARD_SPLITS = 4\n+_SPLIT_THRESHOLD = 512\n \n \n @cute.jit\n@@ -393,11 +395,13 @@\n \n \n @cute.kernel\n-def _backward(\n+def _backward_states(\n     params: cute.Tensor,\n     ids: cute.Tensor,\n     offsets: cute.Tensor,\n     order: cute.Tensor,\n+    work: cute.Tensor,\n+    boundaries: cute.Tensor,\n     final_t: cute.Tensor,\n     last: cute.Tensor,\n     contribution_bits: cute.Tensor,\n@@ -420,8 +424,142 @@\n     lane, _, _ = cute.arch.thread_idx()\n     block, _, _ = cute.arch.block_idx()\n     groups = tile_size * tile_height // 64\n-    if block < tiles:\n+    if block < tiles and work[order[block]] >= _SPLIT_THRESHOLD:\n         tile = order[block]\n+        px = tile % tiles_x * tile_size + lane % tile_size\n+        py = tile // tiles_x * tile_height + lane // tile_size * groups * 2\n+        reg = cute.make_rmem_tensor((groups, 4), cutlass.Uint32)\n+        lst = cute.make_rmem_tensor((groups, 2), cutlass.Int32)\n+        reg.fill(0)\n+        start = offsets[tile]\n+        bit_base = start // 32 + tile\n+        bits = cutlass.Uint32(0)\n+        index = start\n+        for i in cutlass.range_constexpr(groups):\n+            t0, t1 = cute.Float32(0), cute.Float32(0)\n+            lst[i, 0], lst[i, 1] = start, start\n+            if px < width and py + i * 2 < height:\n+                p = (py + i * 2) * width + px\n+                t0 = final_t[p] * 128\n+                lst[i, 0] = last[p]\n+            if px < width and py + i * 2 + 1 < height:\n+                p = (py + i * 2 + 1) * width + px\n+                t1 = final_t[p] * 128\n+                lst[i, 1] = last[p]\n+            reg[i, 3] = h.pack(t0, t1)\n+            index = cute.max(index, cute.max(lst[i, 0], lst[i, 1]))\n+        index = cute.arch.warp_redux_sync(index, \"max\") - 1\n+        top = index\n+        chunk_size = ((top - start) // 32 + _BACKWARD_SPLITS) // _BACKWARD_SPLITS\n+        staged, staged_ids = _staging()\n+        point = cute.make_rmem_tensor(8, cutlass.Uint32)\n+        mine = cute.make_rmem_tensor(8, cutlass.Uint32)\n+        mine.fill(0)\n+        my_id = cutlass.Int32(0)\n+        chunk = (top - start) // 32\n+        if top >= start:\n+            bits = cutlass.Uint32(contribution_bits[bit_base + chunk])\n+            # The forward unroll may inspect pairs past every pixel's last index.\n+            bits &= cutlass.Uint32(0xFFFFFFFF) >> (31 - (top - start) % 32)\n+        if (bits & (cutlass.Uint32(1) << lane)) != 0:\n+            my_id = ids[start + chunk * 32 + lane]\n+            _load_params(params, my_id, mine)\n+        while chunk >= chunk_size:\n+            if bits != 0:\n+                cute.arch.sync_warp()\n+                _stage(staged, staged_ids, lane, mine, my_id)\n+                cute.arch.sync_warp()\n+            next_bits = cutlass.Uint32(0)\n+            if chunk > 0:\n+                next_bits = cutlass.Uint32(contribution_bits[bit_base + chunk - 1])\n+            if (next_bits & (cutlass.Uint32(1) << lane)) != 0:\n+                my_id = ids[start + (chunk - 1) * 32 + lane]\n+                _load_params(params, my_id, mine)\n+            while bits != 0:\n+                # Highest set bit preserves reverse compositing and half2 reductions.\n+                k = cutlass.Int32(cute.arch.bfind(bits))\n+                index = start + chunk * 32 + k\n+                g = _unstage(staged, staged_ids, k, point)\n+                dx = h.bits_float(point[0]) - cute.Float32(px)\n+                dy = h.bits_float(point[1]) - cute.Float32(py)\n+                c00 = h.bits_float(point[4])\n+                c01 = h.bits_float(point[5])\n+                c11 = h.bits_float(point[6])\n+                rg, ba = point[3], point[7]\n+                red, green = h.splat(rg), h.splat(rg, True)\n+                blue, opacity = h.splat(ba), h.splat(ba, True)\n+                value, diff = _power(dx, dy, c00, c01, c11)\n+                for i in cutlass.range_constexpr(groups):\n+                    v0 = value\n+                    value += diff\n+                    diff -= c11\n+                    power = h.pack(v0, value)\n+                    value += diff\n+                    diff -= c11\n+                    gaussian = h.exp(power)\n+                    alpha = h.minimum(h.mul(opacity, gaussian), h.pack(255 / 256, 255 / 256))\n+                    mask = h.ge_mask(alpha, h.pack(1 / 256, 1 / 256))\n+                    if index >= lst[i, 0]:\n+                        mask &= cutlass.Uint32(0xFFFF0000)\n+                    if index >= lst[i, 1]:\n+                        mask &= cutlass.Uint32(0x0000FFFF)\n+                    if not collect_stats or cute.arch.vote_any_sync(mask != 0):\n+                        alpha &= mask\n+                        trans = h.minimum(\n+                            h.pack(128, 128),\n+                            h.mul(reg[i, 3], h.reciprocal(h.sub(h.pack(1, 1), alpha))),\n+                        )\n+                        reg[i, 3] = trans\n+                        reg[i, 0] = h.fma(alpha, h.sub(red, reg[i, 0]), reg[i, 0])\n+                        reg[i, 1] = h.fma(alpha, h.sub(green, reg[i, 1]), reg[i, 1])\n+                        reg[i, 2] = h.fma(alpha, h.sub(blue, reg[i, 2]), reg[i, 2])\n+                bits &= ~(cutlass.Uint32(1) << k)\n+            if chunk % chunk_size == 0:\n+                segment = chunk // chunk_size - 1\n+                base = (tile * (_BACKWARD_SPLITS - 1) + segment) * groups * 128\n+                for i in cutlass.range_constexpr(groups):\n+                    for c in cutlass.range_constexpr(4):\n+                        boundaries[base + (i * 4 + c) * 32 + lane] = reg[i, c]\n+            index = start + chunk * 32 - 1\n+            chunk -= 1\n+            bits = next_bits\n+\n+\n+@cute.kernel\n+def _backward(\n+    params: cute.Tensor,\n+    ids: cute.Tensor,\n+    offsets: cute.Tensor,\n+    order: cute.Tensor,\n+    work: cute.Tensor,\n+    boundaries: cute.Tensor,\n+    final_t: cute.Tensor,\n+    last: cute.Tensor,\n+    contribution_bits: cute.Tensor,\n+    image_grad: cute.Tensor,\n+    grad_scale: cute.Tensor,\n+    gmean: cute.Tensor,\n+    gconic: cute.Tensor,\n+    gcolor: cute.Tensor,\n+    gopacity: cute.Tensor,\n+    square_error: cute.Tensor,\n+    width: int,\n+    height: int,\n+    tile_size: cutlass.Constexpr,\n+    tile_height: cutlass.Constexpr,\n+    tiles_x: int,\n+    tiles: int,\n+    collect_stats: cutlass.Constexpr,\n+    symmetric_conic: cutlass.Constexpr,\n+):\n+    lane, _, _ = cute.arch.thread_idx()\n+    block, _, _ = cute.arch.block_idx()\n+    groups = tile_size * tile_height // 64\n+    if block < tiles * _BACKWARD_SPLITS and (\n+        work[order[block // _BACKWARD_SPLITS]] >= _SPLIT_THRESHOLD or block % _BACKWARD_SPLITS == 0\n+    ):\n+        tile = order[block // _BACKWARD_SPLITS]\n+        segment = block % _BACKWARD_SPLITS\n         px = tile % tiles_x * tile_size + lane % tile_size\n         py = tile // tiles_x * tile_height + lane // tile_size * groups * 2\n         reg = cute.make_rmem_tensor((groups, 4), cutlass.Uint32)\n@@ -456,6 +594,18 @@\n                     v1 = image_grad[((py + i * 2 + 1) * width + px) * 3 + c] * inv_scale\n                 grad[i, c] = h.pack(v0, v1)\n         index = cute.arch.warp_redux_sync(index, \"max\") - 1\n+        segments = cutlass.Int32(1)\n+        if work[tile] >= _SPLIT_THRESHOLD:\n+            segments = _BACKWARD_SPLITS\n+        chunks = (index - start) // 32 + 1\n+        chunk_size = (chunks + segments - 1) // segments\n+        if segment < segments - 1:\n+            base = (tile * (_BACKWARD_SPLITS - 1) + segment) * groups * 128\n+            for i in cutlass.range_constexpr(groups):\n+                for c in cutlass.range_constexpr(4):\n+                    reg[i, c] = boundaries[base + (i * 4 + c) * 32 + lane]\n+        index = cute.min(index, start + (segment + 1) * chunk_size * 32 - 1)\n+        segment_start = start + segment * chunk_size * 32\n         top = index\n         address, stride, factor, source = _gradient_target(\n             lane,\n@@ -481,7 +631,7 @@\n         if (bits & (cutlass.Uint32(1) << lane)) != 0:\n             my_id = ids[start + chunk * 32 + lane]\n             _load_params(params, my_id, mine)\n-        while index >= start:\n+        while index >= segment_start:\n             if bits != 0:\n                 cute.arch.sync_warp()\n                 _stage(staged, staged_ids, lane, mine, my_id)\n@@ -733,6 +883,7 @@\n     gopacity: cute.Tensor,\n     square_error: cute.Tensor,\n     order: cute.Tensor,\n+    boundaries: cute.Tensor,\n     *,\n     width: int,\n     height: int,\n@@ -772,11 +923,13 @@\n         _zero_fragments(square_error, capacity).launch(\n             grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream\n         )\n-    _backward(\n+    _backward_states(\n         params,\n         ids,\n         offsets,\n         order,\n+        backward_work,\n+        boundaries,\n         final_t,\n         last,\n         contribution_bits,\n@@ -796,3 +949,30 @@\n         collect_stats,\n         symmetric_conic,\n     ).launch(grid=[tiles, 1, 1], block=[32, 1, 1], stream=stream)\n+\n+    _backward(\n+        params,\n+        ids,\n+        offsets,\n+        order,\n+        backward_work,\n+        boundaries,\n+        final_t,\n+        last,\n+        contribution_bits,\n+        image_grad,\n+        grad_scale,\n+        gmean,\n+        gconic,\n+        gcolor,\n+        gopacity,\n+        square_error,\n+        width,\n+        height,\n+        tile_size,\n+        tile_height,\n+        tiles_x,\n+        tiles,\n+        collect_stats,\n+        symmetric_conic,\n+    ).launch(grid=[tiles * _BACKWARD_SPLITS, 1, 1], block=[32, 1, 1], stream=stream)\n--- a/src/jaxgs/kernels/packed_rasterizer.py\n+++ b/src/jaxgs/kernels/packed_rasterizer.py\n@@ -131,6 +131,9 @@\n             *(jax.ShapeDtypeStruct((value.size,), jnp.float32) for value in fields),\n             jax.ShapeDtypeStruct((config.max_gaussians if collect_stats else 1,), jnp.float32),\n             jax.ShapeDtypeStruct((_tile_count(camera, config),), jnp.int32),\n+            jax.ShapeDtypeStruct(\n+                (_tile_count(camera, config) * 3 * (config.raster_tile_height * config.tile_size // 64) * 128,), jnp.uint32\n+            ),\n         ),\n         use_static_tensors=True,\n         width=camera.width,\n",
+    "sh_fusion": "--- a/src/jaxgs/kernels/projection_backward.py\n+++ b/src/jaxgs/kernels/projection_backward.py\n@@ -37,6 +37,7 @@\n     compacted: cutlass.Constexpr,\n     compact_gradients: cutlass.Constexpr,\n     rgb_only: cutlass.Constexpr,\n+    sh_color_only: cutlass.Constexpr,\n ):\n     tidx, _, _ = cute.arch.thread_idx()\n     bidx, _, _ = cute.arch.block_idx()\n@@ -251,20 +252,31 @@\n             gc = cute.Float32(0.0)\n             if color[gid * 3 + channel] > 0.0:\n                 gc = gcolor[gid * 3 + channel]\n-            sh_cache[0 + channel, tidx] = gc * 0.28209479177387814\n+            if cutlass.const_expr(not sh_color_only):\n+                sh_cache[0 + channel, tidx] = gc * 0.28209479177387814\n+            else:\n+                sh_cache[channel, tidx] = gc\n             if degree >= 1:\n-                sh_cache[3 + channel, tidx] = -gc * 0.4886025119029199 * dy\n-                sh_cache[6 + channel, tidx] = gc * 0.4886025119029199 * dz\n-                sh_cache[9 + channel, tidx] = -gc * 0.4886025119029199 * dx\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[3 + channel, tidx] = -gc * 0.4886025119029199 * dy\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[6 + channel, tidx] = gc * 0.4886025119029199 * dz\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[9 + channel, tidx] = -gc * 0.4886025119029199 * dx\n                 gdx -= gc * 0.4886025119029199 * sh[base + 9]\n                 gdy -= gc * 0.4886025119029199 * sh[base + 3]\n                 gdz += gc * 0.4886025119029199 * sh[base + 6]\n             if degree >= 2:\n-                sh_cache[12 + channel, tidx] = gc * 1.0925484305920792 * dx * dy\n-                sh_cache[15 + channel, tidx] = -gc * 1.0925484305920792 * dy * dz\n-                sh_cache[18 + channel, tidx] = gc * 0.31539156525252005 * (2 * zz - xx - yy)\n-                sh_cache[21 + channel, tidx] = -gc * 1.0925484305920792 * dx * dz\n-                sh_cache[24 + channel, tidx] = gc * 0.5462742152960396 * (xx - yy)\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[12 + channel, tidx] = gc * 1.0925484305920792 * dx * dy\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[15 + channel, tidx] = -gc * 1.0925484305920792 * dy * dz\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[18 + channel, tidx] = gc * 0.31539156525252005 * (2 * zz - xx - yy)\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[21 + channel, tidx] = -gc * 1.0925484305920792 * dx * dz\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[24 + channel, tidx] = gc * 0.5462742152960396 * (xx - yy)\n                 gdx += gc * (\n                     1.0925484305920792 * dy * sh[base + 12]\n                     - 0.6307831305050401 * dx * sh[base + 18]\n@@ -283,15 +295,22 @@\n                     - 1.0925484305920792 * dx * sh[base + 21]\n                 )\n             if degree >= 3:\n-                sh_cache[27 + channel, tidx] = -gc * 0.5900435899266435 * dy * (3 * xx - yy)\n-                sh_cache[30 + channel, tidx] = gc * 2.890611442640554 * dx * dy * dz\n-                sh_cache[33 + channel, tidx] = -gc * 0.4570457994644658 * dy * (4 * zz - xx - yy)\n-                sh_cache[36 + channel, tidx] = (\n-                    gc * 0.3731763325901154 * dz * (2 * zz - 3 * xx - 3 * yy)\n-                )\n-                sh_cache[39 + channel, tidx] = -gc * 0.4570457994644658 * dx * (4 * zz - xx - yy)\n-                sh_cache[42 + channel, tidx] = gc * 1.445305721320277 * dz * (xx - yy)\n-                sh_cache[45 + channel, tidx] = -gc * 0.5900435899266435 * dx * (xx - 3 * yy)\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[27 + channel, tidx] = -gc * 0.5900435899266435 * dy * (3 * xx - yy)\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[30 + channel, tidx] = gc * 2.890611442640554 * dx * dy * dz\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[33 + channel, tidx] = -gc * 0.4570457994644658 * dy * (4 * zz - xx - yy)\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[36 + channel, tidx] = (\n+                        gc * 0.3731763325901154 * dz * (2 * zz - 3 * xx - 3 * yy)\n+                    )\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[39 + channel, tidx] = -gc * 0.4570457994644658 * dx * (4 * zz - xx - yy)\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[42 + channel, tidx] = gc * 1.445305721320277 * dz * (xx - yy)\n+                if cutlass.const_expr(not sh_color_only):\n+                    sh_cache[45 + channel, tidx] = -gc * 0.5900435899266435 * dx * (xx - 3 * yy)\n                 gdx += gc * (\n                     -3.540261539559861 * dx * dy * sh[base + 27]\n                     + 2.890611442640554 * dy * dz * sh[base + 30]\n@@ -414,6 +433,7 @@\n     compacted: cutlass.Constexpr,\n     compact_gradients: cutlass.Constexpr,\n     rgb_only: cutlass.Constexpr,\n+    sh_color_only: cutlass.Constexpr,\n ):\n     block = 128\n     if cutlass.const_expr(compacted and not compact_gradients):\n@@ -456,4 +476,5 @@\n         compacted,\n         compact_gradients,\n         rgb_only,\n+        sh_color_only,\n     ).launch(grid=[(capacity + block - 1) // block, 1, 1], block=[block, 1, 1], stream=stream)\n--- a/src/jaxgs/kernels/projector.py\n+++ b/src/jaxgs/kernels/projector.py\n@@ -248,6 +248,7 @@\n     compact_gradients: bool,\n     rgb_only: bool = False,\n     active_sh_only: bool = False,\n+    sh_color_only: bool = False,\n ) -> ParameterGradients:\n     \"\"\"Compute parameter gradients from projected-field cotangents in CuTe.\"\"\"\n     from cutlass.jax import cutlass_call\n@@ -255,7 +256,7 @@\n     from .projection_backward import launch_projection_backward\n \n     degree = config.sh_degree if active_degree is None else active_degree\n-    sh_gradient_dim = (degree + 1) ** 2 if active_sh_only else config.sh_dim\n+    sh_gradient_dim = 1 if sh_color_only else ((degree + 1) ** 2 if active_sh_only else config.sh_dim)\n     output_shapes = tuple(\n         jax.ShapeDtypeStruct(\n             (config.max_gaussians * sh_gradient_dim * 3 if index == 4 else value.size,),\n@@ -276,6 +277,7 @@\n         compacted=visible_clusters is not None,\n         compact_gradients=compact_gradients,\n         rgb_only=rgb_only,\n+        sh_color_only=sh_color_only,\n     )\n     cluster_arrays = (\n         (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))\n@@ -308,6 +310,7 @@\n     *,\n     rgb_only: bool = False,\n     active_sh_only: bool = False,\n+    sh_color_only: bool = False,\n ) -> tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients]]:\n     \"\"\"CuTe projection and a pullback producing gradients in visible-cluster order.\n \n@@ -365,11 +368,12 @@\n             True,\n             rgb_only,\n             active_sh_only,\n+            sh_color_only,\n         )\n         return tuple(\n             array.reshape(\n-                (config.max_gaussians, (active_degree + 1) ** 2, 3)\n-                if active_sh_only and index == 4\n+                (config.max_gaussians, 1 if sh_color_only else (active_degree + 1) ** 2, 3)\n+                if (active_sh_only or sh_color_only) and index == 4\n                 else value.shape\n             )\n             for index, (array, value) in enumerate(zip(arrays, parameters, strict=True))\n--- a/src/jaxgs/training/optimizer.py\n+++ b/src/jaxgs/training/optimizer.py\n@@ -193,6 +193,7 @@\n     compacted_clusters: VisibleClusters | None = None,\n     transform: optax.GradientTransformationExtraArgs | None = None,\n     program_shape: ProgramShape | None = None,\n+    sh_pullback_center: chex.Array | None = None,\n ) -> tuple[GaussianArrays, AdamState]:\n     \"\"\"Apply an Optax transformation to fixed pool slots, preserving momentum in every SH band.\n \n@@ -209,11 +210,18 @@\n     active_sh_dim = sh_dim if active_degree is None else (active_degree + 1) ** 2\n     if active_degree is not None and (active_degree < 0 or active_sh_dim > sh_dim):\n         raise ValueError(\"active_degree must fit the pool's SH coefficients\")\n-    if active_sh_dim < sh_dim:\n+    if active_sh_dim < sh_dim and sh_pullback_center is None:\n         gradients = (*gradients[:-1], gradients[-1][:, :active_sh_dim])\n     learning_rates = _parameter_learning_rates(\n         pool.sh.shape[1], step, spatial_scale, max_steps, optimization\n     )\n+    transform_kwargs = {\"rates\": learning_rates}\n+    if sh_pullback_center is not None:\n+        from .sh_pullback import with_sh_pullback\n+\n+        degree = int(sh_dim ** 0.5) - 1 if active_degree is None else active_degree\n+        transform = with_sh_pullback(transform, degree)\n+        transform_kwargs[\"sh_center\"] = sh_pullback_center[None, :]\n     parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))\n     if compacted_clusters is not None and compact_gradients and _visible_kernel_available():\n         from ..kernels.visible_optax import update_visible_clusters\n@@ -228,7 +236,7 @@\n             compacted_clusters,\n             cluster_size=cluster_size,\n             program_shape=program_shape or ProgramShape(),\n-            rates=learning_rates,\n+            **transform_kwargs,\n         )\n         return pool.replace(**{name: getattr(parameters, name) for name in PARAMETER_NAMES}), state\n     active_slots = visible & pool.alive\n@@ -248,7 +256,7 @@\n             jnp.take(gradient, compact_indices, axis=0, mode=\"fill\", fill_value=0)\n             for gradient in gradients\n         )\n-    if active_sh_dim < sh_dim:\n+    if active_sh_dim < sh_dim and sh_pullback_center is None:\n         # XLA broadcasts the constant tail in the update fusion. No full-size\n         # compact-gradient gather is needed for unused SH coefficients.\n         gradients = (\n@@ -256,7 +264,7 @@\n             jnp.pad(gradients[-1], ((0, 0), (0, sh_dim - active_sh_dim), (0, 0))),\n         )\n     parameter_updates, state = transform.update(\n-        ParameterArrays(*gradients), state, parameters, active=active_slots, rates=learning_rates\n+        ParameterArrays(*gradients), state, parameters, active=active_slots, **transform_kwargs\n     )\n     parameters = optax.apply_updates(parameters, parameter_updates)\n     return pool.replace(**{name: getattr(parameters, name) for name in PARAMETER_NAMES}), state\n--- /dev/null\n+++ b/src/jaxgs/training/sh_pullback.py\n@@ -0,0 +1,41 @@\n+\"\"\"Reconstruct SH parameter cotangents inside a row-local Optax update.\"\"\"\n+\n+import jax\n+import jax.numpy as jnp\n+import optax\n+\n+\n+def with_sh_pullback(tx, degree):\n+    def update(gradients, state, params, *, sh_center, **kwargs):\n+        delta = params.xyz - sh_center\n+        lane = jax.lax.broadcasted_iota(jnp.int32, delta.shape, 1)\n+        vx, vy, vz = (jnp.sum(jnp.where(lane == i, delta, 0), axis=1, keepdims=True) for i in range(3))\n+        norm = jnp.sqrt(jnp.maximum(vx * vx + vy * vy + vz * vz, 1e-16))\n+        dx, dy, dz = vx / norm, vy / norm, vz / norm\n+        xx, yy, zz = dx * dx, dy * dy, dz * dz\n+        coefficient = jax.lax.broadcasted_iota(jnp.int32, gradients.sh.shape, 1)\n+        gc = jnp.sum(jnp.where(coefficient == 0, gradients.sh, 0), axis=1)\n+        coefficients = [\n+            gc * 0.28209479177387814,\n+            -gc * 0.4886025119029199 * dy,\n+            gc * 0.4886025119029199 * dz,\n+            -gc * 0.4886025119029199 * dx,\n+            gc * 1.0925484305920792 * dx * dy,\n+            -gc * 1.0925484305920792 * dy * dz,\n+            gc * 0.31539156525252005 * (2 * zz - xx - yy),\n+            -gc * 1.0925484305920792 * dx * dz,\n+            gc * 0.5462742152960396 * (xx - yy),\n+            -gc * 0.5900435899266435 * dy * (3 * xx - yy),\n+            gc * 2.890611442640554 * dx * dy * dz,\n+            -gc * 0.4570457994644658 * dy * (4 * zz - xx - yy),\n+            gc * 0.3731763325901154 * dz * (2 * zz - 3 * xx - 3 * yy),\n+            -gc * 0.4570457994644658 * dx * (4 * zz - xx - yy),\n+            gc * 1.445305721320277 * dz * (xx - yy),\n+            -gc * 0.5900435899266435 * dx * (xx - 3 * yy),\n+        ]\n+        active = (degree + 1) ** 2\n+        coefficient = jax.lax.broadcasted_iota(jnp.int32, params.sh.shape, 1)\n+        sh = sum(jnp.where(coefficient == i, value[:, None, :], 0) for i, value in enumerate(coefficients[:active]))\n+        return tx.update(gradients.replace(sh=sh), state, params, **kwargs)\n+\n+    return optax.GradientTransformationExtraArgs(tx.init, update)\n--- a/src/jaxgs/training/step.py\n+++ b/src/jaxgs/training/step.py\n@@ -63,6 +63,7 @@\n         visible_clusters,\n         rgb_only=True,\n         active_sh_only=optimizer in (\"optax\", \"muon\"),\n+        sh_color_only=optimizer in (\"optax\", \"muon\"),\n     )\n     visibility_table = build_sorted_visibility_table_cute(\n         jax.lax.stop_gradient(projected_gaussians), camera, config\n@@ -100,6 +101,7 @@\n             compacted_clusters=visible_clusters,\n             transform=create_muon_transform((active_degree + 1) ** 2) if muon else None,\n             program_shape=MUON_PROGRAM_SHAPE if muon else None,\n+            sh_pullback_center=camera.center,\n         )\n     elif optimizer == \"cute\":\n         pool, state = sparse_adam_update(\n"
+  },
+  "reproduction_validation": {
+    "rows16_warps2": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "rows16_warps4": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "rows32_warps2": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "rows32_warps8": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "rows64_warps2": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "rows64_warps4": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "rows64_warps8": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "rows128_warps4": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "single_pass": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "stream_load": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "stream_store": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "single_stream": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "split4": {
+      "patch_restores_source": true,
+      "python_parses": true
+    },
+    "sh_fusion": {
+      "patch_restores_source": true,
+      "python_parses": true
+    }
+  },
+  "runs": {
+    "baseline_raster.json": [
+      {
+        "view": 0,
+        "collect_stats": false,
+        "pairs": 2999152,
+        "bitmap_bytes": 1032136,
+        "milliseconds": {
+          "forward": [
+            0.23689294524956495,
+            0.2373317995807156,
+            0.23785584489814937
+          ],
+          "backward": [
+            0.5265075003262609,
+            0.5319922702619806,
+            0.5334046244388446
+          ],
+          "forward_loss_backward": [
+            0.8508675446501002,
+            0.8558441599598154,
+            0.8570752653758973
+          ]
+        }
+      },
+      {
+        "view": 0,
+        "collect_stats": true,
+        "pairs": 2999152,
+        "bitmap_bytes": 1032136,
+        "milliseconds": {
+          "forward": [
+            0.338448149850592,
+            0.34002255531959236,
+            0.34143275988753885
+          ],
+          "backward": [
+            0.5821242200909182,
+            0.5868662404827774,
+            0.587895039934665
+          ],
+          "forward_loss_backward": [
+            1.0140969895292073,
+            1.0181565105449408,
+            1.0190315096406266
+          ]
+        }
+      }
+    ],
+    "baseline_raster.monitor.json": {
+      "variant": "baseline",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/raster_timing.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/baseline_raster.json"
+      ],
+      "pid": 3382536,
+      "wall_seconds": 11.308578053023666,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "baseline_states.json": [
+      {
+        "optimizer": "optax",
+        "degree": 0,
+        "collect_stats": false,
+        "loss": 0.49481719732284546,
+        "peak_pairs": 546,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "optax",
+        "degree": 3,
+        "collect_stats": true,
+        "loss": 0.49342450499534607,
+        "peak_pairs": 540,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "muon",
+        "degree": 0,
+        "collect_stats": false,
+        "loss": 0.49669861793518066,
+        "peak_pairs": 546,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "muon",
+        "degree": 3,
+        "collect_stats": true,
+        "loss": 0.49683260917663574,
+        "peak_pairs": 542,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "cute",
+        "degree": 0,
+        "collect_stats": false,
+        "loss": 0.49481719732284546,
+        "peak_pairs": 546,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "cute",
+        "degree": 3,
+        "collect_stats": true,
+        "loss": 0.49342450499534607,
+        "peak_pairs": 540,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      }
+    ],
+    "cache_single_stream.monitor.json": {
+      "variant": "single_stream",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/cache_single_stream.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3384441,
+      "wall_seconds": 7.195809112046845,
+      "returncode": 1,
+      "foreign_processes": []
+    },
+    "cache_stream_load.monitor.json": {
+      "variant": "stream_load",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/cache_stream_load.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3383817,
+      "wall_seconds": 7.19208384596277,
+      "returncode": 1,
+      "foreign_processes": []
+    },
+    "cache_stream_store.monitor.json": {
+      "variant": "stream_store",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/cache_stream_store.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3384188,
+      "wall_seconds": 3.0944430540548638,
+      "returncode": 1,
+      "foreign_processes": []
+    },
+    "frozen.json": {
+      "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+      "gpu": "NVIDIA GeForce RTX 5090",
+      "images": "images_4",
+      "image_shape": [
+        822,
+        1237
+      ],
+      "training_images": 169,
+      "actual_updates": 9971,
+      "initial_sparse_gaussians": 54275,
+      "initial_padded_gaussians": 54400,
+      "target_gaussians": 1000000,
+      "final_gaussians": 975104,
+      "pair_capacity": 8000000,
+      "cluster_size": 128,
+      "tile_size": 16,
+      "tile_height": 8,
+      "warmup_seconds": 13.875864695059136,
+      "image_load_seconds": 0.43755915795918554,
+      "data_loader": "grain.MapDataset, 4 decode threads, 8 prefetched images; GPU uint8 preload",
+      "training_seconds": 12.518267236067913,
+      "densify_until": 41,
+      "seed": 0,
+      "history": [
+        {
+          "epoch": 0,
+          "step": 169,
+          "active": 54400,
+          "loss": 0.18875813484191895,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1137277
+        },
+        {
+          "epoch": 1,
+          "step": 338,
+          "active": 54400,
+          "loss": 0.1475735753774643,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1072778
+        },
+        {
+          "epoch": 2,
+          "step": 507,
+          "active": 54400,
+          "loss": 0.18958473205566406,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 994265
+        },
+        {
+          "epoch": 3,
+          "step": 676,
+          "active": 54400,
+          "loss": 0.2364349067211151,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 946753
+        },
+        {
+          "epoch": 4,
+          "step": 845,
+          "active": 54400,
+          "loss": 0.2094145268201828,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 916996
+        },
+        {
+          "epoch": 5,
+          "step": 1014,
+          "active": 104064,
+          "loss": 0.16519320011138916,
+          "born": 49664,
+          "pruned": 0,
+          "peak_pairs": 904117
+        },
+        {
+          "epoch": 6,
+          "step": 1183,
+          "active": 104064,
+          "loss": 0.1356397122144699,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1310971
+        },
+        {
+          "epoch": 7,
+          "step": 1352,
+          "active": 104064,
+          "loss": 0.18313263356685638,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1193614
+        },
+        {
+          "epoch": 8,
+          "step": 1521,
+          "active": 104064,
+          "loss": 0.20008805394172668,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1156476
+        },
+        {
+          "epoch": 9,
+          "step": 1690,
+          "active": 104064,
+          "loss": 0.22388900816440582,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1130191
+        },
+        {
+          "epoch": 10,
+          "step": 1859,
+          "active": 207488,
+          "loss": 0.16552653908729553,
+          "born": 104064,
+          "pruned": 640,
+          "peak_pairs": 1114962
+        },
+        {
+          "epoch": 11,
+          "step": 2028,
+          "active": 207488,
+          "loss": 0.15692582726478577,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1698913
+        },
+        {
+          "epoch": 12,
+          "step": 2197,
+          "active": 207488,
+          "loss": 0.16505500674247742,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1623429
+        },
+        {
+          "epoch": 13,
+          "step": 2366,
+          "active": 207488,
+          "loss": 0.14823544025421143,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1568943
+        },
+        {
+          "epoch": 14,
+          "step": 2535,
+          "active": 207488,
+          "loss": 0.1488378494977951,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1559325
+        },
+        {
+          "epoch": 15,
+          "step": 2704,
+          "active": 352896,
+          "loss": 0.1372317224740982,
+          "born": 152704,
+          "pruned": 7296,
+          "peak_pairs": 1516479
+        },
+        {
+          "epoch": 16,
+          "step": 2873,
+          "active": 352896,
+          "loss": 0.12632715702056885,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2196263
+        },
+        {
+          "epoch": 17,
+          "step": 3042,
+          "active": 352896,
+          "loss": 0.13051727414131165,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2034914
+        },
+        {
+          "epoch": 18,
+          "step": 3211,
+          "active": 352896,
+          "loss": 0.16386482119560242,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2014361
+        },
+        {
+          "epoch": 19,
+          "step": 3380,
+          "active": 352896,
+          "loss": 0.11795163154602051,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 1980815
+        },
+        {
+          "epoch": 20,
+          "step": 3549,
+          "active": 477440,
+          "loss": 0.12681877613067627,
+          "born": 126976,
+          "pruned": 2432,
+          "peak_pairs": 1972620
+        },
+        {
+          "epoch": 21,
+          "step": 3718,
+          "active": 477440,
+          "loss": 0.12162450700998306,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2408367
+        },
+        {
+          "epoch": 22,
+          "step": 3887,
+          "active": 477440,
+          "loss": 0.13953103125095367,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2335150
+        },
+        {
+          "epoch": 23,
+          "step": 4056,
+          "active": 477440,
+          "loss": 0.14125141501426697,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2332481
+        },
+        {
+          "epoch": 24,
+          "step": 4225,
+          "active": 477440,
+          "loss": 0.10627768933773041,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2299252
+        },
+        {
+          "epoch": 25,
+          "step": 4394,
+          "active": 601856,
+          "loss": 0.12159700691699982,
+          "born": 138112,
+          "pruned": 13696,
+          "peak_pairs": 2273665
+        },
+        {
+          "epoch": 26,
+          "step": 4563,
+          "active": 601856,
+          "loss": 0.17790761590003967,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2769340
+        },
+        {
+          "epoch": 27,
+          "step": 4732,
+          "active": 601856,
+          "loss": 0.1377876102924347,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2637742
+        },
+        {
+          "epoch": 28,
+          "step": 4901,
+          "active": 601856,
+          "loss": 0.10354144871234894,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2595469
+        },
+        {
+          "epoch": 29,
+          "step": 5070,
+          "active": 601856,
+          "loss": 0.11083756387233734,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2573080
+        },
+        {
+          "epoch": 30,
+          "step": 5239,
+          "active": 726144,
+          "loss": 0.21189293265342712,
+          "born": 126208,
+          "pruned": 1920,
+          "peak_pairs": 2566844
+        },
+        {
+          "epoch": 31,
+          "step": 5408,
+          "active": 726144,
+          "loss": 0.13903853297233582,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2936492
+        },
+        {
+          "epoch": 32,
+          "step": 5577,
+          "active": 726144,
+          "loss": 0.11028335988521576,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2872220
+        },
+        {
+          "epoch": 33,
+          "step": 5746,
+          "active": 726144,
+          "loss": 0.1340397596359253,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2853811
+        },
+        {
+          "epoch": 34,
+          "step": 5915,
+          "active": 726144,
+          "loss": 0.11825438588857651,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 2834532
+        },
+        {
+          "epoch": 35,
+          "step": 6084,
+          "active": 850688,
+          "loss": 0.14762957394123077,
+          "born": 143360,
+          "pruned": 18816,
+          "peak_pairs": 2795421
+        },
+        {
+          "epoch": 36,
+          "step": 6253,
+          "active": 850688,
+          "loss": 0.11355659365653992,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3208013
+        },
+        {
+          "epoch": 37,
+          "step": 6422,
+          "active": 850688,
+          "loss": 0.09421005845069885,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3101965
+        },
+        {
+          "epoch": 38,
+          "step": 6591,
+          "active": 850688,
+          "loss": 0.15283207595348358,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3083459
+        },
+        {
+          "epoch": 39,
+          "step": 6760,
+          "active": 850688,
+          "loss": 0.10016834735870361,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3045513
+        },
+        {
+          "epoch": 40,
+          "step": 6929,
+          "active": 975104,
+          "loss": 0.11386406421661377,
+          "born": 126592,
+          "pruned": 2176,
+          "peak_pairs": 3051937
+        },
+        {
+          "epoch": 41,
+          "step": 7098,
+          "active": 975104,
+          "loss": 0.10428596287965775,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3395893
+        },
+        {
+          "epoch": 42,
+          "step": 7267,
+          "active": 975104,
+          "loss": 0.17207303643226624,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3324606
+        },
+        {
+          "epoch": 43,
+          "step": 7436,
+          "active": 975104,
+          "loss": 0.08566075563430786,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3269389
+        },
+        {
+          "epoch": 44,
+          "step": 7605,
+          "active": 975104,
+          "loss": 0.09089440852403641,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3254315
+        },
+        {
+          "epoch": 45,
+          "step": 7774,
+          "active": 975104,
+          "loss": 0.09342926740646362,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3231201
+        },
+        {
+          "epoch": 46,
+          "step": 7943,
+          "active": 975104,
+          "loss": 0.11535108089447021,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3221723
+        },
+        {
+          "epoch": 47,
+          "step": 8112,
+          "active": 975104,
+          "loss": 0.0665680393576622,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3187500
+        },
+        {
+          "epoch": 48,
+          "step": 8281,
+          "active": 975104,
+          "loss": 0.08779242634773254,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3193408
+        },
+        {
+          "epoch": 49,
+          "step": 8450,
+          "active": 975104,
+          "loss": 0.08773045986890793,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3172279
+        },
+        {
+          "epoch": 50,
+          "step": 8619,
+          "active": 975104,
+          "loss": 0.0847691223025322,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3163638
+        },
+        {
+          "epoch": 51,
+          "step": 8788,
+          "active": 975104,
+          "loss": 0.14697404205799103,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3157501
+        },
+        {
+          "epoch": 52,
+          "step": 8957,
+          "active": 975104,
+          "loss": 0.08500932157039642,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3152226
+        },
+        {
+          "epoch": 53,
+          "step": 9126,
+          "active": 975104,
+          "loss": 0.07976022362709045,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3133909
+        },
+        {
+          "epoch": 54,
+          "step": 9295,
+          "active": 975104,
+          "loss": 0.12977366149425507,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3142054
+        },
+        {
+          "epoch": 55,
+          "step": 9464,
+          "active": 975104,
+          "loss": 0.19801297783851624,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3123979
+        },
+        {
+          "epoch": 56,
+          "step": 9633,
+          "active": 975104,
+          "loss": 0.06614663451910019,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3114534
+        },
+        {
+          "epoch": 57,
+          "step": 9802,
+          "active": 975104,
+          "loss": 0.07671619206666946,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3122678
+        },
+        {
+          "epoch": 58,
+          "step": 9971,
+          "active": 975104,
+          "loss": 0.07615863531827927,
+          "born": 0,
+          "pruned": 0,
+          "peak_pairs": 3100776
+        }
+      ],
+      "config": {
+        "model": {
+          "sh_degree": 3,
+          "images": "images_4",
+          "resolution": 1,
+          "white_background": false,
+          "data_device": "cuda",
+          "eval": true
+        },
+        "pipeline": {
+          "cluster_size": 128,
+          "tile_size": [
+            8,
+            16
+          ],
+          "sparse_grad": true,
+          "device_preload": true,
+          "enable_transmitance": false,
+          "enable_depth": false,
+          "input_color_type": "sh"
+        },
+        "optimization": {
+          "iterations": 10000,
+          "position_lr_init": 0.00016,
+          "position_lr_final": 1.6e-06,
+          "position_lr_max_steps": 30000,
+          "feature_lr": 0.0025,
+          "opacity_lr": 0.025,
+          "scaling_lr": 0.005,
+          "rotation_lr": 0.001,
+          "lambda_dssim": 0.2,
+          "reg_weight": 0.0,
+          "learnable_viewproj": false
+        },
+        "densify": {
+          "densification_interval": 5,
+          "densify_from": 3,
+          "densify_until": -1,
+          "opacity_reset_interval": 10,
+          "opacity_reset_mode": "decay",
+          "prune_mode": "weight",
+          "target_primitives": 1000000,
+          "densify_grad_threshold": 0.00015,
+          "opacity_threshold": 0.005,
+          "screen_size_threshold": 128,
+          "percent_dense": 0.01
+        },
+        "runtime": {
+          "max_gaussians": 1000000,
+          "max_visibility_pairs": 8000000,
+          "optimizer": "optax",
+          "seed": 0
+        }
+      },
+      "model": "flax.nnx.Module",
+      "jit": "nnx.jit_partial(graph=False)",
+      "optimizer": "optax",
+      "jit_cache_size": 8,
+      "donation": true,
+      "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+      "remaining_differences": [
+        "JAX world cluster bounds and frustum mask",
+        "fixed-capacity intermediates with valid compact prefixes",
+        "XLA prefix sums and stable sorting",
+        "reduction rounding and partial-tile masks",
+        "analytic SH view-direction gradient for xyz",
+        "independent RNG implementations"
+      ]
+    },
+    "frozen.monitor.json": {
+      "variant": "baseline",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "-m",
+        "jaxgs.training.trainer",
+        "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+        "--config",
+        "/tmp/jaxgs-perf-20261002-oo33boal/bicycle.toml",
+        "--output",
+        "/tmp/jaxgs-perf-20261002-oo33boal/frozen.npz"
+      ],
+      "pid": 3370271,
+      "wall_seconds": 34.95535554597154,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "loop_baseline.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.540377432946116,
+        "seconds": 0.8016209750203416,
+        "milliseconds": 2.004052437550854,
+        "initial_loss": 0.051484495401382446,
+        "final_loss": 0.02080566994845867,
+        "peak_pairs": 3032902,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "loop_baseline.monitor.json": {
+      "variant": "baseline",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/loop_baseline.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3379022,
+      "wall_seconds": 9.843871445045806,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "loop_single_pass.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.543175073922612,
+        "seconds": 0.8022392879938707,
+        "milliseconds": 2.0055982199846767,
+        "initial_loss": 0.0514841303229332,
+        "final_loss": 0.02085796743631363,
+        "peak_pairs": 3032900,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "loop_single_pass.monitor.json": {
+      "variant": "single_pass",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/loop_single_pass.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3379614,
+      "wall_seconds": 9.256857505068183,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "loop_single_stream.monitor.json": {
+      "variant": "single_stream",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/loop_single_stream.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3380877,
+      "wall_seconds": 7.195014266995713,
+      "returncode": 1,
+      "foreign_processes": []
+    },
+    "loop_stream_load.monitor.json": {
+      "variant": "stream_load",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/loop_stream_load.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3380194,
+      "wall_seconds": 7.188837053021416,
+      "returncode": 1,
+      "foreign_processes": []
+    },
+    "loop_stream_store.monitor.json": {
+      "variant": "stream_store",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/loop_stream_store.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3380623,
+      "wall_seconds": 3.093355910037644,
+      "returncode": 1,
+      "foreign_processes": []
+    },
+    "profile.monitor.json": {
+      "variant": "baseline",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/profile_update.json",
+        "--steps",
+        "200",
+        "--profile",
+        "/tmp/jaxgs-perf-20261002-oo33boal/trace"
+      ],
+      "pid": 3371971,
+      "wall_seconds": 9.257429620949551,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "profile_summary.json": {
+      "trace": "/tmp/jaxgs-perf-20261002-oo33boal/trace/plugins/profile/2026_10_02_18_48_03/supernova.trace.json.gz",
+      "steps": 20,
+      "total_ms": 1.9877644500000002,
+      "kernels": [
+        {
+          "kernel": "kernel",
+          "ms": 0.6793295000000001,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__backward_tensorptri32gmemalign256o80000001_tensorptri32gmemalign256o80000001_tensorptri32gmemalign256o80351_tensorptri32gmemalign256o80341_tensorptrf32gmemalign256o1016814_2",
+          "ms": 0.43954305000000005,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__forward_tensorptri32gmemalign256o80000001_tensorptri32gmemalign256o80000001_tensorptri32gmemalign256o80351_tensorptri32gmemalign256o80341_tensorptrf32gmemalign256o30504421_2",
+          "ms": 0.19536780000000004,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__projection_backward_kernel_tensorptrf32gmemalign256o30000001_tensorptrf32gmemalign256o30000001_tensorptrf32gmemalign256o40000001_tensorptrf32gmemalign256o10000001_tensorpt_0",
+          "ms": 0.1830911,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__projection_kernel_tensorptrf32gmemalign256o30000001_tensorptrf32gmemalign256o30000001_tensorptrf32gmemalign256o40000001_tensorptrf32gmemalign256o10000001_tensorptrf32gmema_1",
+          "ms": 0.13124835000000004,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__loss_tensorptrf32gmemalign256o30504421_tensorptri8gmemalign256o30504421_tensorptrf32gmemalign256o20281_tensorptrf32gmemalign256o30504421_tensorptrf32gmemalign256o20281_123_0",
+          "ms": 0.08649685,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__emit_tensorptrf32gmemalign256o20000001_tensorptrf32gmemalign256o40000001_tensorptrf32gmemalign256o10000001_tensorptri32gmemalign256o10000001_tensorptri32gmemalign256o10000_1",
+          "ms": 0.05476114999999999,
+          "launches": 1.0
+        },
+        {
+          "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+          "ms": 0.038348349999999996,
+          "launches": 4.0
+        },
+        {
+          "kernel": "kernel_cutlass__count_tensorptrf32gmemalign256o20000001_tensorptrf32gmemalign256o40000001_tensorptrf32gmemalign256o10000001_tensorptrf32gmemalign256o10000001_tensorptri8gmemalign256o10000_0",
+          "ms": 0.0245982,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__scatter_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o80000001_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o80000001_tensorptri32gmemalign256o10_2",
+          "ms": 0.02298219999999999,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__emit_shared_tensorptrf32gmemalign256o20000001_tensorptrf32gmemalign256o40000001_tensorptrf32gmemalign256o10000001_tensorptri32gmemalign256o10000001_tensorptri32gmemalign25_2",
+          "ms": 0.0176895,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__scatter_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o80000001_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o80000001_tensorptri32gmemalign256o10_5",
+          "ms": 0.015782050000000002,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__zero_cluster_grads_tensorptri32gmemalign256o78131_tensorptri32gmemalign256o10_tensorptrf32gmemalign256o20000001_tensorptrf32gmemalign256o40000001_tensorptrf32gmemalign256o_1",
+          "ms": 0.009873449999999999,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__pack_tensorptrf32gmemalign256o20000001_tensorptrf32gmemalign256o40000001_tensorptrf32gmemalign256o30000001_tensorptrf32gmemalign256o10000001_tensorptri8gmemalign256o100000_1",
+          "ms": 0.0082015,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__gather_counts_tensorptri32gmemalign256o10000001_tensorptri32gmemalign256o10000001_tensorptri32gmemalign256o10000001_tensorptri32gmemalign256o9771_1000000_0",
+          "ms": 0.00536305,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__histogram_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o10_tensorptri32gmemalign256o5000961_8000000_3907_0_7_0",
+          "ms": 0.005103949999999999,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__histogram_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o10_tensorptri32gmemalign256o5000961_8000000_3907_7_7_3",
+          "ms": 0.0049793,
+          "launches": 1.0
+        },
+        {
+          "kernel": "Memset 3",
+          "ms": 0.004579199999999994,
+          "launches": 6.0
+        },
+        {
+          "kernel": "kernel_cutlass__tile_ranges_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o10_tensorptri32gmemalign256o80351_8000000_8034_0",
+          "ms": 0.00444155,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__order_tiles_tensorptri32gmemalign256o80341_tensorptri32gmemalign256o80341_8034_False_0",
+          "ms": 0.0041551,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__order_tiles_tensorptri32gmemalign256o80351_tensorptri32gmemalign256o80341_8034_True_0",
+          "ms": 0.004076850000000001,
+          "launches": 1.0
+        },
+        {
+          "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+          "ms": 0.004065599999999999,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__scan_blocks_tensorptri32gmemalign256o5000961_tensorptri32gmemalign256o10_tensorptri32gmemalign256o1281_8000000_3907_1",
+          "ms": 0.0029294,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__scan_blocks_tensorptri32gmemalign256o5000961_tensorptri32gmemalign256o10_tensorptri32gmemalign256o1281_8000000_3907_4",
+          "ms": 0.0029087,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__scan_counts_tensorptri32gmemalign256o10000001_tensorptri32gmemalign256o9771_tensorptri32gmemalign256o10000001_1000000_1",
+          "ms": 0.0027791,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__clear_visible_tensorptri8gmemalign256o10000001_1000000_0",
+          "ms": 0.0022208499999999995,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_reduce_window_fusion",
+          "ms": 0.00222075,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_convert_fusion_1",
+          "ms": 0.00194245,
+          "launches": 1.0
+        },
+        {
+          "kernel": "wrapped_iota",
+          "ms": 0.0017969000000000008,
+          "launches": 1.0
+        },
+        {
+          "kernel": "input_concatenate_fusion_1",
+          "ms": 0.0016815500000000006,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_reduce_window_fusion_1",
+          "ms": 0.0015887000000000006,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_convert_fusion",
+          "ms": 0.0014943000000000005,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_slice_fusion",
+          "ms": 0.0014016000000000005,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_and_convert_fusion",
+          "ms": 0.0013903500000000005,
+          "launches": 1.0
+        },
+        {
+          "kernel": "gemm_fusion_dot_general_7",
+          "ms": 0.0013680500000000004,
+          "launches": 1.0
+        },
+        {
+          "kernel": "gemm_fusion_dot_general_6",
+          "ms": 0.0013440000000000004,
+          "launches": 1.0
+        },
+        {
+          "kernel": "input_reduce_fusion_1",
+          "ms": 0.0011105000000000004,
+          "launches": 1.0
+        },
+        {
+          "kernel": "input_concatenate_fusion",
+          "ms": 0.0011007000000000002,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_reduce_fusion",
+          "ms": 0.0010959000000000006,
+          "launches": 1.0
+        },
+        {
+          "kernel": "input_reduce_fusion",
+          "ms": 0.0010800000000000004,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_concatenate_fusion",
+          "ms": 0.0010703500000000003,
+          "launches": 1.0
+        },
+        {
+          "kernel": "memcpy32_post",
+          "ms": 0.0010415500000000002,
+          "launches": 1.0
+        },
+        {
+          "kernel": "MemcpyD2D",
+          "ms": 0.0010240000000000006,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_maximum_fusion",
+          "ms": 0.0009615500000000005,
+          "launches": 1.0
+        },
+        {
+          "kernel": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+          "ms": 0.0009536000000000003,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_slice_fusion_1",
+          "ms": 0.0009440000000000005,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_multiply_fusion",
+          "ms": 0.0009168000000000005,
+          "launches": 1.0
+        },
+        {
+          "kernel": "wrapped_dot",
+          "ms": 0.0008831000000000003,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__scatter_tensorptri32gmemalign256o78131_tensorptri32gmemalign256o78131_tensorptri32gmemalign256o78131_7813_0",
+          "ms": 0.0008815500000000004,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_or_fusion",
+          "ms": 0.0008783000000000003,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_maximum_slice_fusion",
+          "ms": 0.0008751500000000003,
+          "launches": 1.0
+        },
+        {
+          "kernel": "loop_multiply_fusion_1",
+          "ms": 0.0007088000000000002,
+          "launches": 1.0
+        },
+        {
+          "kernel": "kernel_cutlass__reset_queue_tensorptri16gmemalign256o80000001_tensorptri32gmemalign256o80000001_tensorptri32gmemalign256o10_8000000_8034_False_0",
+          "ms": 0.0005775000000000001,
+          "launches": 1.0
+        },
+        {
+          "kernel": "MemcpyH2D",
+          "ms": 0.0005167500000000002,
+          "launches": 1.0
+        }
+      ]
+    },
+    "profile_update.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 200,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.573531766072847,
+        "seconds": 0.4004318189108744,
+        "milliseconds": 2.002159094554372,
+        "initial_loss": 0.05147283524274826,
+        "final_loss": 0.024447420611977577,
+        "peak_pairs": 3032903,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "sh_fusion_pilot.monitor.json": {
+      "variant": "sh_fusion",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/sh_fusion_pilot.json",
+        "--steps",
+        "400",
+        "--profile",
+        "/tmp/jaxgs-perf-20261002-oo33boal/sh_fusion_trace"
+      ],
+      "pid": 3386904,
+      "wall_seconds": 7.725664195022546,
+      "returncode": 1,
+      "foreign_processes": []
+    },
+    "sh_fusion_state_comparison.json": [
+      {
+        "key": "optax_sh0_statsFalse/xyz",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/log_scale",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/rotation",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/opacity",
+        "equal": false,
+        "max_abs": 7.450580596923828e-09,
+        "relative_l2": 9.21286799797791e-10
+      },
+      {
+        "key": "optax_sh0_statsFalse/sh",
+        "equal": false,
+        "max_abs": 2.9802322387695312e-08,
+        "relative_l2": 4.323795000417039e-09
+      },
+      {
+        "key": "optax_sh0_statsFalse/fragments",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/adam_step",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/alive",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/free_mask",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/n_active",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/m_xyz",
+        "equal": false,
+        "max_abs": 5.684341886080802e-14,
+        "relative_l2": 4.138829046896536e-12
+      },
+      {
+        "key": "optax_sh0_statsFalse/m_log_scale",
+        "equal": false,
+        "max_abs": 5.773159728050814e-15,
+        "relative_l2": 1.4073355643290133e-12
+      },
+      {
+        "key": "optax_sh0_statsFalse/m_rotation",
+        "equal": false,
+        "max_abs": 5.684341886080802e-14,
+        "relative_l2": 2.2057617054585158e-11
+      },
+      {
+        "key": "optax_sh0_statsFalse/m_opacity",
+        "equal": false,
+        "max_abs": 1.4210854715202004e-14,
+        "relative_l2": 7.493930751329868e-12
+      },
+      {
+        "key": "optax_sh0_statsFalse/m_sh",
+        "equal": false,
+        "max_abs": 4.547473508864641e-13,
+        "relative_l2": 3.115141407592451e-10
+      },
+      {
+        "key": "optax_sh0_statsFalse/v_xyz",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/v_log_scale",
+        "equal": false,
+        "max_abs": 1.3234889800848443e-23,
+        "relative_l2": 7.761371719450139e-17
+      },
+      {
+        "key": "optax_sh0_statsFalse/v_rotation",
+        "equal": false,
+        "max_abs": 3.3881317890172014e-21,
+        "relative_l2": 1.012737531096437e-13
+      },
+      {
+        "key": "optax_sh0_statsFalse/v_opacity",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/v_sh",
+        "equal": false,
+        "max_abs": 1.0842021724855044e-19,
+        "relative_l2": 1.0567332661416607e-11
+      },
+      {
+        "key": "optax_sh0_statsFalse/loss",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/overflow",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh0_statsFalse/peak_pairs",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/xyz",
+        "equal": false,
+        "max_abs": 1.4901161193847656e-08,
+        "relative_l2": 5.5863495695798924e-11
+      },
+      {
+        "key": "optax_sh3_statsTrue/log_scale",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/rotation",
+        "equal": false,
+        "max_abs": 4.6566128730773926e-09,
+        "relative_l2": 4.380917447261818e-10
+      },
+      {
+        "key": "optax_sh3_statsTrue/opacity",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/sh",
+        "equal": false,
+        "max_abs": 2.9802322387695312e-08,
+        "relative_l2": 1.8814551234094425e-08
+      },
+      {
+        "key": "optax_sh3_statsTrue/fragments",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/adam_step",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/alive",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/free_mask",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/n_active",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/m_xyz",
+        "equal": false,
+        "max_abs": 5.820766091346741e-11,
+        "relative_l2": 4.1263092285461255e-09
+      },
+      {
+        "key": "optax_sh3_statsTrue/m_log_scale",
+        "equal": false,
+        "max_abs": 2.9103830456733704e-11,
+        "relative_l2": 5.171127568761509e-09
+      },
+      {
+        "key": "optax_sh3_statsTrue/m_rotation",
+        "equal": false,
+        "max_abs": 1.8189894035458565e-12,
+        "relative_l2": 9.320325588098314e-10
+      },
+      {
+        "key": "optax_sh3_statsTrue/m_opacity",
+        "equal": false,
+        "max_abs": 1.8189894035458565e-12,
+        "relative_l2": 9.65979206852782e-10
+      },
+      {
+        "key": "optax_sh3_statsTrue/m_sh",
+        "equal": false,
+        "max_abs": 1.1641532182693481e-10,
+        "relative_l2": 8.373736639915931e-08
+      },
+      {
+        "key": "optax_sh3_statsTrue/v_xyz",
+        "equal": false,
+        "max_abs": 2.220446049250313e-16,
+        "relative_l2": 2.4600670418518927e-10
+      },
+      {
+        "key": "optax_sh3_statsTrue/v_log_scale",
+        "equal": false,
+        "max_abs": 4.440892098500626e-16,
+        "relative_l2": 2.4099152422083094e-09
+      },
+      {
+        "key": "optax_sh3_statsTrue/v_rotation",
+        "equal": false,
+        "max_abs": 6.938893903907228e-18,
+        "relative_l2": 1.8599489066222143e-10
+      },
+      {
+        "key": "optax_sh3_statsTrue/v_opacity",
+        "equal": false,
+        "max_abs": 6.617444900424222e-24,
+        "relative_l2": 1.6492468057318754e-16
+      },
+      {
+        "key": "optax_sh3_statsTrue/v_sh",
+        "equal": false,
+        "max_abs": 2.6645352591003757e-15,
+        "relative_l2": 1.294193872684675e-07
+      },
+      {
+        "key": "optax_sh3_statsTrue/loss",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/overflow",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "optax_sh3_statsTrue/peak_pairs",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/xyz",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/log_scale",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/rotation",
+        "equal": false,
+        "max_abs": 9.313225746154785e-09,
+        "relative_l2": 1.1236483503777542e-09
+      },
+      {
+        "key": "muon_sh0_statsFalse/opacity",
+        "equal": false,
+        "max_abs": 3.725290298461914e-08,
+        "relative_l2": 4.59934507679066e-09
+      },
+      {
+        "key": "muon_sh0_statsFalse/sh",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/fragments",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/adam_step",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/alive",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/free_mask",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/n_active",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/m_xyz",
+        "equal": false,
+        "max_abs": 7.275957614183426e-12,
+        "relative_l2": 5.36125111981117e-10
+      },
+      {
+        "key": "muon_sh0_statsFalse/m_log_scale",
+        "equal": false,
+        "max_abs": 1.1368683772161603e-13,
+        "relative_l2": 2.12082716434799e-11
+      },
+      {
+        "key": "muon_sh0_statsFalse/m_rotation",
+        "equal": false,
+        "max_abs": 4.547473508864641e-13,
+        "relative_l2": 2.7941257029681633e-10
+      },
+      {
+        "key": "muon_sh0_statsFalse/m_opacity",
+        "equal": false,
+        "max_abs": 1.4210854715202004e-14,
+        "relative_l2": 7.565544626769028e-12
+      },
+      {
+        "key": "muon_sh0_statsFalse/m_sh",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/v_xyz",
+        "equal": false,
+        "max_abs": 2.7755575615628914e-17,
+        "relative_l2": 3.095168377138986e-11
+      },
+      {
+        "key": "muon_sh0_statsFalse/v_log_scale",
+        "equal": false,
+        "max_abs": 6.776263578034403e-21,
+        "relative_l2": 4.183618604191029e-14
+      },
+      {
+        "key": "muon_sh0_statsFalse/v_rotation",
+        "equal": false,
+        "max_abs": 3.2526065174565133e-19,
+        "relative_l2": 9.628733375988849e-12
+      },
+      {
+        "key": "muon_sh0_statsFalse/v_opacity",
+        "equal": false,
+        "max_abs": 1.0587911840678754e-22,
+        "relative_l2": 2.6971081929386777e-15
+      },
+      {
+        "key": "muon_sh0_statsFalse/v_sh",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/loss",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/overflow",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh0_statsFalse/peak_pairs",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/xyz",
+        "equal": false,
+        "max_abs": 1.4901161193847656e-08,
+        "relative_l2": 5.5972507917507664e-11
+      },
+      {
+        "key": "muon_sh3_statsTrue/log_scale",
+        "equal": false,
+        "max_abs": 1.1920928955078125e-07,
+        "relative_l2": 3.440757608559321e-09
+      },
+      {
+        "key": "muon_sh3_statsTrue/rotation",
+        "equal": false,
+        "max_abs": 1.4901161193847656e-08,
+        "relative_l2": 2.1119948954114527e-09
+      },
+      {
+        "key": "muon_sh3_statsTrue/opacity",
+        "equal": false,
+        "max_abs": 5.960464477539063e-08,
+        "relative_l2": 6.557595199997529e-09
+      },
+      {
+        "key": "muon_sh3_statsTrue/sh",
+        "equal": false,
+        "max_abs": 5.960464477539063e-08,
+        "relative_l2": 6.67073579282379e-08
+      },
+      {
+        "key": "muon_sh3_statsTrue/fragments",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/adam_step",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/alive",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/free_mask",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/n_active",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/m_xyz",
+        "equal": false,
+        "max_abs": 2.3283064365386963e-10,
+        "relative_l2": 1.8482636387351602e-08
+      },
+      {
+        "key": "muon_sh3_statsTrue/m_log_scale",
+        "equal": false,
+        "max_abs": 2.2737367544323206e-13,
+        "relative_l2": 4.4267433493229566e-11
+      },
+      {
+        "key": "muon_sh3_statsTrue/m_rotation",
+        "equal": false,
+        "max_abs": 1.8189894035458565e-12,
+        "relative_l2": 1.0392940590331968e-09
+      },
+      {
+        "key": "muon_sh3_statsTrue/m_opacity",
+        "equal": false,
+        "max_abs": 5.684341886080802e-14,
+        "relative_l2": 3.0625422878662585e-11
+      },
+      {
+        "key": "muon_sh3_statsTrue/m_sh",
+        "equal": false,
+        "max_abs": 1.1641532182693481e-10,
+        "relative_l2": 9.166941262366103e-08
+      },
+      {
+        "key": "muon_sh3_statsTrue/v_xyz",
+        "equal": false,
+        "max_abs": 7.105427357601002e-15,
+        "relative_l2": 8.170881671147616e-09
+      },
+      {
+        "key": "muon_sh3_statsTrue/v_log_scale",
+        "equal": false,
+        "max_abs": 1.734723475976807e-18,
+        "relative_l2": 9.951676994844202e-12
+      },
+      {
+        "key": "muon_sh3_statsTrue/v_rotation",
+        "equal": false,
+        "max_abs": 1.3877787807814457e-17,
+        "relative_l2": 3.7385198782904766e-10
+      },
+      {
+        "key": "muon_sh3_statsTrue/v_opacity",
+        "equal": false,
+        "max_abs": 6.617444900424222e-24,
+        "relative_l2": 1.7119206868464573e-16
+      },
+      {
+        "key": "muon_sh3_statsTrue/v_sh",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/loss",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/overflow",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "muon_sh3_statsTrue/peak_pairs",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/xyz",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/log_scale",
+        "equal": false,
+        "max_abs": 1.1920928955078125e-07,
+        "relative_l2": 4.8992553373790206e-09
+      },
+      {
+        "key": "cute_sh0_statsFalse/rotation",
+        "equal": false,
+        "max_abs": 1.4901161193847656e-08,
+        "relative_l2": 1.5490455687400617e-09
+      },
+      {
+        "key": "cute_sh0_statsFalse/opacity",
+        "equal": false,
+        "max_abs": 1.1920928955078125e-07,
+        "relative_l2": 1.7673345161818183e-08
+      },
+      {
+        "key": "cute_sh0_statsFalse/sh",
+        "equal": false,
+        "max_abs": 1.4901161193847656e-08,
+        "relative_l2": 2.304251531170869e-09
+      },
+      {
+        "key": "cute_sh0_statsFalse/fragments",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/adam_step",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/alive",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/free_mask",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/n_active",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/m_xyz",
+        "equal": false,
+        "max_abs": 2.2737367544323206e-13,
+        "relative_l2": 2.8749225746939986e-11
+      },
+      {
+        "key": "cute_sh0_statsFalse/m_log_scale",
+        "equal": false,
+        "max_abs": 3.637978807091713e-12,
+        "relative_l2": 6.583116111471659e-10
+      },
+      {
+        "key": "cute_sh0_statsFalse/m_rotation",
+        "equal": false,
+        "max_abs": 3.637978807091713e-12,
+        "relative_l2": 1.3360939672172376e-09
+      },
+      {
+        "key": "cute_sh0_statsFalse/m_opacity",
+        "equal": false,
+        "max_abs": 3.637978807091713e-12,
+        "relative_l2": 1.9184462718807877e-09
+      },
+      {
+        "key": "cute_sh0_statsFalse/m_sh",
+        "equal": false,
+        "max_abs": 4.547473508864641e-13,
+        "relative_l2": 3.572159944671703e-10
+      },
+      {
+        "key": "cute_sh0_statsFalse/v_xyz",
+        "equal": false,
+        "max_abs": 1.3877787807814457e-17,
+        "relative_l2": 1.8349897728392117e-11
+      },
+      {
+        "key": "cute_sh0_statsFalse/v_log_scale",
+        "equal": false,
+        "max_abs": 2.168404344971009e-19,
+        "relative_l2": 1.2618059586864249e-12
+      },
+      {
+        "key": "cute_sh0_statsFalse/v_rotation",
+        "equal": false,
+        "max_abs": 1.1102230246251565e-16,
+        "relative_l2": 3.218701996925108e-09
+      },
+      {
+        "key": "cute_sh0_statsFalse/v_opacity",
+        "equal": false,
+        "max_abs": 1.3877787807814457e-17,
+        "relative_l2": 3.4537852522055856e-10
+      },
+      {
+        "key": "cute_sh0_statsFalse/v_sh",
+        "equal": false,
+        "max_abs": 1.734723475976807e-18,
+        "relative_l2": 1.9022125630884956e-10
+      },
+      {
+        "key": "cute_sh0_statsFalse/loss",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/overflow",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh0_statsFalse/peak_pairs",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/xyz",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/log_scale",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/rotation",
+        "equal": false,
+        "max_abs": 5.960464477539063e-08,
+        "relative_l2": 5.835671463430139e-09
+      },
+      {
+        "key": "cute_sh3_statsTrue/opacity",
+        "equal": false,
+        "max_abs": 1.1920928955078125e-07,
+        "relative_l2": 1.3489890778488978e-08
+      },
+      {
+        "key": "cute_sh3_statsTrue/sh",
+        "equal": false,
+        "max_abs": 1.4901161193847656e-08,
+        "relative_l2": 3.280254328889773e-09
+      },
+      {
+        "key": "cute_sh3_statsTrue/fragments",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/adam_step",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/alive",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/free_mask",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/n_active",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/m_xyz",
+        "equal": false,
+        "max_abs": 1.4551915228366852e-11,
+        "relative_l2": 1.1583283811348458e-09
+      },
+      {
+        "key": "cute_sh3_statsTrue/m_log_scale",
+        "equal": false,
+        "max_abs": 3.637978807091713e-12,
+        "relative_l2": 6.460977127604706e-10
+      },
+      {
+        "key": "cute_sh3_statsTrue/m_rotation",
+        "equal": false,
+        "max_abs": 7.275957614183426e-12,
+        "relative_l2": 3.3392742327703807e-09
+      },
+      {
+        "key": "cute_sh3_statsTrue/m_opacity",
+        "equal": false,
+        "max_abs": 1.4210854715202004e-14,
+        "relative_l2": 7.557989500173844e-12
+      },
+      {
+        "key": "cute_sh3_statsTrue/m_sh",
+        "equal": false,
+        "max_abs": 9.094947017729282e-13,
+        "relative_l2": 3.083168141219323e-10
+      },
+      {
+        "key": "cute_sh3_statsTrue/v_xyz",
+        "equal": false,
+        "max_abs": 1.7763568394002505e-15,
+        "relative_l2": 1.7604070849269162e-09
+      },
+      {
+        "key": "cute_sh3_statsTrue/v_log_scale",
+        "equal": false,
+        "max_abs": 1.3877787807814457e-17,
+        "relative_l2": 7.516355422433647e-11
+      },
+      {
+        "key": "cute_sh3_statsTrue/v_rotation",
+        "equal": false,
+        "max_abs": 2.7755575615628914e-17,
+        "relative_l2": 7.28836088199991e-10
+      },
+      {
+        "key": "cute_sh3_statsTrue/v_opacity",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/v_sh",
+        "equal": false,
+        "max_abs": 3.469446951953614e-18,
+        "relative_l2": 5.3195154577418876e-11
+      },
+      {
+        "key": "cute_sh3_statsTrue/loss",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/overflow",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      },
+      {
+        "key": "cute_sh3_statsTrue/peak_pairs",
+        "equal": true,
+        "max_abs": 0.0,
+        "relative_l2": 0.0
+      }
+    ],
+    "sh_fusion_states.json": [
+      {
+        "optimizer": "optax",
+        "degree": 0,
+        "collect_stats": false,
+        "loss": 0.49481719732284546,
+        "peak_pairs": 546,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "optax",
+        "degree": 3,
+        "collect_stats": true,
+        "loss": 0.49342450499534607,
+        "peak_pairs": 540,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "muon",
+        "degree": 0,
+        "collect_stats": false,
+        "loss": 0.49669861793518066,
+        "peak_pairs": 546,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "muon",
+        "degree": 3,
+        "collect_stats": true,
+        "loss": 0.49683260917663574,
+        "peak_pairs": 542,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "cute",
+        "degree": 0,
+        "collect_stats": false,
+        "loss": 0.49481719732284546,
+        "peak_pairs": 546,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      },
+      {
+        "optimizer": "cute",
+        "degree": 3,
+        "collect_stats": true,
+        "loss": 0.49342450499534607,
+        "peak_pairs": 540,
+        "input_overflow_preserved": true,
+        "donated_buffers": 15,
+        "addresses_preserved": true,
+        "cache_size": 1,
+        "updates": 8
+      }
+    ],
+    "shape_baseline.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.561278356006369,
+        "seconds": 0.7998460989911109,
+        "milliseconds": 1.9996152474777773,
+        "initial_loss": 0.051482610404491425,
+        "final_loss": 0.02086114138364792,
+        "peak_pairs": 3032900,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_baseline.monitor.json": {
+      "variant": "baseline",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_baseline.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3373496,
+      "wall_seconds": 9.259165756986476,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows128_warps4.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 6.066555908997543,
+        "seconds": 0.9978323759278283,
+        "milliseconds": 2.4945809398195706,
+        "initial_loss": 0.05148528516292572,
+        "final_loss": 0.020838921889662743,
+        "peak_pairs": 3032901,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows128_warps4.monitor.json": {
+      "variant": "rows128_warps4",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows128_warps4.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3378245,
+      "wall_seconds": 10.274820260936394,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows16_warps2.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.542905211914331,
+        "seconds": 0.8011373339686543,
+        "milliseconds": 2.0028433349216357,
+        "initial_loss": 0.05147832632064819,
+        "final_loss": 0.020803986117243767,
+        "peak_pairs": 3032898,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows16_warps2.monitor.json": {
+      "variant": "rows16_warps2",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows16_warps2.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3374093,
+      "wall_seconds": 9.250980193959549,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows16_warps4.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.498338414938189,
+        "seconds": 0.8020273180445656,
+        "milliseconds": 2.005068295111414,
+        "initial_loss": 0.05147729441523552,
+        "final_loss": 0.020800629630684853,
+        "peak_pairs": 3032903,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows16_warps4.monitor.json": {
+      "variant": "rows16_warps4",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows16_warps4.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3374673,
+      "wall_seconds": 9.254093006020412,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows32_warps2.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.717551589012146,
+        "seconds": 0.8017944879829884,
+        "milliseconds": 2.004486219957471,
+        "initial_loss": 0.05148281157016754,
+        "final_loss": 0.02081223763525486,
+        "peak_pairs": 3032902,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows32_warps2.monitor.json": {
+      "variant": "rows32_warps2",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows32_warps2.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3375251,
+      "wall_seconds": 9.784119869000278,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows32_warps8.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.503334513050504,
+        "seconds": 0.8014848819002509,
+        "milliseconds": 2.0037122047506273,
+        "initial_loss": 0.05148111283779144,
+        "final_loss": 0.020845286548137665,
+        "peak_pairs": 3032900,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows32_warps8.monitor.json": {
+      "variant": "rows32_warps8",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows32_warps8.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3375836,
+      "wall_seconds": 9.25443355704192,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows64_warps2.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 6.202055649948306,
+        "seconds": 1.0859037779737264,
+        "milliseconds": 2.714759444934316,
+        "initial_loss": 0.05147651582956314,
+        "final_loss": 0.020803475752472878,
+        "peak_pairs": 3032904,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows64_warps2.monitor.json": {
+      "variant": "rows64_warps2",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows64_warps2.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3376423,
+      "wall_seconds": 10.298410226940177,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows64_warps4.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.802816058974713,
+        "seconds": 0.817611907958053,
+        "milliseconds": 2.0440297698951326,
+        "initial_loss": 0.051475901156663895,
+        "final_loss": 0.020838391035795212,
+        "peak_pairs": 3032900,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows64_warps4.monitor.json": {
+      "variant": "rows64_warps4",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows64_warps4.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3377024,
+      "wall_seconds": 9.768580944975838,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_rows64_warps8.json": [
+      {
+        "view": 0,
+        "image": "_DSC8679.JPG",
+        "collect_stats": false,
+        "capacity": 1000000,
+        "active": 975104,
+        "steps": 400,
+        "warmup_steps": 30,
+        "warmup_seconds": 5.550778214936145,
+        "seconds": 0.799941296922043,
+        "milliseconds": 1.9998532423051074,
+        "initial_loss": 0.051481641829013824,
+        "final_loss": 0.0208333358168602,
+        "peak_pairs": 3032903,
+        "donated_buffers": 15,
+        "jit_cache_size": 1
+      }
+    ],
+    "shape_rows64_warps8.monitor.json": {
+      "variant": "rows64_warps8",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/fixed_update.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/shape_rows64_warps8.json",
+        "--steps",
+        "400"
+      ],
+      "pid": 3377615,
+      "wall_seconds": 9.249468515976332,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "shape_variants.json": [
+      "baseline",
+      "rows16_warps2",
+      "rows16_warps4",
+      "rows32_warps2",
+      "rows32_warps8",
+      "rows64_warps2",
+      "rows64_warps4",
+      "rows64_warps8",
+      "rows128_warps4"
+    ],
+    "split4_correctness.json": {
+      "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+      "model": "Frozen default 10k baseline; 975104 active points",
+      "sparse_count": 54275,
+      "padded_count": 975104,
+      "config": {
+        "capacity": 1000000,
+        "cluster_size": 128,
+        "tile_width": 16,
+        "tile_height": 8,
+        "pair_capacity": 8000000
+      },
+      "results": [
+        {
+          "view": 0,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": false,
+          "pairs": 2999152,
+          "loss": 0.12597322463989258,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 6.497653959820157e-08,
+              "max_abs": 7.275957614183426e-12
+            },
+            "conic": {
+              "relative_l2": 7.301409050081452e-07,
+              "max_abs": 0.000152587890625
+            },
+            "color": {
+              "relative_l2": 4.944349525076883e-07,
+              "max_abs": 8.149072527885437e-10
+            },
+            "alpha": {
+              "relative_l2": 3.892855275344476e-07,
+              "max_abs": 2.2351741790771484e-08
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        },
+        {
+          "view": 0,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": true,
+          "pairs": 2999152,
+          "loss": 0.12597322463989258,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 6.625232471830967e-08,
+              "max_abs": 7.275957614183426e-12
+            },
+            "conic": {
+              "relative_l2": 3.2283405323441565e-07,
+              "max_abs": 4.57763671875e-05
+            },
+            "color": {
+              "relative_l2": 7.753553247918463e-07,
+              "max_abs": 1.7462298274040222e-09
+            },
+            "alpha": {
+              "relative_l2": 4.5383262551961657e-07,
+              "max_abs": 2.7008354663848877e-08
+            },
+            "fragment_statistics": {
+              "relative_l2": 1.0239741746500332e-08
+            },
+            "squares": {
+              "relative_l2": 1.9437823367607036e-06
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        },
+        {
+          "view": 48,
+          "image": "_DSC8727.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": false,
+          "pairs": 2744077,
+          "loss": 0.08294649422168732,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 8.687887393319763e-08,
+              "max_abs": 1.4551915228366852e-11
+            },
+            "conic": {
+              "relative_l2": 2.7116089760212806e-07,
+              "max_abs": 7.62939453125e-06
+            },
+            "color": {
+              "relative_l2": 1.665894679298091e-07,
+              "max_abs": 1.0186340659856796e-10
+            },
+            "alpha": {
+              "relative_l2": 4.0149889455673025e-07,
+              "max_abs": 1.4901161193847656e-08
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        },
+        {
+          "view": 48,
+          "image": "_DSC8727.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": true,
+          "pairs": 2744077,
+          "loss": 0.08294649422168732,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 8.073304521109058e-08,
+              "max_abs": 1.4551915228366852e-11
+            },
+            "conic": {
+              "relative_l2": 3.9028990659712865e-07,
+              "max_abs": 7.62939453125e-06
+            },
+            "color": {
+              "relative_l2": 1.7563934713559596e-07,
+              "max_abs": 1.1641532182693481e-10
+            },
+            "alpha": {
+              "relative_l2": 6.61936783244149e-07,
+              "max_abs": 2.60770320892334e-08
+            },
+            "fragment_statistics": {
+              "relative_l2": 3.2961158089892016e-09
+            },
+            "squares": {
+              "relative_l2": 3.575926674390895e-07
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        },
+        {
+          "view": 96,
+          "image": "_DSC8776.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": false,
+          "pairs": 2536762,
+          "loss": 0.07612315565347672,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 7.470372323956549e-08,
+              "max_abs": 1.4551915228366852e-11
+            },
+            "conic": {
+              "relative_l2": 2.761618836547769e-07,
+              "max_abs": 3.337860107421875e-06
+            },
+            "color": {
+              "relative_l2": 2.742877032718111e-07,
+              "max_abs": 3.4924596548080444e-10
+            },
+            "alpha": {
+              "relative_l2": 8.472593833485722e-07,
+              "max_abs": 1.862645149230957e-08
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        },
+        {
+          "view": 96,
+          "image": "_DSC8776.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": true,
+          "pairs": 2536762,
+          "loss": 0.07612315565347672,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 6.591829333624302e-08,
+              "max_abs": 1.0913936421275139e-11
+            },
+            "conic": {
+              "relative_l2": 5.18296632091878e-07,
+              "max_abs": 9.5367431640625e-06
+            },
+            "color": {
+              "relative_l2": 2.6224632683634744e-07,
+              "max_abs": 2.6193447411060333e-10
+            },
+            "alpha": {
+              "relative_l2": 8.798185953418985e-07,
+              "max_abs": 2.0489096641540527e-08
+            },
+            "fragment_statistics": {
+              "relative_l2": 2.036746167018645e-09
+            },
+            "squares": {
+              "relative_l2": 2.935969233822316e-07
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        },
+        {
+          "view": 144,
+          "image": "_DSC8824.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": false,
+          "pairs": 2299429,
+          "loss": 0.05463115870952606,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 6.03166205821527e-08,
+              "max_abs": 7.275957614183426e-12
+            },
+            "conic": {
+              "relative_l2": 3.8445422753390807e-07,
+              "max_abs": 2.384185791015625e-06
+            },
+            "color": {
+              "relative_l2": 2.362535502255698e-07,
+              "max_abs": 1.7462298274040222e-10
+            },
+            "alpha": {
+              "relative_l2": 6.782014639382831e-07,
+              "max_abs": 1.6763806343078613e-08
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        },
+        {
+          "view": 144,
+          "image": "_DSC8824.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "collect_stats": true,
+          "pairs": 2299429,
+          "loss": 0.05463115870952606,
+          "forward_bitwise_equal": true,
+          "cache_fields_bitwise_equal": true,
+          "bitmap_union_equal": true,
+          "gradient_errors": {
+            "mean": {
+              "relative_l2": 5.824094291083974e-08,
+              "max_abs": 7.275957614183426e-12
+            },
+            "conic": {
+              "relative_l2": 4.335699834472692e-07,
+              "max_abs": 3.4570693969726562e-06
+            },
+            "color": {
+              "relative_l2": 2.627506328460744e-07,
+              "max_abs": 2.3283064365386963e-10
+            },
+            "alpha": {
+              "relative_l2": 5.94368735947755e-07,
+              "max_abs": 1.6763806343078613e-08
+            },
+            "fragment_statistics": {
+              "relative_l2": 2.967756636412674e-09
+            },
+            "squares": {
+              "relative_l2": 3.700564263725265e-07
+            }
+          },
+          "baseline_bitmap_bytes": 1032136,
+          "candidate_bitmap_bytes": 1032136
+        }
+      ]
+    },
+    "split4_correctness.monitor.json": {
+      "variant": "baseline",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/check_split.py"
+      ],
+      "pid": 3383113,
+      "wall_seconds": 14.889742197003216,
+      "returncode": 0,
+      "foreign_processes": []
+    },
+    "split4_raster.json": [
+      {
+        "view": 0,
+        "collect_stats": false,
+        "pairs": 2999152,
+        "bitmap_bytes": 1032136,
+        "milliseconds": {
+          "forward": [
+            0.23710519541054964,
+            0.23747054510749876,
+            0.23735084454528987
+          ],
+          "backward": [
+            0.8771340950625017,
+            0.8861038304166868,
+            0.8908178500132635
+          ],
+          "forward_loss_backward": [
+            1.1995683796703815,
+            1.2097763700876385,
+            1.21305538516026
+          ]
+        }
+      },
+      {
+        "view": 0,
+        "collect_stats": true,
+        "pairs": 2999152,
+        "bitmap_bytes": 1032136,
+        "milliseconds": {
+          "forward": [
+            0.33825860009528697,
+            0.34009325492661446,
+            0.34106865990906954
+          ],
+          "backward": [
+            0.9941076149698347,
+            1.0075220151338726,
+            0.9978321247035637
+          ],
+          "forward_loss_backward": [
+            1.431537254829891,
+            1.4424201450310647,
+            1.4480224653379992
+          ]
+        }
+      }
+    ],
+    "split4_raster.monitor.json": {
+      "variant": "split4",
+      "command": [
+        "/home/lzc/Documents/jax-gs/.venv/bin/python",
+        "/tmp/jaxgs-perf-20261002-oo33boal/raster_timing.py",
+        "/tmp/jaxgs-perf-20261002-oo33boal/split4_raster.json"
+      ],
+      "pid": 3381759,
+      "wall_seconds": 12.90852060902398,
+      "returncode": 0,
+      "foreign_processes": []
+    }
+  },
+  "reproduction_scripts": {
+    "run_checked.py": "import json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport time\n\nwork = Path(__file__).parent\nvariant, name, *command = sys.argv[1:]\nenv = dict(os.environ, PYTHONPATH=str(work / variant / 'src'),\n           XLA_PYTHON_CLIENT_PREALLOCATE='false')\nstart = time.perf_counter()\nsamples = []\napps = subprocess.check_output(\n    ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader'], text=True).strip()\nif apps:\n    raise RuntimeError(f'GPU is already occupied: {apps}')\nwith (work / f'{name}.log').open('w') as log:\n    process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)\n    while process.poll() is None:\n        apps = subprocess.check_output(\n            ['nvidia-smi', '--query-compute-apps=pid,process_name', '--format=csv,noheader'],\n            text=True).strip().splitlines()\n        foreign = [line for line in apps if int(line.split(',')[0]) != process.pid]\n        if foreign:\n            samples.append({'seconds': time.perf_counter() - start, 'foreign': foreign})\n        time.sleep(0.5)\nrecord = dict(variant=variant, command=command, pid=process.pid,\n              wall_seconds=time.perf_counter() - start,\n              returncode=process.returncode, foreign_processes=samples)\n(work / f'{name}.monitor.json').write_text(json.dumps(record, indent=2) + '\\n')\nprint(json.dumps(record), flush=True)\nif process.returncode or samples:\n    print((work / f'{name}.log').read_text()[-4000:])\n    sys.exit(process.returncode or 1)\n",
+    "fixed_update.py": "import argparse\nimport json\nfrom pathlib import Path\nfrom time import perf_counter\n\nimport jax\nimport jax.numpy as jnp\n\nfrom jaxgs import CapacityConfig, GaussianModel\nfrom jaxgs.config import load_config\nfrom jaxgs.io_manager.checkpoint import load_gaussians\nfrom jaxgs.io_manager.colmap import load_colmap_images\nfrom jaxgs.scene.cluster import world_cluster_bounds\nfrom jaxgs.scene.types import PARAMETER_NAMES\nfrom jaxgs.training.optimizer import create_adam_state\nfrom jaxgs.training.state import TrainingState\nfrom jaxgs.training.step import array_train_step, bind_train_step\n\nparser = argparse.ArgumentParser()\nparser.add_argument('output', type=Path)\nparser.add_argument('--views', type=int, nargs='+', default=[0])\nparser.add_argument('--stats', action='store_true')\nparser.add_argument('--profile', type=Path)\nparser.add_argument('--steps', type=int, default=500)\nargs = parser.parse_args()\nwork = Path(__file__).parent\noriginal = load_gaussians(work / 'frozen.npz')\nconfig = CapacityConfig(original.xyz.shape[0], 128, 128, 16, 3, 8_000_000, tile_height=8)\noptimization = load_config().optimization\nframes = load_colmap_images('/home/lzc/datasets/benchmarks/MipNerf360/bicycle',\n                            'images_4', resolution=1)\nbounds = world_cluster_bounds(original, 128)\nradius = jnp.array(1.0, jnp.float32)\nrows = []\n\ndef pointers(training):\n    pool = training.model.as_arrays()\n    adam = training.adam.get_value()\n    return [getattr(arrays, name).unsafe_buffer_pointer()\n            for arrays in (pool, adam.m, adam.v) for name in PARAMETER_NAMES]\n\nfor view in args.views:\n    frame = frames[view]\n    target = jnp.asarray(frame.load_rgb())\n    pool = jax.tree.map(jnp.copy, original)\n    adam = create_adam_state(pool)\n    stats = jnp.zeros((config.max_gaussians, 4), jnp.float32)\n    start = perf_counter()\n    pool, adam, stats, metrics = jax.block_until_ready(array_train_step(\n        pool, adam, stats, bounds, frame.camera, target, jnp.array(30000), radius,\n        config, 3, args.stats, max_steps=30000, optimization=optimization))\n    training = TrainingState(GaussianModel(pool), adam, stats)\n    update = bind_train_step(training, config, max_steps=30000, optimization=optimization)\n    overflow, pairs = metrics['overflow'], metrics['pairs']\n    def step(index):\n        return update(bounds, frame.camera, target, jnp.array(30000 + index), radius,\n                      active_degree=3, collect_stats=args.stats,\n                      overflow=overflow, peak_pairs=pairs)\n    for index in range(1, 30):\n        loss, overflow, pairs = step(index)\n    jax.block_until_ready((training, loss, overflow, pairs))\n    warmup = perf_counter() - start\n    before = pointers(training)\n    initial_loss = float(loss)\n    start = perf_counter()\n    for index in range(30, 30 + args.steps):\n        loss, overflow, pairs = step(index)\n    jax.block_until_ready((training, loss, overflow, pairs))\n    seconds = perf_counter() - start\n    assert before == pointers(training), 'buffer donation changed'\n    assert not bool(overflow), 'pair capacity overflow'\n    if args.profile:\n        with jax.profiler.trace(str(args.profile), create_perfetto_trace=True):\n            for index in range(20):\n                result = step(1000 + index)\n            jax.block_until_ready((training, result))\n    row = dict(view=view, image=frame.image_path.name, collect_stats=args.stats,\n               capacity=config.max_gaussians, active=int(original.n_active),\n               steps=args.steps, warmup_steps=30, warmup_seconds=warmup,\n               seconds=seconds, milliseconds=seconds * 1000 / args.steps,\n               initial_loss=initial_loss, final_loss=float(loss), peak_pairs=int(pairs),\n               donated_buffers=15, jit_cache_size=update.jitted_fn._cache_size())\n    rows.append(row)\n    args.output.write_text(json.dumps(rows, indent=2) + '\\n')\n    print(json.dumps(row), flush=True)\n",
+    "raster_timing.py": "import argparse\nimport json\nfrom pathlib import Path\nfrom time import perf_counter\n\nimport jax\nimport jax.numpy as jnp\n\nfrom jaxgs import CapacityConfig\nfrom jaxgs.io_manager.checkpoint import load_gaussians\nfrom jaxgs.io_manager.colmap import load_colmap_images\nfrom jaxgs.kernels.fused_loss import _fused_loss_and_grad_with_scale\nfrom jaxgs.kernels.packed_rasterizer import packed_forward, packed_backward\nfrom jaxgs.kernels.projector import project_with_compact_pullback\nfrom jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute\nfrom jaxgs.render import render_preprocess\nfrom jaxgs.scene.cluster import world_cluster_bounds\n\nparser = argparse.ArgumentParser()\nparser.add_argument('output', type=Path)\nparser.add_argument('--views', nargs='+', type=int, default=[0])\nargs = parser.parse_args()\npool = load_gaussians(Path(__file__).parent / 'frozen.npz')\nconfig = CapacityConfig(pool.xyz.shape[0], 128, 128, 16, 3, 8_000_000, tile_height=8)\nbounds = world_cluster_bounds(pool, 128)\nframes = load_colmap_images('/home/lzc/datasets/benchmarks/MipNerf360/bicycle',\n                            'images_4', resolution=1)\nrows = []\nfor view in args.views:\n    frame = frames[view]\n    camera = frame.camera\n    clusters, _, culled = render_preprocess(bounds, camera, pool, config)\n    projected, _ = project_with_compact_pullback(culled, camera, config, 3, clusters, rgb_only=True)\n    table = build_sorted_visibility_table_cute(projected, camera, config)\n    assert not bool(table.overflow)\n    target = jnp.asarray(frame.load_rgb())\n    for stats in (False, True):\n        @jax.jit\n        def forward(projected, table):\n            return packed_forward(projected, table, camera, config, stats)\n\n        @jax.jit\n        def backward(projected, table, cache, incoming, scale, clusters):\n            return packed_backward(projected, table, cache, incoming, camera, config,\n                                   stats, symmetric_conic=True, visible_clusters=clusters,\n                                   image_grad_scale=scale)\n\n        @jax.jit\n        def combined(projected, table, target, clusters):\n            image, cache, fragments = packed_forward(projected, table, camera, config, stats)\n            loss, incoming, scale = _fused_loss_and_grad_with_scale(image, target)\n            grads, squares = packed_backward(projected, table, cache, incoming, camera, config,\n                                            stats, symmetric_conic=True,\n                                            visible_clusters=clusters, image_grad_scale=scale)\n            return loss, grads, fragments, squares\n\n        image, cache, _ = jax.block_until_ready(forward(projected, table))\n        loss, incoming, scale = _fused_loss_and_grad_with_scale(image, target)\n        measured = {}\n        for label, fn, values in (\n            ('forward', forward, (projected, table)),\n            ('backward', backward, (projected, table, cache, incoming, scale, clusters)),\n            ('forward_loss_backward', combined, (projected, table, target, clusters)),\n        ):\n            for _ in range(30):\n                result = fn(*values)\n            jax.block_until_ready(result)\n            samples = []\n            for repeat in range(3):\n                start = perf_counter()\n                for _ in range(200):\n                    result = fn(*values)\n                jax.block_until_ready(result)\n                samples.append((perf_counter() - start) * 1000 / 200)\n            measured[label] = samples\n        row = dict(view=view, collect_stats=stats, pairs=int(table.pair_count),\n                   bitmap_bytes=cache[4].nbytes, milliseconds=measured)\n        rows.append(row)\n        args.output.write_text(json.dumps(rows, indent=2) + '\\n')\n        print(json.dumps(row), flush=True)\n",
+    "check_split.py": "import importlib.util\nimport json\nfrom pathlib import Path\n\nimport jax\nimport jax.numpy as jnp\nimport numpy as np\n\nfrom jaxgs import CapacityConfig\nfrom jaxgs.io_manager.colmap import load_colmap_images\nfrom jaxgs.io_manager.checkpoint import load_gaussians\nfrom jaxgs.kernels import packed_rasterize as kernel\nfrom jaxgs.kernels import packed_rasterizer as baseline\nfrom jaxgs.kernels.fused_loss import _fused_loss_and_grad_with_scale\nfrom jaxgs.kernels.projector import project_with_compact_pullback\nfrom jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute\nfrom jaxgs.render import render_preprocess\nfrom jaxgs.scene.cluster import world_cluster_bounds\n\nWORK = Path(__file__).parent\nSCENE = Path(\"/home/lzc/datasets/benchmarks/MipNerf360/bicycle\")\n\n\ndef module(name, path):\n    spec = importlib.util.spec_from_file_location(name, path)\n    out = importlib.util.module_from_spec(spec)\n    spec.loader.exec_module(out)\n    return out\n\n\ncandidate_kernel = module(\n    \"jaxgs.kernels._group_scene_kernel\", WORK / \"split4/src/jaxgs/kernels/packed_rasterize.py\"\n)\ncandidate = module(\n    \"jaxgs.kernels._group_scene_bindings\", WORK / \"split4/src/jaxgs/kernels/packed_rasterizer.py\"\n)\nbase_forward, base_backward = kernel.launch_forward, kernel.launch_backward\npool = load_gaussians(WORK / \"frozen.npz\")\ncapacity = pool.xyz.shape[0]\nsparse, padded = 54275, int(pool.n_active)\nconfig = CapacityConfig(capacity, 128, 128, 16, 3, 8_000_000, tile_height=8)\nbounds = world_cluster_bounds(pool, 128)\nframes = load_colmap_images(SCENE, \"images_4\", resolution=-1)\nrecords = []\nfor view in (0, 48, 96, 144):\n    frame = frames[view]\n    camera = frame.camera\n    clusters, _, culled = render_preprocess(bounds, camera, pool, config)\n    projected, _ = project_with_compact_pullback(culled, camera, config, 3, clusters, rgb_only=True)\n    table = build_sorted_visibility_table_cute(projected, camera, config)\n    assert not bool(table.overflow)\n    for collect_stats in (False, True):\n        kernel.launch_forward, kernel.launch_backward = base_forward, base_backward\n        image, cache, stats = jax.block_until_ready(\n            baseline.packed_forward(projected, table, camera, config, collect_stats)\n        )\n        target = jnp.asarray(frame.load_rgb())\n        loss, image_grad, scale = _fused_loss_and_grad_with_scale(image, target)\n        grads, squares = jax.block_until_ready(\n            baseline.packed_backward(\n                projected,\n                table,\n                cache,\n                image_grad,\n                camera,\n                config,\n                collect_stats,\n                image_grad_scale=scale,\n            )\n        )\n        kernel.launch_forward, kernel.launch_backward = (\n            candidate_kernel.launch_forward,\n            candidate_kernel.launch_backward,\n        )\n        other, other_cache, other_stats = jax.block_until_ready(\n            candidate.packed_forward(projected, table, camera, config, collect_stats)\n        )\n        other_grads, other_squares = jax.block_until_ready(\n            candidate.packed_backward(\n                projected,\n                table,\n                other_cache,\n                image_grad,\n                camera,\n                config,\n                collect_stats,\n                image_grad_scale=scale,\n            )\n        )\n        np.testing.assert_array_equal(image, other)\n        visible = np.asarray(projected.visible)\n        np.testing.assert_array_equal(\n            np.asarray(cache[0]).reshape(-1, 8)[visible],\n            np.asarray(other_cache[0]).reshape(-1, 8)[visible],\n        )\n        for a, b in zip(cache[1:4], other_cache[1:4], strict=True):\n            np.testing.assert_array_equal(a, b)\n        errors = {}\n        for field in (\"mean\", \"conic\", \"color\", \"alpha\"):\n            a, b = np.asarray(getattr(grads, field)), np.asarray(getattr(other_grads, field))\n            errors[field] = dict(\n                relative_l2=float(\n                    np.linalg.norm((a - b).astype(np.float64))\n                    / max(np.linalg.norm(a.astype(np.float64)), 1e-30)\n                ),\n                max_abs=float(np.abs(a - b).max()),\n            )\n            assert errors[field][\"relative_l2\"] < 1e-5, errors\n        if collect_stats:\n            errors[\"fragment_statistics\"] = dict(\n                relative_l2=float(\n                    np.linalg.norm((np.asarray(stats) - np.asarray(other_stats)).astype(np.float64))\n                    / max(np.linalg.norm(np.asarray(stats).astype(np.float64)), 1e-30)\n                )\n            )\n            errors[\"squares\"] = dict(\n                relative_l2=float(\n                    np.linalg.norm(\n                        (np.asarray(squares) - np.asarray(other_squares)).astype(np.float64)\n                    )\n                    / max(np.linalg.norm(np.asarray(squares).astype(np.float64)), 1e-30)\n                )\n            )\n            assert errors[\"fragment_statistics\"][\"relative_l2\"] < 1e-5\n            assert errors[\"squares\"][\"relative_l2\"] < 1e-5\n        old_words = np.asarray(cache[4])\n        words = np.asarray(other_cache[4])\n        offsets = np.asarray(table.tile_offsets)\n        work = np.asarray(cache[3])\n        for tile, start in enumerate(offsets[:-1]):\n            chunks = (int(work[tile]) + 31) // 32\n            base = int(start) // 32 + tile\n            np.testing.assert_array_equal(old_words[base:base + chunks], words[base:base + chunks])\n        result = dict(\n            view=view,\n            image=frame.image_path.name,\n            shape=[camera.height, camera.width],\n            collect_stats=collect_stats,\n            pairs=int(table.pair_count),\n            loss=float(loss),\n            forward_bitwise_equal=True,\n            cache_fields_bitwise_equal=True,\n            bitmap_union_equal=True,\n            gradient_errors=errors,\n            baseline_bitmap_bytes=cache[4].nbytes,\n            candidate_bitmap_bytes=other_cache[4].nbytes,\n        )\n        records.append(result)\n        print(json.dumps(result), flush=True)\n        (WORK / \"split4_correctness.json\").write_text(\n            json.dumps(\n                dict(\n                    scene=str(SCENE),\n                    model=\"Frozen default 10k baseline; 975104 active points\",\n                    sparse_count=sparse,\n                    padded_count=padded,\n                    config=dict(\n                        capacity=capacity,\n                        cluster_size=128,\n                        tile_width=16,\n                        tile_height=8,\n                        pair_capacity=8_000_000,\n                    ),\n                    results=records,\n                ),\n                indent=2,\n            )\n            + \"\\n\"\n        )\nkernel.launch_forward, kernel.launch_backward = base_forward, base_backward\n",
+    "check_training.py": "import json\nimport sys\nfrom pathlib import Path\n\nimport jax\nimport jax.numpy as jnp\nimport numpy as np\n\nfrom jaxgs import Camera, CapacityConfig, GaussianModel, create_gaussians, seed_gaussians\nfrom jaxgs.scene.cluster import world_cluster_bounds\nfrom jaxgs.scene.types import PARAMETER_NAMES\nfrom jaxgs.training.optimizer import create_adam_state\nfrom jaxgs.training.state import TrainingState\nfrom jaxgs.training.step import bind_train_step\n\noutput = Path(sys.argv[1])\nconfig = CapacityConfig(129, 65, 64, 16, 3, 32768, tile_height=8)\ncamera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 28, 28, 18, 12, 37, 25)\nrng = np.random.default_rng(67)\nxyz = rng.normal(0, 0.35, (129, 3)).astype(np.float32)\nxyz[:, 2] += 3\nxyz[13::17] = [100, 0, -2]\npool = seed_gaussians(\n    create_gaussians(config),\n    jnp.asarray(xyz),\n    jnp.asarray(rng.random((129, 3)), jnp.float32),\n    scale=jnp.asarray(rng.uniform(0.06, 0.3, (129, 3)), jnp.float32),\n    opacity=0.3,\n)\npool = pool.replace(\n    sh=jnp.asarray(rng.normal(0, 0.1, pool.sh.shape), jnp.float32),\n    rotation=jnp.tile(jnp.array([0.9, 0.1, -0.2, 0.05]), (129, 1)),\n)\nbounds = world_cluster_bounds(pool, 65)\ntarget = jnp.asarray(rng.integers(0, 256, (25, 37, 3), dtype=np.uint8))\narrays, records = {}, []\nfor optimizer in (\"optax\", \"muon\", \"cute\"):\n    for degree, stats in ((0, False), (3, True)):\n        # Each variant gets independent device arrays because the updates donate.\n        initial = jax.tree.map(lambda x: jnp.array(x, copy=True), pool)\n        training = TrainingState(\n            GaussianModel(initial), create_adam_state(initial), jnp.ones((129, 4), jnp.float32)\n        )\n        update = bind_train_step(training, config, optimizer=optimizer, max_steps=181)\n\n        def buffers():\n            values = [getattr(training.model, name).get_value() for name in PARAMETER_NAMES]\n            for moments in (training.adam.get_value().m, training.adam.get_value().v):\n                values += [getattr(moments, name) for name in PARAMETER_NAMES]\n            return [x.unsafe_buffer_pointer() for x in values]\n\n        addresses = buffers()\n        overflow, peak = jnp.array(True), jnp.array(321, jnp.int32)\n        for step in range(17, 25):\n            loss, overflow, peak = update(\n                bounds,\n                camera,\n                target,\n                jnp.array(step, jnp.int32),\n                jnp.array(1.0),\n                active_degree=degree,\n                collect_stats=stats,\n                overflow=overflow,\n                peak_pairs=peak,\n            )\n        jax.block_until_ready((training, loss, overflow, peak))\n        assert buffers() == addresses\n        assert update.jitted_fn._cache_size() == 1\n        assert np.isfinite(float(loss))\n        assert bool(overflow)\n        prefix = f\"{optimizer}_sh{degree}_stats{stats}\"\n        values = dict(\n            zip(\n                PARAMETER_NAMES,\n                (getattr(training.model, name).get_value() for name in PARAMETER_NAMES),\n                strict=True,\n            )\n        )\n        values[\"fragments\"] = training.fragments.get_value()\n        values[\"adam_step\"] = training.adam.get_value().step\n        for field in (\"alive\", \"free_mask\", \"n_active\"):\n            values[field] = getattr(training.model, field).get_value()\n        for moment in (\"m\", \"v\"):\n            for field in PARAMETER_NAMES:\n                values[f\"{moment}_{field}\"] = getattr(\n                    getattr(training.adam.get_value(), moment), field\n                )\n        values[\"loss\"], values[\"overflow\"], values[\"peak_pairs\"] = loss, overflow, peak\n        arrays.update({f\"{prefix}/{key}\": np.asarray(value) for key, value in values.items()})\n        records.append(\n            dict(\n                optimizer=optimizer,\n                degree=degree,\n                collect_stats=stats,\n                loss=float(loss),\n                peak_pairs=int(peak),\n                input_overflow_preserved=True,\n                donated_buffers=len(addresses),\n                addresses_preserved=True,\n                cache_size=update.jitted_fn._cache_size(),\n                updates=8,\n            )\n        )\n        print(json.dumps(records[-1]), flush=True)\nnp.savez(output, **arrays)\noutput.with_suffix(\".json\").write_text(json.dumps(records, indent=2) + \"\\n\")\n",
+    "test_sh_fusion_cpu.py": "import jax\nimport jax.numpy as jnp\nimport numpy as np\nimport pytest\n\nfrom jaxgs.reference.sh import eval_sh\nfrom jaxgs.scene.types import ParameterArrays\nfrom jaxgs.training.optimizer import create_adam_transform\nfrom jaxgs.training.sh_pullback import with_sh_pullback\n\n\n@pytest.mark.parametrize('degree', [0, 1, 2, 3])\n@pytest.mark.parametrize('channels', [3, 4])\ndef test_sh_reconstruction_against_autodiff(degree, channels):\n    rng = np.random.default_rng(84 + degree)\n    count = 17\n    center = jnp.asarray([0.1, -0.3, 0.2] + ([0.0] if channels == 4 else []))\n    xyz = jnp.asarray(rng.normal(size=(count, channels)), jnp.float32)\n    xyz = xyz.at[0].set(center)\n    params = ParameterArrays(xyz, jnp.zeros((count, 3)), jnp.zeros((count, 4)),\n                            jnp.zeros((count, 1)), jnp.zeros((count, 16, channels)))\n    colors = jnp.asarray(rng.normal(size=(count, 1, channels)), jnp.float32).at[::5].set(0)\n    delta = xyz[:, :3] - center[:3]\n    direction = delta / jnp.maximum(jnp.linalg.norm(delta, axis=1, keepdims=True), 1e-8)\n    _, pullback = jax.vjp(lambda sh: eval_sh(sh, direction, degree), params.sh)\n    expected_sh, = pullback(colors[:, 0])\n    gradients = jax.tree.map(jnp.zeros_like, params).replace(sh=colors)\n    tx = create_adam_transform()\n    state = tx.init(params)\n    state = state.replace(m=jax.tree.map(lambda x: x + 0.03, state.m),\n                          v=jax.tree.map(lambda x: x + 0.01, state.v))\n    active = jnp.arange(count) % 3 != 0\n    rates = jax.tree.map(lambda _: 0.004, params)\n    expected = tx.update(gradients.replace(sh=expected_sh), state, params, active=active, rates=rates)\n    actual = jax.jit(lambda g, s, p: with_sh_pullback(tx, degree).update(\n        g, s, p, sh_center=center[None], active=active, rates=rates))(gradients, state, params)\n    for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):\n        np.testing.assert_allclose(a, b, rtol=1e-6, atol=1e-7)\n"
+  },
+  "sh_fusion_validation": {
+    "cpu_autodiff_tests": 8,
+    "cpu_seconds": 3.51,
+    "state_arrays": 138,
+    "state_arrays_equal": 65,
+    "max_state_abs": 1.1920928955078125e-07,
+    "max_state_relative_l2": 1.294193872684675e-07,
+    "optimizers": [
+      "optax",
+      "muon",
+      "cute"
+    ],
+    "updates": 8,
+    "degrees": [
+      0,
+      3
+    ],
+    "donated_buffers": 15,
+    "jit_cache_size": 1,
+    "scope": "small scene checks only, no exclusive SH-fusion timing or full-scene quality comparison yet"
+  },
+  "decisions": {
+    "thread_shapes": "no measured improvement in initial screening; larger shapes can spill",
+    "single_pass": "no measured fixed-model improvement",
+    "cache_hints": "JAX 0.11.2 Pallas cache modifier lowering fails; not retained",
+    "split4": "correct within existing gradient tolerances, but slower; not retained",
+    "sh_fusion": "preserves the original Optax transformation, moves SH gradient expansion into its update; candidate only",
+    "warmup": "production: precompile only modes in the executed epoch schedule"
+  },
+  "blocking": {
+    "reason": "foreign jimm benchmarks began occupying GPU; later process used over 31 GB",
+    "user_question": "GPU availability requested asynchronously; no response at archive time",
+    "last_observed_pid": 3423422
+  },
+  "cleanup": {
+    "completed": true,
+    "owned_directory": "/tmp/jaxgs-perf-20261002-oo33boal",
+    "removed_bytes": 206926247,
+    "retained": "production warmup change, tests, aggregate JSON, candidate patches, reproduction scripts and Markdown report"
+  }
+}

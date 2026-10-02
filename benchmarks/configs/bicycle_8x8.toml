@@ -1,7 +1,10 @@
-# RTX 5090 tile experiment; uses the default 30k training schedule.
+# RTX 5090 tile experiment with an explicit 30k training budget.
 [model]
 images = "images_4"
 eval = true
+
+[optimization]
+iterations = 30000
 
 [pipeline]
 tile_size = [8, 8]

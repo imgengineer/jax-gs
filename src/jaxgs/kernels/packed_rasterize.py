@@ -529,7 +529,10 @@ def _backward(
                         mask &= cutlass.Uint32(0xFFFF0000)
                     if index >= lst[i, 1]:
                         mask &= cutlass.Uint32(0x0000FFFF)
-                    if cute.arch.vote_any_sync(mask != 0):
+                    # Masked fragments leave ordinary gradient sums unchanged.
+                    # Statistics must skip empty groups: their squared-error
+                    # term depends on the opacity gradient accumulated so far.
+                    if not collect_stats or cute.arch.vote_any_sync(mask != 0):
                         contributes = True
                         alpha &= mask
                         gaussian &= mask
