@@ -314,6 +314,11 @@ This checks image agreement within one uint8 level, synchronizes each timed
 call, records compilation separately and reports whether other GPU compute
 processes were observed. Reports retain the observed image differences.
 
+The [RGB-only forward prototype](benchmarks/results/inference_20261003.md)
+skips backward caches and expands the raster loop. Its correctness checks pass;
+final performance validation awaits an exclusive GPU window before merging
+`perf/inference-forward` into `main`.
+
 Additional records cover [loss target loading](benchmarks/results/loss_target_20261001.md),
 [kernel arithmetic](benchmarks/results/kernel_arithmetic_20261001.md) and
 [sequential scan](benchmarks/results/scan_training_20261002.md).
@@ -330,8 +335,8 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest -q \
   --cov=jaxgs --cov-report=term-missing
 ```
 
-The [viewer validation](benchmarks/results/viewer_20261002.md) passed **422 tests**
-with **99.77% Python line and branch coverage**: 2,234 statements and 322 branches.
+The [inference validation](benchmarks/results/inference_20261003.md) passed **426 tests**
+with **99.77% Python line and branch coverage**: 2,236 statements and 322 branches.
 GPU DSL bodies are excluded from Python coverage; parity, gradient, training
 and CUDA device checks verify their behavior. The
 [contribution pruning record](benchmarks/results/contribution_pruning_20261002.md)

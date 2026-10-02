@@ -9,8 +9,9 @@ Tiles launch heaviest first: a one-block counting sort orders them by pair
 count (forward) or by the pairs before their last contributor (backward).
 A warp stages 32 splats at a time in shared memory; each lane loads the
 next batch's parameters into registers while the current batch composites,
-and the forward loop composites two splats per iteration. Training records
-one contribution bit per pair; backward visits only set bits in reverse order.
+and training composites two splats per iteration. RGB-only inference composites
+eight and omits pixel/tile backward state. Training records one contribution
+bit per pair; backward visits only set bits in reverse order.
 These changes preserve each pixel's compositing order and arithmetic.
 
 A splat's warp sums (backward gradients, forward statistics) share one
@@ -30,7 +31,7 @@ from .sorted_rasterize import _zero_fragments
 
 _ORDER_THREADS = 1024
 _ORDER_BUCKETS = 256
-# Splats per forward loop iteration; divides the 32-splat staging batch.
+# Training splats per iteration; divides the 32-splat staging batch.
 _FORWARD_UNROLL = 2
 
 
@@ -247,10 +248,11 @@ def _composite(
         if not present:
             mask = cutlass.Uint32(0)
         active = active or mask != 0
-        if (mask & 0xFFFF) != 0:
-            lst[i, 0] = local
-        if (mask >> 16) != 0:
-            lst[i, 1] = local
+        if cutlass.const_expr(record_contributions):
+            if (mask & 0xFFFF) != 0:
+                lst[i, 0] = local
+            if (mask >> 16) != 0:
+                lst[i, 1] = local
         alpha = h.mul(opacity, h.exp(power))
         valid = mask & h.ge_mask(alpha, h.pack(1 / 256, 1 / 256))
         if cutlass.const_expr(record_contributions):
@@ -291,6 +293,9 @@ def _forward(
     lane, _, _ = cute.arch.thread_idx()
     block, _, _ = cute.arch.block_idx()
     groups = tile_size * tile_height // 64
+    # Without statistics or backward bookkeeping, more independent exponentials
+    # fit in each iteration while each pixel retains its compositing order.
+    unroll = _FORWARD_UNROLL if record_contributions else 8
     if block < tiles:
         tile = order[block]
         px = tile % tiles_x * tile_size + lane % tile_size
@@ -309,7 +314,7 @@ def _forward(
         bits = cutlass.Uint32(0)
         active = True
         staged, staged_ids = _staging()
-        points = cute.make_rmem_tensor((_FORWARD_UNROLL, 8), cutlass.Uint32)
+        points = cute.make_rmem_tensor((unroll, 8), cutlass.Uint32)
         mine = cute.make_rmem_tensor(8, cutlass.Uint32)
         mine.fill(0)
         my_id = cutlass.Int32(0)
@@ -335,7 +340,7 @@ def _forward(
             # Each splat's fragment count and weight sum, and its Gaussian ID.
             sums, splat_ids = [], []
             seen = cutlass.Int32(0)
-            for u in cutlass.range_constexpr(_FORWARD_UNROLL):
+            for u in cutlass.range_constexpr(unroll):
                 g = _unstage(staged, staged_ids, k + u, points[u, None])
                 present = index + u < end
                 active, fragments, weights, contributing = _composite(
@@ -365,22 +370,23 @@ def _forward(
                     total = h.warp_sums(sums, lane)
                     stat = lane >> (6 - len(sums).bit_length())
                     g = splat_ids[0]
-                    for u in cutlass.range_constexpr(1, _FORWARD_UNROLL):
+                    for u in cutlass.range_constexpr(1, unroll):
                         if stat >> 1 == u:
                             g = splat_ids[u]
                     if lane % (32 // len(sums)) == 0 and total != 0:
                         cute.arch.atomic_add(stats.iterator + g * 2 + (stat & 1), total)
-            index += _FORWARD_UNROLL
+            index += unroll
         if cutlass.const_expr(record_contributions):
             if lane == 0 and index > start:
                 contribution_bits[bit_base + (index - start - 1) // 32] = bits
         # Last indices bound the initialized bitmap prefix consumed by backward.
-        tile_last = cutlass.Int32(0)
-        for i in cutlass.range_constexpr(groups):
-            tile_last = cute.max(tile_last, cute.max(lst[i, 0], lst[i, 1]))
-        tile_last = cute.arch.warp_redux_sync(tile_last, "max")
-        if lane == 0:
-            backward_work[tile] = tile_last
+        if cutlass.const_expr(record_contributions):
+            tile_last = cutlass.Int32(0)
+            for i in cutlass.range_constexpr(groups):
+                tile_last = cute.max(tile_last, cute.max(lst[i, 0], lst[i, 1]))
+            tile_last = cute.arch.warp_redux_sync(tile_last, "max")
+            if lane == 0:
+                backward_work[tile] = tile_last
         for i in cutlass.range_constexpr(groups):
             for k in cutlass.range_constexpr(2):
                 y = py + i * 2 + k
@@ -388,8 +394,9 @@ def _forward(
                     p = y * width + px
                     for c in cutlass.range_constexpr(3):
                         rgb[p * 3 + c] = cute.min(h.get(reg[i, c], k == 1) / 128, cute.Float32(1))
-                    final_t[p] = h.get(reg[i, 3], k == 1) / 128
-                    last[p] = start + lst[i, k]
+                    if cutlass.const_expr(record_contributions):
+                        final_t[p] = h.get(reg[i, 3], k == 1) / 128
+                        last[p] = start + lst[i, k]
 
 
 @cute.kernel

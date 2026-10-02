@@ -53,16 +53,19 @@ def _packed_forward(
         raise ValueError("Packed rasterizer supports tiles 8x8, 8x16, 12x16 and 16x16")
     pixels = camera.width * camera.height
     tiles = _tile_count(camera, config)
+    # RGB-only calls never read or write backward state; retain scalar placeholders.
+    cached_pixels = pixels if record_contributions else 1
+    cached_tiles = tiles if record_contributions else 1
     bit_words = (config.visibility_capacity + 31) // 32 + tiles if record_contributions else 1
     call = cutlass_call(
         launch_forward,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((config.max_gaussians * 8,), jnp.uint32),
             jax.ShapeDtypeStruct((pixels * 3,), jnp.float32),
-            jax.ShapeDtypeStruct((pixels,), jnp.float32),
-            jax.ShapeDtypeStruct((pixels,), jnp.int32),
+            jax.ShapeDtypeStruct((cached_pixels,), jnp.float32),
+            jax.ShapeDtypeStruct((cached_pixels,), jnp.int32),
             jax.ShapeDtypeStruct((config.max_gaussians * 2 if collect_stats else 1,), jnp.float32),
-            jax.ShapeDtypeStruct((tiles,), jnp.int32),
+            jax.ShapeDtypeStruct((cached_tiles,), jnp.int32),
             jax.ShapeDtypeStruct((tiles,), jnp.int32),
             jax.ShapeDtypeStruct((bit_words,), jnp.uint32),
         ),
