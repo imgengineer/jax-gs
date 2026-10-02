@@ -384,7 +384,8 @@ def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch, 
         "[densify]\ntarget_primitives=256\n"
         "[runtime]\nmax_gaussians=256\nmax_visibility_pairs=4096\n"
     )
-    output = scene / "cli.npz"
+    output = scene / "gaussians.ply"
+    monkeypatch.chdir(scene)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -393,8 +394,6 @@ def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch, 
             str(scene),
             "--config",
             str(path),
-            "--output",
-            str(output),
             "--iterations",
             str(iterations),
         ],

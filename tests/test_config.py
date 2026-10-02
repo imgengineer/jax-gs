@@ -76,7 +76,7 @@ def test_toml_overrides_and_cli_forwarding(tmp_path, monkeypatch):
         [str(tmp_path), "--config", str(path), "--iterations", "42", "--optimizer", "cute"]
     )
     args, kwargs = calls[0]
-    assert args == (tmp_path, Path("gaussians.npz"))
+    assert args == (tmp_path, Path("gaussians.ply"))
     assert kwargs["settings"] == config
     assert kwargs["iterations"] == 42 and kwargs["optimizer"] == "cute"
     assert kwargs["images"] is None  # CLI defaults do not clobber TOML values.

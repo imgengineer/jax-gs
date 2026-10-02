@@ -387,19 +387,15 @@ dependencies = [
     { name = "flax" },
     { name = "grain" },
     { name = "jax", extra = ["cuda13"] },
+    { name = "nvidia-cutlass-dsl", extra = ["cu13"] },
     { name = "optax" },
     { name = "pillow" },
+    { name = "plyfile" },
     { name = "scipy" },
-]
-
-[package.optional-dependencies]
-cute = [
-    { name = "nvidia-cutlass-dsl", extra = ["cu13"] },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "plyfile" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -411,16 +407,15 @@ requires-dist = [
     { name = "flax", specifier = ">=0.12.10" },
     { name = "grain", specifier = ">=0.2.18" },
     { name = "jax", extras = ["cuda13"], specifier = ">=0.11.2" },
-    { name = "nvidia-cutlass-dsl", extras = ["cu13"], marker = "extra == 'cute'", specifier = ">=4.8.0" },
+    { name = "nvidia-cutlass-dsl", extras = ["cu13"], specifier = ">=4.8.0" },
     { name = "optax", specifier = ">=0.2.8" },
     { name = "pillow", specifier = ">=12.3.0" },
+    { name = "plyfile", specifier = ">=1.1.5" },
     { name = "scipy", specifier = ">=1.18.1" },
 ]
-provides-extras = ["cute"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "plyfile", specifier = ">=1.1.5" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.16.9" },

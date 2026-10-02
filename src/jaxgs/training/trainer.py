@@ -257,7 +257,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("scene", type=Path)
     parser.add_argument("--config", type=Path, help="TOML overrides for packaged default.toml")
     parser.add_argument("--images", help="override model.images")
-    parser.add_argument("--output", type=Path, default=Path("gaussians.npz"))
+    parser.add_argument("--output", type=Path, default=Path("gaussians.ply"))
     parser.add_argument("--iterations", type=int, help="override optimization.iterations")
     parser.add_argument(
         "--target-points", type=int, help="override growth target and pool capacity"

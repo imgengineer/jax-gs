@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from jaxgs.io_manager.checkpoint import load_gaussians
 from jaxgs.training.reference_trainer import train_colmap
 
 
@@ -54,7 +55,7 @@ def test_reference_trainer_aborts_on_backend_overflow(small_scene, backend, erro
     if backend == "cute" and (
         jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None
     ):
-        pytest.skip("CuTe test requires JAX CUDA and the cute extra")
+        pytest.skip("CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL")
     output = small_scene / "overflow.npz"
     with pytest.raises(RuntimeError, match=error):
         train_colmap(
@@ -121,15 +122,14 @@ def test_opacity_reset_runs_at_step_3000_without_densification(small_scene, monk
     "ignore:.*found in sys.modules after import of package.*:RuntimeWarning"
 )
 def test_reference_module_cli_trains_and_saves(small_scene, monkeypatch, capsys):
-    output = small_scene / "cli.npz"
+    output = small_scene / "gaussians.ply"
+    monkeypatch.chdir(small_scene)
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "jaxgs-train-reference",
             str(small_scene),
-            "--output",
-            str(output),
             "--steps",
             "3",
             "--capacity",
@@ -155,10 +155,10 @@ def test_reference_module_cli_trains_and_saves(small_scene, monkeypatch, capsys)
         ],
     )
     runpy.run_module("jaxgs.training.reference_trainer", run_name="__main__")
-    with np.load(output) as saved:
-        assert saved["xyz"].shape == (4, 3) and saved["sh"].shape == (4, 4, 3)
-        assert int(saved["n_active"]) == 2
-        assert np.isfinite(saved["opacity"]).all()
+    saved = load_gaussians(output)
+    assert saved.xyz.shape == (2, 3) and saved.sh.shape == (2, 4, 3)
+    assert int(saved.n_active) == 2
+    assert np.isfinite(saved.opacity).all()
     printed = capsys.readouterr().out
     assert "step 1:" in printed and "step 3:" in printed and "step 2:" not in printed
 
@@ -182,7 +182,7 @@ def test_colmap_training_densifies_and_saves(tmp_path, backend):
     if backend == "cute" and (
         jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None
     ):
-        pytest.skip("CuTe test requires JAX CUDA and the cute extra")
+        pytest.skip("CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL")
     sparse = tmp_path / "sparse" / "0"
     sparse.mkdir(parents=True)
     images = tmp_path / "images"

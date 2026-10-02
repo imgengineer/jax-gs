@@ -13,7 +13,7 @@ from jaxgs.render.rasterizer import rasterize, rasterize_forward
 from jaxgs.render.visibility_table import build_visibility_table
 
 has_cute = importlib.util.find_spec("cutlass") is not None
-requires_cute = pytest.mark.skipif(not has_cute, reason="requires the cute extra")
+requires_cute = pytest.mark.skipif(not has_cute, reason="requires NVIDIA CUTLASS DSL")
 requires_gpu = pytest.mark.skipif(
     not has_cute or jax.default_backend() != "gpu", reason="requires JAX CUDA and CuTe"
 )

@@ -16,7 +16,7 @@ from jaxgs.training.reference_trainer import train_step
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_cute_forward_and_backward_match_reference():
     from jaxgs.kernels.binning import build_visibility_table_cute
@@ -66,7 +66,7 @@ def test_cute_forward_and_backward_match_reference():
 )
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_sorted_tile_ranges_cover_gaps_padding_and_full_capacity(capacity, num_tiles, dtype):
     from cutlass.jax import cutlass_call
@@ -104,7 +104,7 @@ def test_sorted_tile_ranges_cover_gaps_padding_and_full_capacity(capacity, num_t
 @pytest.mark.parametrize("tiles_x", [255, 256])
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_sorted_binning_tile_key_width_preserves_padding_sentinel(tiles_x):
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
@@ -138,7 +138,7 @@ def test_sorted_binning_tile_key_width_preserves_padding_sentinel(tiles_x):
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_sorted_binning_keeps_more_than_one_gaussian_per_tile():
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
@@ -190,7 +190,7 @@ def test_sorted_binning_keeps_more_than_one_gaussian_per_tile():
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_sorted_binning_keeps_large_ellipses_and_handles_empty_scene():
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
@@ -222,7 +222,7 @@ def test_sorted_binning_keeps_large_ellipses_and_handles_empty_scene():
 @pytest.mark.parametrize("tile_size", [16, 32])
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_sorted_rasterizer_partial_tiles_and_early_termination(tile_size):
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
@@ -295,7 +295,7 @@ def test_sorted_rasterizer_partial_tiles_and_early_termination(tile_size):
 @pytest.mark.parametrize("pipeline", ["bounded", "sorted"])
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_cute_projection_binning_and_parameter_gradients(pipeline):
     from jaxgs.kernels.binning import build_visibility_table_cute
@@ -371,7 +371,7 @@ def test_cute_projection_binning_and_parameter_gradients(pipeline):
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_projection_pullback_zero_and_individual_cotangents():
     from jaxgs.kernels.projector import project_cute_vjp
@@ -410,7 +410,7 @@ def test_projection_pullback_zero_and_individual_cotangents():
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_cute_projection_pullback_matches_reference_all_fields():
     from jaxgs.kernels.projector import project_cute_vjp
@@ -460,7 +460,7 @@ def test_cute_projection_pullback_matches_reference_all_fields():
 @pytest.mark.parametrize("degree", [0, 2])
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_cute_projection_pullback_clipped_color_and_near_plane(degree):
     from jaxgs.kernels.projector import project_cute_vjp
@@ -504,7 +504,7 @@ def test_cute_projection_pullback_clipped_color_and_near_plane(degree):
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_cute_training_with_symmetric_covariance_stays_finite():
     config = CapacityConfig(2, 2, 2, 4, 0)
@@ -528,7 +528,7 @@ def test_cute_training_with_symmetric_covariance_stays_finite():
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_cute_allocator_resets_reused_slot_with_padded_indices():
     config = CapacityConfig(3, 2, 2, 4, 0)
@@ -559,7 +559,7 @@ def test_cute_allocator_resets_reused_slot_with_padded_indices():
 
 @pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and the cute extra",
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_cute_pipeline_matches_reference_with_multiple_clusters():
     from jaxgs.kernels.binning import build_visibility_table_cute

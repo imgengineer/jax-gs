@@ -232,7 +232,7 @@ def train_colmap(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a small fixed-capacity Gaussian scene")
     parser.add_argument("scene_dir", type=Path)
-    parser.add_argument("--output", type=Path, default=Path("gaussians.npz"))
+    parser.add_argument("--output", type=Path, default=Path("gaussians.ply"))
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--capacity", type=int, default=1024)
     parser.add_argument("--initial-points", type=int)

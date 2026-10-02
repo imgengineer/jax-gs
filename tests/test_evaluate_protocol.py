@@ -30,8 +30,9 @@ def evaluation(monkeypatch):
     "degree,width,height,expected_shape",
     [(degree, 16, 8, (8, 16)) for degree in range(4)] + [(0, 2000, 24, (19, 1600))],
 )
+@pytest.mark.parametrize("suffix", [".npz", ".ply"])
 def test_evaluation_matches_reference_for_checkpoint_sh_and_resolution(
-    evaluation, tmp_path, degree, width, height, expected_shape
+    evaluation, tmp_path, degree, width, height, expected_shape, suffix
 ):
     sparse = tmp_path / "sparse" / "0"
     sparse.mkdir(parents=True)
@@ -51,7 +52,7 @@ def test_evaluation_matches_reference_for_checkpoint_sh_and_resolution(
         opacity=0.5,
     )
     pool = pool.replace(sh=pool.sh.at[:, 1:].set(0.05))
-    checkpoint = tmp_path / "model.npz"
+    checkpoint = tmp_path / f"model{suffix}"
     save_gaussians(checkpoint, pool)
     scaled_height, scaled_width = expected_shape
     camera = Camera.from_colmap(

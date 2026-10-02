@@ -9,8 +9,10 @@ dependencies = [
     "flax>=0.12.10",
     "grain>=0.2.18",
     "jax[cuda13]>=0.11.2",
+    "nvidia-cutlass-dsl[cu13]>=4.8.0",
     "optax>=0.2.8",
     "pillow>=12.3.0",
+    "plyfile>=1.1.5",
     "scipy>=1.18.1",
 ]
 
@@ -18,18 +20,12 @@ dependencies = [
 jaxgs-train-reference = "jaxgs.training.reference_trainer:main"
 jaxgs-train = "jaxgs.training.trainer:main"
 
-[project.optional-dependencies]
-cute = [
-    "nvidia-cutlass-dsl[cu13]>=4.8.0",
-]
-
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "plyfile>=1.1.5",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.9",

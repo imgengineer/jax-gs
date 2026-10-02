@@ -22,7 +22,7 @@ boundaries; the decisions below follow jaxgs's fixed shapes and custom kernels.
 | --- | --- |
 | `config/` | Immutable typed settings and TOML loading; capacities determine compiled shapes. |
 | `data.py` | Image frames and bounded, threaded decoding with Grain. |
-| `io_manager/colmap.py`, `io_manager/checkpoint.py` | COLMAP readers and shared NPZ checkpoint serialization. |
+| `io_manager/colmap.py`, `io_manager/checkpoint.py` | COLMAP readers, standard Gaussian PLY models and fixed-capacity NPZ checkpoints. |
 | `io_manager/report.py` | Final checkpoint and production training report output. |
 | `scene/point.py` | `GaussianModel` owns NNX parameters and occupancy; `GaussianArrays` exposes the same buffers to kernels. |
 | `render/types.py`, `scene/types.py` | Shared PyTrees and the parameter ordering used across rendering and optimization. |
@@ -62,13 +62,15 @@ report = training.start(
     settings.pipeline,  # pp
     settings.densify,  # dp
     source_path="/path/to/scene",
-    model_path="gaussians.npz",
+    model_path="gaussians.ply",
     runtime=settings.runtime,
 )
 ```
 
 Paths are explicit keyword arguments. `model_path` is the output checkpoint
-file. `RuntimeConfig` supplies JAX capacities, optimizer backend and seed; when
+file. The CLI defaults to `gaussians.ply`; PLY stores active points and loads
+into an all-active pool. Explicit `.npz` paths retain capacity and occupancy.
+`RuntimeConfig` supplies JAX capacities, optimizer backend and seed; when
 omitted, pool capacity follows `dp.target_primitives` and other runtime values
 use packaged defaults. The CLI's `train(scene, output, ...)` applies overrides
 and delegates to this entry.
@@ -178,6 +180,6 @@ performance measurement.
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false \
-  uv run --extra cute --no-sync pytest -q -p no:cacheprovider \
+  uv run --no-sync pytest -q -p no:cacheprovider \
   tests/test_config.py tests/test_production_training.py tests/test_nnx.py
 ```

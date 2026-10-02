@@ -9,7 +9,7 @@ import pytest
 
 pytestmark = pytest.mark.skipif(
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe kernels require JAX CUDA and the cute extra",
+    reason="CuTe kernels require JAX CUDA and NVIDIA CUTLASS DSL",
 )
 
 

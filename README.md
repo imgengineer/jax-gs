@@ -59,11 +59,11 @@ The tested environment uses JAX 0.11.2, Flax 0.12.10 and CUTLASS DSL 4.8.0.
 ```bash
 git clone https://github.com/imgengineer/jax-gs.git
 cd jax-gs
-uv sync --extra cute
+uv sync
 ```
 
-The `cute` extra installs NVIDIA CUTLASS DSL. GPU kernels are written in Python
-and compiled by CuTe; no separate C++ extension build is needed.
+NVIDIA CUTLASS DSL (CuTe) is installed by default. GPU kernels are written in
+Python and compiled by CuTe; no separate C++ extension build is needed.
 
 ### Dataset
 
@@ -88,15 +88,17 @@ rescaled to its image dimensions. The default resolution caps image width at
 ## Train
 
 ```bash
-uv run --extra cute jaxgs-train /path/to/scene --output output/model.npz
+uv run jaxgs-train /path/to/scene --output output/model.ply
 ```
 
 The default budget is 10,000 iterations. Use `--iterations 20000` to request
 a different budget, or set `optimization.iterations` in a TOML configuration.
 
-The trainer writes the Gaussian pool to `output/model.npz` and its resolved
-configuration, epoch history and timing to `output/model.json`. Checkpoints
-include parameters and occupancy in the project's NPZ format.
+The default output is `gaussians.ply`. With the command above, the trainer writes
+active Gaussians to `output/model.ply` and its resolved configuration, epoch
+history and timing to `output/model.json`. PLY uses LiteGS/3DGS fields, including
+raw opacity logits, log-scales, quaternions and channel-major SH coefficients.
+An explicit `.npz` output retains the full fixed-capacity pool and occupancy.
 
 For bicycle with held-out evaluation, create `experiment.toml`:
 
@@ -110,8 +112,8 @@ iterations = 10000
 ```
 
 ```bash
-uv run --extra cute jaxgs-train /path/to/bicycle \
-  --config experiment.toml --output output/bicycle.npz
+uv run jaxgs-train /path/to/bicycle \
+  --config experiment.toml --output output/bicycle.ply
 ```
 
 Evaluation mode uses `train_test_split.json` when present; otherwise every
@@ -164,7 +166,7 @@ report = training.start(
     settings.pipeline,
     settings.densify,
     source_path="/path/to/scene",
-    model_path="output/model.npz",
+    model_path="output/model.ply",
     runtime=settings.runtime,
 )
 ```
@@ -174,10 +176,12 @@ capacity follows the densification group's growth target.
 
 ## Render
 
-Load a checkpoint and call preprocessing before rendering. Use the same
-capacity and SH settings as training:
+Load a model and call preprocessing before rendering. Use the training SH and
+pipeline settings; PLY loading sets pool capacity to the number of saved points:
 
 ```python
+from dataclasses import replace
+
 from flax import nnx
 
 from jaxgs import GaussianModel, config, render
@@ -186,8 +190,9 @@ from jaxgs.io_manager.colmap import load_colmap_images
 from jaxgs.scene.cluster import world_cluster_bounds
 
 settings = config.load_config("experiment.toml")
-pp = settings.capacity
-model = GaussianModel(load_gaussians("output/model.npz"))
+pool = load_gaussians("output/model.ply")
+pp = replace(settings.capacity, max_gaussians=pool.xyz.shape[0])
+model = GaussianModel(pool)
 bounds = world_cluster_bounds(model.as_arrays(), pp.cluster_size)
 frames = load_colmap_images(
     "/path/to/scene", settings.model.images, resolution=settings.model.resolution
@@ -232,7 +237,7 @@ src/jaxgs/
 ├── kernels/         # CuTe kernels and JAX bindings
 ├── training/        # Initialization, warmup, compiled steps and epoch orchestration
 ├── reference/       # JAX correctness implementations
-└── io_manager/      # COLMAP readers, NPZ checkpoints and training reports
+└── io_manager/      # COLMAP readers, PLY/NPZ model I/O and training reports
 ```
 
 `GaussianModel(nnx.Module)` owns trainable `nnx.Param` values and occupancy
@@ -246,8 +251,8 @@ are in the [project structure guide](docs/structure.md).
 Evaluate every eighth COLMAP view using the production renderer:
 
 ```bash
-uv run --extra cute python benchmarks/evaluate_protocol.py \
-  /path/to/bicycle output/bicycle.npz --backend jaxgs \
+uv run python benchmarks/evaluate_protocol.py \
+  /path/to/bicycle output/bicycle.ply --backend jaxgs \
   --images images_4 --output output/quality.json
 ```
 
@@ -268,10 +273,10 @@ warmup and training combined took 6.2% longer; the default loop is retained.
 ## Development and verification
 
 ```bash
-uv sync --extra cute --group dev
+uv sync --group dev
 uv run ruff check src tests benchmarks
 uv run ruff format --check src tests benchmarks
-XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q \
+XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest -q \
   --cov=jaxgs --cov-report=term-missing
 ```
 
@@ -285,7 +290,7 @@ The small-scene reference trainer is available for CPU debugging:
 
 ```bash
 JAX_PLATFORMS=cpu uv run jaxgs-train-reference /path/to/small-scene \
-  --backend reference --steps 100 --capacity 1024 --output output/reference.npz
+  --backend reference --steps 100 --capacity 1024 --output output/reference.ply
 ```
 
 ## Source attribution
