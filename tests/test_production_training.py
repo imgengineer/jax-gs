@@ -12,6 +12,7 @@ from PIL import Image
 
 from jaxgs.config import load_config
 from jaxgs.io_manager.checkpoint import load_gaussians, save_gaussians
+from jaxgs.training import start
 from jaxgs.training.trainer import load_training_frames, train
 
 
@@ -64,6 +65,28 @@ def test_training_rejects_incomplete_epoch_and_invalid_cloud(scene):
     with pytest.raises(ValueError, match="initial cloud is empty"):
         train(scene, output, iterations=3)
     assert not output.exists()
+
+
+def test_grouped_start_defaults_capacity_to_growth_target(scene, monkeypatch):
+    from jaxgs.training import trainer
+
+    settings = load_config()
+    target = replace(settings.densify, target_primitives=512)
+
+    def initialize(source_path, config):
+        assert source_path == scene and config.max_gaussians == target.target_primitives
+        raise RuntimeError("initialization boundary")
+
+    monkeypatch.setattr(trainer, "_initialize_pool", initialize)
+    with pytest.raises(RuntimeError, match="initialization boundary"):
+        start(
+            settings.model,
+            settings.optimization,
+            settings.pipeline,
+            target,
+            source_path=scene,
+            model_path=scene / "out.npz",
+        )
 
 
 @pytest.mark.parametrize(
@@ -135,7 +158,13 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
     pool, state, initial_count, _ = trainer._initialize_pool(scene, config)
     stats = jnp.zeros((config.max_gaussians, 4), jnp.float32)
     training = TrainingState(GaussianModel(pool), state, stats)
-    update = bind_train_step(training)
+    update = bind_train_step(
+        training,
+        config,
+        max_steps=settings.optimization.position_lr_max_steps,
+        optimizer=settings.runtime.optimizer,
+        optimization=settings.optimization,
+    )
     originals = jax.tree.leaves((pool, state, stats))
     snapshots = [np.asarray(value).copy() for value in originals]
     pointers = [value.unsafe_buffer_pointer() for value in originals]
@@ -165,8 +194,8 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
     )
     if fail:
 
-        def interrupted_update(*args):
-            jax.block_until_ready(update(*args))
+        def interrupted_update(*args, **kwargs):
+            jax.block_until_ready(update(*args, **kwargs))
             raise RuntimeError("warmup interrupted")
 
         with pytest.raises(RuntimeError, match="warmup interrupted"):
@@ -194,14 +223,10 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
                     target,
                     jnp.array(1, jnp.int32),
                     args[4],
-                    config,
-                    0,
-                    False,
-                    settings.optimization.position_lr_max_steps,
-                    jnp.array(False),
-                    jnp.array(0, jnp.int32),
-                    settings.runtime.optimizer,
-                    settings.optimization,
+                    active_degree=0,
+                    collect_stats=False,
+                    overflow=jnp.array(False),
+                    peak_pairs=jnp.array(0, jnp.int32),
                 )
             )
         assert update.jitted_fn._cache_size() == cache_size
@@ -211,7 +236,8 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
     reason="production training requires JAX CUDA and CuTe",
 )
-def test_complete_training_schedule_and_checkpoint(scene, monkeypatch):
+@pytest.mark.parametrize("grouped", [False, True])
+def test_complete_training_schedule_and_checkpoint(scene, monkeypatch, grouped):
     from jaxgs.training import trainer
 
     config = load_config()
@@ -232,16 +258,28 @@ def test_complete_training_schedule_and_checkpoint(scene, monkeypatch):
         return result
 
     monkeypatch.setattr(trainer, "decay_opacity", decay)
-    report = train(
-        scene,
-        scene / "output" / "pool.npz",
-        settings=config,
-        iterations=63,
-        images="images",
-        seed=7,
-        optimizer="optax",
-        pair_capacity=4096,
-    )
+    output = scene / "output" / "pool.npz"
+    if grouped:
+        report = start(
+            config.model,
+            replace(config.optimization, iterations=63),
+            config.pipeline,
+            config.densify,
+            source_path=scene,
+            model_path=output,
+            runtime=replace(config.runtime, seed=7),
+        )
+    else:
+        report = train(
+            scene,
+            output,
+            settings=config,
+            iterations=63,
+            images="images",
+            seed=7,
+            optimizer="optax",
+            pair_capacity=4096,
+        )
     assert report["actual_updates"] == 63
     assert report["training_images"] == 3 and report["densify_until"] == 11
     assert report["initial_sparse_gaussians"] == 129 and report["initial_padded_gaussians"] == 256
@@ -307,8 +345,8 @@ def test_nonfinite_loss_preserves_existing_checkpoint(scene, monkeypatch, loss):
     )
     original_bind = trainer.bind_train_step
 
-    def bind_nonfinite_step(training):
-        original_step = original_bind(training)
+    def bind_nonfinite_step(*args, **kwargs):
+        original_step = original_bind(*args, **kwargs)
 
         def nonfinite_step(*args, **kwargs):
             _, overflow, peak = original_step(*args, **kwargs)

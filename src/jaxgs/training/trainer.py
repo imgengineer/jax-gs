@@ -13,8 +13,16 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..config import CapacityConfig, TrainingConfig, load_config
-from ..config.training import ModelConfig
+from ..config import (
+    CapacityConfig,
+    DensifyConfig,
+    ModelConfig,
+    OptimizationConfig,
+    PipelineConfig,
+    RuntimeConfig,
+    TrainingConfig,
+    load_config,
+)
 from ..data import Frame, image_dataset
 from ..io_manager.checkpoint import save_gaussians
 from ..io_manager.colmap import load_colmap_images, load_colmap_points
@@ -100,8 +108,7 @@ def _precompile_training(
 ) -> float:
     """Compile SH/statistics variants for each view shape before timing."""
     capacity_config = settings.capacity
-    optimization, densification = settings.optimization, settings.densify
-    optimizer = settings.runtime.optimizer
+    densification = settings.densify
     warmup_start = perf_counter()
     pool = training_state.model.as_arrays()
     adam_state = training_state.adam.get_value()
@@ -129,14 +136,10 @@ def _precompile_training(
                         target,
                         jnp.array(0, jnp.int32),
                         scene_radius,
-                        capacity_config,
-                        sh_degree,
-                        collect_stats,
-                        optimization.position_lr_max_steps,
-                        jnp.array(False),
-                        jnp.array(0, jnp.int32),
-                        optimizer,
-                        optimization,
+                        active_degree=sh_degree,
+                        collect_stats=collect_stats,
+                        overflow=jnp.array(False),
+                        peak_pairs=jnp.array(0, jnp.int32),
                     )
                     jax.block_until_ready(
                         (
@@ -256,6 +259,31 @@ def train(
         if value is not None
     }
     settings = replace(settings, runtime=replace(settings.runtime, **overrides))
+    return start(
+        settings.model,
+        settings.optimization,
+        settings.pipeline,
+        settings.densify,
+        source_path=scene,
+        model_path=output,
+        runtime=settings.runtime,
+    )
+
+
+def start(
+    lp: ModelConfig,
+    op: OptimizationConfig,
+    pp: PipelineConfig,
+    dp: DensifyConfig,
+    *,
+    source_path: str | Path,
+    model_path: str | Path,
+    runtime: RuntimeConfig | None = None,
+) -> dict[str, object]:
+    """Train with LiteGS's model, optimization, pipeline and densification groups."""
+    scene, output = source_path, model_path
+    runtime = runtime or replace(load_config().runtime, max_gaussians=dp.target_primitives)
+    settings = TrainingConfig(model=lp, optimization=op, pipeline=pp, densify=dp, runtime=runtime)
     settings.validate()
     optimization, densification, runtime = settings.optimization, settings.densify, settings.runtime
     iterations = optimization.iterations
@@ -292,7 +320,13 @@ def train(
 
     model = GaussianModel(pool)
     training_state = TrainingState(model, adam_state, fragment_stats)
-    train_step_fn = bind_train_step(training_state)
+    train_step_fn = bind_train_step(
+        training_state,
+        capacity_config,
+        max_steps=optimization.position_lr_max_steps,
+        optimizer=optimizer,
+        optimization=optimization,
+    )
     warmup_seconds = _precompile_training(
         training_state,
         train_step_fn,
@@ -328,14 +362,10 @@ def train(
                 targets[frame_index],
                 jnp.array(step, jnp.int32),
                 scene_radius,
-                capacity_config,
-                min(epoch // 5, capacity_config.sh_degree),
-                collect_stats,
-                optimization.position_lr_max_steps,
-                overflow,
-                peak_pairs,
-                optimizer,
-                optimization,
+                active_degree=min(epoch // 5, capacity_config.sh_degree),
+                collect_stats=collect_stats,
+                overflow=overflow,
+                peak_pairs=peak_pairs,
             )
             step += 1
         adam_state = training_state.adam.get_value()

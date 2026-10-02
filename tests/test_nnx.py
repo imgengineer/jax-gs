@@ -1,4 +1,5 @@
 import importlib.util
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -7,6 +8,7 @@ import pytest
 from flax import nnx
 
 from jaxgs import Camera, CapacityConfig, GaussianModel, create_gaussians, seed_gaussians
+from jaxgs.config import load_config
 
 
 def test_model_parameters_pool_views_and_fixed_shape_updates():
@@ -63,6 +65,7 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
     from jaxgs.training.trainer import array_train_step, train_step
 
     config = CapacityConfig(128, 128, 128, 16, 3, 512, tile_height=8)
+    optimization = replace(load_config().optimization, feature_lr=0.007, opacity_lr=0.02)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 24, 24, 16, 8, 32, 16)
     pool = seed_gaussians(
         create_gaussians(config),
@@ -87,7 +90,13 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
     nnx_state = create_adam_state(model.as_arrays())
     nnx_stats = stats.copy()
     training = TrainingState(model, nnx_state, nnx_stats)
-    update = bind_train_step(training) if bound else train_step
+    update = (
+        bind_train_step(
+            training, config, max_steps=10000, optimizer=optimizer, optimization=optimization
+        )
+        if bound
+        else train_step
+    )
     assert isinstance(training.adam, nnx.OptState)
     overflow, peak = jnp.array(False), jnp.array(0, jnp.int32)
     old_xyz = model.xyz.get_value()
@@ -109,7 +118,9 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
             config,
             degree,
             collect,
+            max_steps=10000,
             optimizer=optimizer,
+            optimization=optimization,
         )
         args = (
             bounds,
@@ -117,20 +128,32 @@ def test_nnx_donated_training_matches_array_step(degree, collect, optimizer, bou
             target,
             jnp.array(step),
             jnp.array(1.0),
-            config,
-            degree,
-            collect,
-            10000,
-            overflow,
-            peak,
-            optimizer,
         )
         if bound:
-            loss, overflow, peak = update(*args)
+            loss, overflow, peak = update(
+                *args,
+                active_degree=degree,
+                collect_stats=collect,
+                overflow=overflow,
+                peak_pairs=peak,
+            )
             nnx_state = training.adam.get_value()
             nnx_stats = training.fragments.get_value()
         else:
-            nnx_state, nnx_stats, loss, overflow, peak = update(nnx_state, nnx_stats, model, *args)
+            nnx_state, nnx_stats, loss, overflow, peak = update(
+                nnx_state,
+                nnx_stats,
+                model,
+                *args,
+                config,
+                degree,
+                collect,
+                10000,
+                overflow,
+                peak,
+                optimizer,
+                optimization,
+            )
         actual = (model.as_arrays(), nnx_state, nnx_stats, loss)
         expected = (pool, state, stats, metrics["loss"])
         for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):

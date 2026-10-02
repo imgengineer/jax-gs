@@ -16,6 +16,51 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def test_half_pair_sums_preserve_rounding_and_nonfinite_values():
+    import cutlass.cute as cute
+    from cutlass.jax import cutlass_call
+
+    from jaxgs.kernels import half2 as h
+
+    @cute.kernel
+    def sums(a, b, result, reference, size: int):
+        tid, _, _ = cute.arch.thread_idx()
+        block, _, _ = cute.arch.block_idx()
+        i = block * 256 + tid
+        if i < size:
+            result[i] = h.pack_pair_sums(a[i], b[i])
+            reference[i] = h.pack(h.sum_pair(a[i]), h.sum_pair(b[i]))
+
+    @cute.jit
+    def launch(stream, a, b, result, reference, *, size: int):
+        sums(a, b, result, reference, size).launch(
+            grid=[(size + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
+        )
+
+    # Every half encoding appears in both positions, followed by random pairs.
+    half = np.arange(65536, dtype=np.uint32)
+    rng = np.random.default_rng(44)
+    a = np.concatenate(
+        [half | (((half * 7919) & 65535) << 16), rng.integers(0, 1 << 32, 65537, dtype=np.uint32)]
+    )
+    b = np.concatenate(
+        [
+            half[::-1] | (((half * 8191) & 65535) << 16),
+            rng.integers(0, 1 << 32, 65537, dtype=np.uint32),
+        ]
+    )
+    call = cutlass_call(
+        launch,
+        output_shape_dtype=(jax.ShapeDtypeStruct(a.shape, jnp.uint32),) * 2,
+        use_static_tensors=True,
+        size=a.size,
+    )
+    actual, expected = [np.asarray(x).view(np.uint16) for x in call(jnp.asarray(a), jnp.asarray(b))]
+    actual_nan, expected_nan = (actual & 0x7FFF) > 0x7C00, (expected & 0x7FFF) > 0x7C00
+    np.testing.assert_array_equal(actual_nan, expected_nan)
+    np.testing.assert_array_equal(actual[~expected_nan], expected[~expected_nan])
+
+
 def _splats(rng, count, width, height, radius=(0.4, 40.0), alpha=(0.005, 0.99), huge=0):
     """Small, large, thin and nearly degenerate screen-space ellipses."""
     mean = rng.uniform((-0.1 * width, -0.1 * height), (1.1 * width, 1.1 * height), (count, 2))

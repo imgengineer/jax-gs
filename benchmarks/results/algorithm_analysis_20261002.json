@@ -1,0 +1,2056 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-02",
+  "basis": "local code, local dataset, own GPU experiments; no network used after user requested offline work",
+  "git_head": "e46b03eeaf2f0ba31349bb88bd75d4bcd5c4ad69",
+  "versions": {
+    "jax": "0.11.2",
+    "flax": "0.12.10",
+    "optax": "0.2.8",
+    "nvidia-cutlass-dsl": "4.8.0"
+  },
+  "gpu": "NVIDIA GeForce RTX 5090, 615.71.09",
+  "source_sha256": {
+    "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+    "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+    "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+    "src/jaxgs/config/default.toml": "dfeac87692bc5887398ad7a79b4398b57db7e0e8df863f78af1c2a6d96181e56",
+    "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+    "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+    "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/io_manager/checkpoint.py": "e7c01629de7a494b007bd241e53d9fab00e768bc416c86359dab5e84e55c1c9e",
+    "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+    "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+    "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+    "src/jaxgs/kernels/__init__.py": "f82fc629b1912fe8e8a27ea807fcb0d7d06897398b9df92477503d60de7e2d99",
+    "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+    "src/jaxgs/kernels/allocator.py": "15b3e617316333322b55f7f6cba15b079b0bafe28a197c33020895835d12832f",
+    "src/jaxgs/kernels/binning.py": "3054e87acaffd9be96c284a441abafb5b1d874d3a4cbccbf71a912a37bffad81",
+    "src/jaxgs/kernels/cluster_compact.py": "de8baaefede08e73f90ce70b5fa50e0ad054842dfd8cb57526d41442d6289024",
+    "src/jaxgs/kernels/fused_loss.py": "20a626e7f7023f863a34e502186b7488854d341ae4247329ad2c731e8615ebe7",
+    "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+    "src/jaxgs/kernels/packed_rasterize.py": "03b9538069c027fbb0e0793041c81d04b985ab26f6221b5c1b4a42eae69b8efe",
+    "src/jaxgs/kernels/packed_rasterizer.py": "c79559db554ce6a9bf4b366eda2bcf6b6ff9b42e63e798aaa6da06e9a772a610",
+    "src/jaxgs/kernels/pair_sort.py": "a84df9b79f8aef963ac4f4944ff5d972fa7ed8a3be9d6449ae0c32ce9725c5b9",
+    "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+    "src/jaxgs/kernels/partitioner.py": "329ed25e855272f9ce2c2c61357a9d8180fc79065261481da093ef84029c35ec",
+    "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+    "src/jaxgs/kernels/projection_backward.py": "39261974a735ce64da6650e100ef16dffee76acae15fa48d94444a66a1ba3850",
+    "src/jaxgs/kernels/projector.py": "a32a369aab7ecf5f7df2b44bf70b1fc010f6a5fb1989ae432494a07f7eae338f",
+    "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+    "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+    "src/jaxgs/kernels/rasterizer.py": "81e858f0fbf6d855138b0835ec49d2fbd853fcb74b306ac363a13bcaf85efe43",
+    "src/jaxgs/kernels/sorted_binning.py": "7c3befbd563760f2e982238a666143044ae2377ad22cb7584fd59f5a5736e485",
+    "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+    "src/jaxgs/kernels/sorted_rasterizer.py": "228aa4577a0db4bb9ede130e518fb62718b61577571bc57ecaaea0ae9a1a3601",
+    "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+    "src/jaxgs/kernels/sparse_adam.py": "a4499c2adc61f68c30f5867cd5568fd2a2e4292891d048c8fe924559ab0a5d0a",
+    "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+    "src/jaxgs/kernels/visible_optax.py": "65e5ddace1342cc1a07d3d83d94b909f98b80feedf71613184ab5e786963502d",
+    "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+    "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+    "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+    "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+    "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+    "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+    "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+    "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+    "src/jaxgs/render/types.py": "cc5c87b4e1a15f13be8b93295a7dc9a37f73df7a6ce22f5624dd4683ec0c0553",
+    "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+    "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+    "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+    "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+    "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+    "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+    "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+    "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+    "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+    "src/jaxgs/training/optimizer.py": "7b4ec12d37a9e9323b0dae67fd108d16e7d14c6ffbed8a5bbfdd611d290e2f47",
+    "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+    "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+    "src/jaxgs/training/reference_trainer.py": "a4f33b9004b193af8d909216285324af729e28e08b012246c36c8080db24ca2d",
+    "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+    "src/jaxgs/training/step.py": "4732703328ade1ddaeff4df4fd11bd72194e721b5106d3d130466418bc6167e9",
+    "src/jaxgs/training/trainer.py": "8a19ffe2592b511685293c6715b54ff0d53de2169103fd42abfda3ff944ee5b9"
+  },
+  "input_checkpoint": {
+    "sha256": "cb069b7d81db2fcd797e3b9ac4603072ab6ea22929341c4525fad7d6c31705be",
+    "capacity": 1000000,
+    "active": 993152,
+    "training_seconds": 42.88749688595999,
+    "generation_config": {
+      "model": {
+        "sh_degree": 3,
+        "images": "images_4",
+        "resolution": -1,
+        "white_background": false,
+        "data_device": "cuda",
+        "eval": true
+      },
+      "pipeline": {
+        "cluster_size": 128,
+        "tile_size": [
+          8,
+          16
+        ],
+        "sparse_grad": true,
+        "device_preload": true,
+        "enable_transmitance": false,
+        "enable_depth": false,
+        "input_color_type": "sh"
+      },
+      "optimization": {
+        "iterations": 30000,
+        "position_lr_init": 0.00016,
+        "position_lr_final": 1.6e-06,
+        "position_lr_max_steps": 30000,
+        "feature_lr": 0.0025,
+        "opacity_lr": 0.025,
+        "scaling_lr": 0.005,
+        "rotation_lr": 0.001,
+        "lambda_dssim": 0.2,
+        "reg_weight": 0.0,
+        "learnable_viewproj": false
+      },
+      "densify": {
+        "densification_interval": 5,
+        "densify_from": 3,
+        "densify_until": -1,
+        "opacity_reset_interval": 10,
+        "opacity_reset_mode": "decay",
+        "prune_mode": "weight",
+        "target_primitives": 1000000,
+        "densify_grad_threshold": 0.00015,
+        "opacity_threshold": 0.005,
+        "screen_size_threshold": 128,
+        "percent_dense": 0.01
+      },
+      "runtime": {
+        "max_gaussians": 1000000,
+        "max_visibility_pairs": 8000000,
+        "optimizer": "optax",
+        "seed": 0
+      }
+    },
+    "scene": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "note": "generated by current code with default 30k schedule; training time is input preparation, not a controlled comparison; checkpoint deleted after analysis"
+  },
+  "production_source_unchanged": true,
+  "retained_changes": [
+    "benchmarks/configs/bicycle_8x8.toml",
+    "README.md local algorithm results link",
+    "benchmarks/results/algorithm_analysis_20261002.json",
+    "benchmarks/results/algorithm_analysis_20261002.md"
+  ],
+  "depth_compaction": {
+    "method": "Count Gaussian pairs/depth keys at full capacity; compact 128-slot clusters containing at least one positive pair count in ascending pool order; choose quarter/half/full sort capacity; gather positive keys and IDs, pad with uint32 max / ID -1, stable depth-sort; padded IDs have zero count; retain original count/emit/stable tile-sort/range pipeline and public output shapes. Last partial 64-slot cluster is padded for cluster reduction and guarded when gathering.",
+    "sort_buckets": [
+      250112,
+      500096,
+      1000000
+    ],
+    "protocol": "capacity 1M, SH3, 8x16 tiles, 8M pair arena, four views 0/48/96/144; retain every tenth complete cluster as distributed sparse control plus full model; 30 warmup and six alternating rounds of 200 calls for baseline, dynamic candidate and static-bucket diagnostic; includes host dispatch",
+    "correctness": "For all eight cases, pair count, overflow, valid Gaussian ID prefix, tile offsets and point counts equal baseline exactly. Static diagnostic additionally checks ID prefix and offsets. Padding tails are undefined and not compared.",
+    "static_diagnostic_limit": "Bucket chosen using a CPU oracle before compilation; not a viable adaptive training implementation. It is only an overhead diagnostic.",
+    "gpu_monitoring_limit": "GPU exclusive permission and process checks before/after; unlike the later probes, this exploratory sort run did not continuously monitor other compute processes.",
+    "status": "rejected; dynamic version slower in all eight cases; no production edits",
+    "rows": [
+      {
+        "fraction": 0.1,
+        "view": 0,
+        "capacity": 1000000,
+        "pair_count": 269687,
+        "positive_gaussians": 44153,
+        "positive_cluster_slots": 49536,
+        "samples_us": {
+          "baseline": [
+            108.82962495088577,
+            108.71706996113062,
+            108.66071505006403,
+            108.58766967430711,
+            108.64206997212023,
+            108.47341502085328
+          ],
+          "candidate": [
+            115.96719501540065,
+            115.76424993108958,
+            115.92290014959872,
+            115.99024990573525,
+            115.98350014537573,
+            116.16680480074137
+          ],
+          "static_bucket": [
+            104.9253047676757,
+            105.11095519177616,
+            104.96845468878746,
+            105.10255000554025,
+            104.99450494535267,
+            105.09510000701994
+          ]
+        },
+        "median_us": {
+          "baseline": 108.65139251109213,
+          "candidate": 115.97534758038819,
+          "static_bucket": 105.0448024761863
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 250112,
+        "shorter_percent": -6.740783435930986
+      },
+      {
+        "fraction": 0.1,
+        "view": 48,
+        "capacity": 1000000,
+        "pair_count": 243690,
+        "positive_gaussians": 38875,
+        "positive_cluster_slots": 45824,
+        "samples_us": {
+          "baseline": [
+            105.73690466117114,
+            105.5538549553603,
+            105.8306050254032,
+            105.69900507107377,
+            105.76005501206964,
+            105.74100480880588
+          ],
+          "candidate": [
+            111.27183039207011,
+            110.71423010434955,
+            110.97562965005636,
+            111.52517981827259,
+            111.3429298857227,
+            111.96763487532735
+          ],
+          "static_bucket": [
+            102.2786897374317,
+            102.55829489324242,
+            102.50538995023817,
+            102.62679541483521,
+            102.5563949951902,
+            102.58388996589929
+          ]
+        },
+        "median_us": {
+          "baseline": 105.73895473498851,
+          "candidate": 111.3073801388964,
+          "static_bucket": 102.55734494421631
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 250112,
+        "shorter_percent": -5.266200538736099
+      },
+      {
+        "fraction": 0.1,
+        "view": 96,
+        "capacity": 1000000,
+        "pair_count": 221373,
+        "positive_gaussians": 34700,
+        "positive_cluster_slots": 41216,
+        "samples_us": {
+          "baseline": [
+            98.26197463553399,
+            98.24302513152361,
+            98.32727548200637,
+            98.15417521167547,
+            98.24257518630475,
+            98.1652201153338
+          ],
+          "candidate": [
+            107.25571017246693,
+            105.42910022195429,
+            105.74915504548699,
+            105.6350051658228,
+            105.91485479380935,
+            105.40280491113663
+          ],
+          "static_bucket": [
+            94.04220501892269,
+            94.11516017280519,
+            93.84585486259311,
+            93.99580536410213,
+            93.87105528730899,
+            94.18140980415046
+          ]
+        },
+        "median_us": {
+          "baseline": 98.24280015891418,
+          "candidate": 105.6920801056549,
+          "static_bucket": 94.0190051915124
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 250112,
+        "shorter_percent": -7.582519975704094
+      },
+      {
+        "fraction": 0.1,
+        "view": 144,
+        "capacity": 1000000,
+        "pair_count": 206436,
+        "positive_gaussians": 32631,
+        "positive_cluster_slots": 37248,
+        "samples_us": {
+          "baseline": [
+            105.64050462562591,
+            105.48815480433404,
+            105.66280514467508,
+            105.51660554483533,
+            105.8541052043438,
+            105.70875543635339
+          ],
+          "candidate": [
+            110.6678752694279,
+            110.71118002291769,
+            110.94102985225618,
+            110.16962467692792,
+            111.45128461066633,
+            110.68012972828001
+          ],
+          "static_bucket": [
+            100.79998522996902,
+            100.86228488944471,
+            100.80508480314165,
+            100.95908481162041,
+            101.13423515576869,
+            101.21983534190804
+          ]
+        },
+        "median_us": {
+          "baseline": 105.65165488515049,
+          "candidate": 110.69565487559885,
+          "static_bucket": 100.91068485053256
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 250112,
+        "shorter_percent": -4.7741798232422195
+      },
+      {
+        "fraction": 1.0,
+        "view": 0,
+        "capacity": 1000000,
+        "pair_count": 2903158,
+        "positive_gaussians": 439677,
+        "positive_cluster_slots": 504704,
+        "samples_us": {
+          "baseline": [
+            218.69833988603204,
+            218.92669494263828,
+            219.36164528597146,
+            218.82999455556273,
+            219.55359494313598,
+            219.31789524387568
+          ],
+          "candidate": [
+            237.82512522302568,
+            237.8452749690041,
+            238.15692984499037,
+            237.66282538417727,
+            237.48427513055503,
+            238.0743803223595
+          ],
+          "static_bucket": [
+            219.0200996119529,
+            219.558744574897,
+            219.17679521720856,
+            219.36714474577457,
+            219.33200012426823,
+            219.65839492622763
+          ]
+        },
+        "median_us": {
+          "baseline": 219.12229509325698,
+          "candidate": 237.8352000960149,
+          "static_bucket": 219.3495724350214
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 1000000,
+        "shorter_percent": -8.539936565922623
+      },
+      {
+        "fraction": 1.0,
+        "view": 48,
+        "capacity": 1000000,
+        "pair_count": 2624542,
+        "positive_gaussians": 391215,
+        "positive_cluster_slots": 456832,
+        "samples_us": {
+          "baseline": [
+            207.01144472695887,
+            206.5418951679021,
+            206.82569011114538,
+            206.72439015470445,
+            206.91604469902813,
+            206.85999013949186
+          ],
+          "candidate": [
+            218.3128398610279,
+            217.94694010168314,
+            217.24498481489718,
+            217.51943975687027,
+            217.5246854312718,
+            217.26484003011137
+          ],
+          "static_bucket": [
+            208.72685010544956,
+            208.96444970276207,
+            208.7211998878047,
+            209.04464996419847,
+            209.06840451061726,
+            209.3421499012038
+          ]
+        },
+        "median_us": {
+          "baseline": 206.84284012531862,
+          "candidate": 217.52206259407103,
+          "static_bucket": 209.00454983348027
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 500096,
+        "shorter_percent": -5.162964530114866
+      },
+      {
+        "fraction": 1.0,
+        "view": 96,
+        "capacity": 1000000,
+        "pair_count": 2370044,
+        "positive_gaussians": 343503,
+        "positive_cluster_slots": 412160,
+        "samples_us": {
+          "baseline": [
+            194.85574506688863,
+            194.89619007799774,
+            195.11684484314173,
+            194.9800900183618,
+            195.27554512023926,
+            195.34624530933797
+          ],
+          "candidate": [
+            204.90892988163978,
+            205.26893495116383,
+            205.42783488053828,
+            204.92483512498438,
+            204.6291797887534,
+            205.09803493041545
+          ],
+          "static_bucket": [
+            195.2225953573361,
+            195.2608401188627,
+            194.9748396873474,
+            195.5385453766212,
+            195.39819506462663,
+            195.39108965545893
+          ]
+        },
+        "median_us": {
+          "baseline": 195.04846743075177,
+          "candidate": 205.01143502769992,
+          "static_bucket": 195.3259648871608
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 500096,
+        "shorter_percent": -5.107944567924028
+      },
+      {
+        "fraction": 1.0,
+        "view": 144,
+        "capacity": 1000000,
+        "pair_count": 2326553,
+        "positive_gaussians": 324088,
+        "positive_cluster_slots": 380672,
+        "samples_us": {
+          "baseline": [
+            195.2546398388222,
+            195.0775447767228,
+            195.42893976904452,
+            195.2199952211231,
+            195.25513984262943,
+            195.42944501154125
+          ],
+          "candidate": [
+            205.71249013300985,
+            206.24103490263224,
+            205.9000899316743,
+            206.71593956649303,
+            206.7587897181511,
+            206.30358951166272
+          ],
+          "static_bucket": [
+            197.3434502724558,
+            197.53275497350842,
+            197.2880499670282,
+            197.74290500208735,
+            197.41700496524572,
+            197.74560001678765
+          ]
+        },
+        "median_us": {
+          "baseline": 195.2548898407258,
+          "candidate": 206.27231220714748,
+          "static_bucket": 197.47487996937707
+        },
+        "table_equal": true,
+        "mask": "every tenth complete cluster",
+        "static_slots": 500096,
+        "shorter_percent": -5.642584611022472
+      }
+    ]
+  },
+  "heavy_tile_ablation": {
+    "capacity": 1000000,
+    "tiles": 8034,
+    "pairs": 2903158,
+    "backward_splat_iterations": 2825480,
+    "heaviest_pair_count": 2606,
+    "heaviest_backward_iterations": 2408,
+    "heaviest_tile": 4856,
+    "retained_iterations": {
+      "top_1": 2408,
+      "top_16": 28259,
+      "top_64": 90796
+    },
+    "median_us": {
+      "full": 788.935236632824,
+      "top_1": 547.4394967313856,
+      "top_16": 546.3214234138529,
+      "top_64": 544.803086668253
+    },
+    "samples_us": {
+      "full": [
+        785.7609260827303,
+        787.7405934656659,
+        790.366946409146,
+        789.3236734283468,
+        790.5187465560933,
+        788.5467998373011
+      ],
+      "top_1": [
+        547.742493605862,
+        546.7728936734298,
+        548.5985668686529,
+        547.0036265129844,
+        549.4339003538092,
+        547.1364998569092
+      ],
+      "top_16": [
+        546.1301600250105,
+        546.2523604122301,
+        546.5841596014798,
+        546.3904864154756,
+        548.1114331632853,
+        546.2227536675831
+      ],
+      "top_64": [
+        544.4344800586501,
+        544.5192800834775,
+        545.1088802268108,
+        544.7622202336788,
+        544.8826130790015,
+        544.8439531028271
+      ]
+    },
+    "protocol": "same projected arrays, image gradient, supplied scale, transmittance and last contributors; keep only selected tiles and remap absolute pair indices; no-statistics backward; 30 warmup calls, 6 alternating rounds of 150 calls; includes output clearing and host dispatch",
+    "single_tile_iteration_fraction_percent": 0.08522445743732038,
+    "single_tile_elapsed_fraction_percent": 69.38966233373701,
+    "monitor": {
+      "other_compute_processes": [],
+      "monitor_interval_s": 0.5
+    },
+    "interpretation": "Workload ablation, not a valid faster rendering algorithm. The selected tiles retain original Gaussian order, pixel gradients, final transmittance and last contributors; absolute pair indices are remapped. Timings retain output clearing and all-tile input reads, so the 69% elapsed ratio cannot be attributed entirely to the single tile. It supports a serial heavy-tile tail."
+  },
+  "tile_shape": {
+    "fixed_count": {
+      "protocol": "same fresh million-capacity NPZ, view 0, SH3, Optax, fixed density, 8M pairs, 30 warmup and 500 timed steps; three alternating rounds; no other GPU compute process before or during runs; monitor every 0.5 seconds",
+      "runs": {
+        "8x16": [
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.029725046828389168,
+            "final_loss": 0.010138905607163906,
+            "pairs": 2686385,
+            "mean_step_ms": 2.361557874130085,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true
+          },
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.029723908752202988,
+            "final_loss": 0.010194388218224049,
+            "pairs": 2686470,
+            "mean_step_ms": 2.367131059989333,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true
+          },
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.029715176671743393,
+            "final_loss": 0.010091813281178474,
+            "pairs": 2687935,
+            "mean_step_ms": 2.367425777949393,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true
+          }
+        ],
+        "8x8": [
+          {
+            "tile": [
+              8,
+              8
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.02973763644695282,
+            "final_loss": 0.010168250650167465,
+            "pairs": 4111553,
+            "mean_step_ms": 2.095210043946281,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true
+          },
+          {
+            "tile": [
+              8,
+              8
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.02974662557244301,
+            "final_loss": 0.01014572475105524,
+            "pairs": 4115212,
+            "mean_step_ms": 2.091512748040259,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true
+          },
+          {
+            "tile": [
+              8,
+              8
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.029739782214164734,
+            "final_loss": 0.010141084901988506,
+            "pairs": 4111208,
+            "mean_step_ms": 2.097078812075779,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true
+          }
+        ]
+      },
+      "median_ms": {
+        "8x16": 2.367131059989333,
+        "8x8": 2.095210043946281
+      },
+      "shorter_percent": 11.487366316095626,
+      "optimization_config": "benchmarks/configs/bicycle_10k.toml",
+      "optimization_settings": {
+        "iterations": 10000,
+        "position_lr_init": 0.00016,
+        "position_lr_final": 1.6e-05,
+        "position_lr_max_steps": 10000,
+        "feature_lr": 0.0025,
+        "opacity_lr": 0.025,
+        "scaling_lr": 0.005,
+        "rotation_lr": 0.001,
+        "lambda_dssim": 0.2,
+        "reg_weight": 0.0,
+        "learnable_viewproj": false
+      }
+    },
+    "full_training": {
+      "protocol": "production default 30k schedule, images_4, 169 training / 25 held-out views, seed 0, 1M capacity, 8M pairs, only tile shape differs; three alternating rounds; native and common 8x16 renderer evaluation; no other GPU compute process before or during any run; monitor every 0.5 seconds",
+      "median_seconds": {
+        "8x16": 42.88689583702944,
+        "8x8": 41.37871354701929
+      },
+      "mean_psnr_common_8x16": {
+        "8x16": 25.49257569331603,
+        "8x8": 25.46343956239315
+      },
+      "mean_psnr_native": {
+        "8x16": 25.49257569331603,
+        "8x8": 25.46186405467996
+      },
+      "shorter_percent": 3.516650623867157,
+      "runs": {
+        "8x16": [
+          {
+            "trial": 0,
+            "tile": [
+              8,
+              16
+            ],
+            "training_seconds": 42.88689583702944,
+            "warmup_seconds": 13.85272923100274,
+            "actual_updates": 29913,
+            "final_gaussians": 993152,
+            "peak_pairs": 3304630,
+            "final_loss": 0.06624629348516464,
+            "jit_cache_size": 8,
+            "donation": true,
+            "completed_without_overflow": true,
+            "evaluation": {
+              "8x16": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 21.74434475064464
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.858462763673792
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.167821012952906
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.85184608895115
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.873359001561262
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.63635759434097
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.775808417302784
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.823506817609324
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.222669761824154
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 26.300198895923153
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 25.31533300799588
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 23.997315796651613
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.542840470706967
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.409615099928594
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.617699332985403
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.44715930224678
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.062302484938947
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.809675568614697
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 29.16083503295491
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.545499931347035
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.383658338175117
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.637048428293184
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.70410179840394
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.862634889823262
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.250766229210623
+                  }
+                ],
+                "mean_psnr": 25.520034432682447
+              }
+            }
+          },
+          {
+            "trial": 1,
+            "tile": [
+              8,
+              16
+            ],
+            "training_seconds": 43.11037535301875,
+            "warmup_seconds": 14.018997178063728,
+            "actual_updates": 29913,
+            "final_gaussians": 993152,
+            "peak_pairs": 3342749,
+            "final_loss": 0.06598976999521255,
+            "jit_cache_size": 8,
+            "donation": true,
+            "completed_without_overflow": true,
+            "evaluation": {
+              "8x16": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 22.391375576986245
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.92404014242714
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.76054254875979
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.737070336813538
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 23.379764493160785
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.568464136047922
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.836917424960404
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.88118472868529
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 24.885297574612185
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 26.194267630838425
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 25.007394073190454
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 23.65777897700446
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.545340897079942
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.442242871961362
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.561378362061767
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.462592308081398
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.191823745425516
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.527480783270583
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 29.000504818727713
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.66010241211432
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.40509255195213
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.632498887192668
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.694622738261767
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.828843393617788
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.24932352463671
+                  }
+                ],
+                "mean_psnr": 25.53703779751481
+              }
+            }
+          },
+          {
+            "trial": 2,
+            "tile": [
+              8,
+              16
+            ],
+            "training_seconds": 42.845352539094165,
+            "warmup_seconds": 13.97060133900959,
+            "actual_updates": 29913,
+            "final_gaussians": 993152,
+            "peak_pairs": 3306578,
+            "final_loss": 0.06658582389354706,
+            "jit_cache_size": 8,
+            "donation": true,
+            "completed_without_overflow": true,
+            "evaluation": {
+              "8x16": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 22.188840242884133
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.785611637940075
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.391757048879114
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.69001867272287
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.43932383254321
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.593216280263864
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.851909971672068
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.800292183343885
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.102068062548568
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 26.221043292556057
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 24.730024895929397
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 23.187206141126087
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.48670012127544
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.41606557828067
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.517985725931027
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.422120149300095
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.06558294123562
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.505880283052278
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 29.09066421062761
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.520834758811443
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.387253749261077
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.451268455189947
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.662642942067347
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.862776782673205
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.14528328365592
+                  }
+                ],
+                "mean_psnr": 25.42065484975084
+              }
+            }
+          }
+        ],
+        "8x8": [
+          {
+            "trial": 0,
+            "tile": [
+              8,
+              8
+            ],
+            "training_seconds": 40.95712617703248,
+            "warmup_seconds": 13.60080872301478,
+            "actual_updates": 29913,
+            "final_gaussians": 993152,
+            "peak_pairs": 5438398,
+            "final_loss": 0.06682392954826355,
+            "jit_cache_size": 8,
+            "donation": true,
+            "completed_without_overflow": true,
+            "evaluation": {
+              "8x16": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 22.214775015883724
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.702896903681093
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.188363782188986
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.50629285062287
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.681410178897735
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.860646877864585
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.80175146260534
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.7627598486459
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.175117827863886
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 26.23936373584316
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 25.208412670325036
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 23.19916473056002
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.45092535928989
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.266449989785507
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.569889803414597
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.41527728576092
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.11651623139039
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.45224749124493
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 29.148161353360813
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.489104463756117
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.444664740832327
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.539967860107247
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.693233066630242
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.810937216899998
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.228970942945494
+                  }
+                ],
+                "mean_psnr": 25.44669206761603
+              },
+              "8x8": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 22.213356776974752
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.70184318265064
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.186774593094817
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.504259601570375
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.679526742672866
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.8570551758311
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.80232992663079
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.759384898573565
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.174197742194583
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 26.238571354833017
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 25.209158504829094
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 23.201548823599527
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.45130945074159
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.266653680594647
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.566758419912812
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.413834080226387
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.117487652776003
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.447915883661373
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 29.142810445906562
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.486999923951007
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.442352570535817
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.541602291472
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.690947606717152
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.810359877770757
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.225713946251815
+                  }
+                ],
+                "mean_psnr": 25.445310126158926
+              }
+            }
+          },
+          {
+            "trial": 1,
+            "tile": [
+              8,
+              8
+            ],
+            "training_seconds": 41.37871354701929,
+            "warmup_seconds": 13.717339935945347,
+            "actual_updates": 29913,
+            "final_gaussians": 993152,
+            "peak_pairs": 5528077,
+            "final_loss": 0.06646569073200226,
+            "jit_cache_size": 8,
+            "donation": true,
+            "completed_without_overflow": true,
+            "evaluation": {
+              "8x16": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 22.299397028744647
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.85351703278265
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.75328379879415
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.995411559513798
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.476792339752222
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.42056994904594
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.947569097505735
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.794844695904228
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.18467974088834
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 26.09617300001546
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 24.73279567676487
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 23.69273668265178
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.54870003040636
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.35241440284524
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.623497443190374
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.412231978591826
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.07122065306777
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.58913338304184
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 28.936694250477938
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.544166922210078
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.519122130361
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.782050880407954
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.616196899872016
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.896017916075337
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.145194986184116
+                  }
+                ],
+                "mean_psnr": 25.49137649916383
+              },
+              "8x8": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 22.298271525318334
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.85286441357751
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.75272771165551
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.993960741430975
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.475091751522847
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.416232066210213
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.94775961128788
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.7918437751226
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.183592174831336
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 26.095785731661223
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 24.7343092611028
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 23.694406773869726
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.54880600157813
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.35107077940762
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.619258083991017
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.411036569939334
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.072175854854805
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.584369313432987
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 28.929704305490116
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.541052617429973
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.51721610931873
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.782949004112186
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.6110600660893
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.895428219352276
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.14155827120385
+                  }
+                ],
+                "mean_psnr": 25.489701229351653
+              }
+            }
+          },
+          {
+            "trial": 2,
+            "tile": [
+              8,
+              8
+            ],
+            "training_seconds": 41.42237554502208,
+            "warmup_seconds": 13.71313759800978,
+            "actual_updates": 29913,
+            "final_gaussians": 993024,
+            "peak_pairs": 5244944,
+            "final_loss": 0.06599599123001099,
+            "jit_cache_size": 8,
+            "donation": true,
+            "completed_without_overflow": true,
+            "evaluation": {
+              "8x16": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 21.91317692344356
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.9531593453715
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.814549211784698
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.732479226487797
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.542403017606667
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.718960282187275
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.857471627964124
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.81396401170285
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.112208542038644
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 25.545443720144036
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 25.057431978467125
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 22.847542156345398
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.670646899478264
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.412549620931017
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.627943565827064
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.464803601942286
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.164479046508042
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.554202986639996
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 29.032546060275788
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.4728180474648
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.48510881909704
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.723904523524755
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.777916515566403
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.864042250574144
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.146501028616676
+                  }
+                ],
+                "mean_psnr": 25.452250120399597
+              },
+              "8x8": {
+                "views": [
+                  {
+                    "view": "_DSC8679.JPG",
+                    "psnr": 21.911407220013945
+                  },
+                  {
+                    "view": "_DSC8687.JPG",
+                    "psnr": 19.952543990074666
+                  },
+                  {
+                    "view": "_DSC8695.JPG",
+                    "psnr": 20.814348685568934
+                  },
+                  {
+                    "view": "_DSC8703.JPG",
+                    "psnr": 21.730956060028753
+                  },
+                  {
+                    "view": "_DSC8711.JPG",
+                    "psnr": 22.540878387861856
+                  },
+                  {
+                    "view": "_DSC8719.JPG",
+                    "psnr": 23.71487819981671
+                  },
+                  {
+                    "view": "_DSC8727.JPG",
+                    "psnr": 25.856432802261942
+                  },
+                  {
+                    "view": "_DSC8735.JPG",
+                    "psnr": 25.811453996609607
+                  },
+                  {
+                    "view": "_DSC8744.JPG",
+                    "psnr": 25.11119605236974
+                  },
+                  {
+                    "view": "_DSC8752.JPG",
+                    "psnr": 25.546315017020227
+                  },
+                  {
+                    "view": "_DSC8760.JPG",
+                    "psnr": 25.058340940955425
+                  },
+                  {
+                    "view": "_DSC8768.JPG",
+                    "psnr": 22.849544724951922
+                  },
+                  {
+                    "view": "_DSC8776.JPG",
+                    "psnr": 26.66979152494434
+                  },
+                  {
+                    "view": "_DSC8784.JPG",
+                    "psnr": 27.410346107410458
+                  },
+                  {
+                    "view": "_DSC8792.JPG",
+                    "psnr": 27.625409432178007
+                  },
+                  {
+                    "view": "_DSC8800.JPG",
+                    "psnr": 27.463220366836833
+                  },
+                  {
+                    "view": "_DSC8808.JPG",
+                    "psnr": 26.164429293788075
+                  },
+                  {
+                    "view": "_DSC8816.JPG",
+                    "psnr": 26.549598583491992
+                  },
+                  {
+                    "view": "_DSC8824.JPG",
+                    "psnr": 29.025693941779544
+                  },
+                  {
+                    "view": "_DSC8832.JPG",
+                    "psnr": 28.470496343530243
+                  },
+                  {
+                    "view": "_DSC8840.JPG",
+                    "psnr": 27.48360965141558
+                  },
+                  {
+                    "view": "_DSC8848.JPG",
+                    "psnr": 27.725116477163233
+                  },
+                  {
+                    "view": "_DSC8856.JPG",
+                    "psnr": 28.772923735454043
+                  },
+                  {
+                    "view": "_DSC8864.JPG",
+                    "psnr": 24.86279877957809
+                  },
+                  {
+                    "view": "_DSC8872.JPG",
+                    "psnr": 27.142789898128505
+                  }
+                ],
+                "mean_psnr": 25.450580808529303
+              }
+            }
+          }
+        ]
+      },
+      "baseline_resolved_config": {
+        "model": {
+          "sh_degree": 3,
+          "images": "images_4",
+          "resolution": -1,
+          "white_background": false,
+          "data_device": "cuda",
+          "eval": true
+        },
+        "pipeline": {
+          "cluster_size": 128,
+          "tile_size": [
+            8,
+            16
+          ],
+          "sparse_grad": true,
+          "device_preload": true,
+          "enable_transmitance": false,
+          "enable_depth": false,
+          "input_color_type": "sh"
+        },
+        "optimization": {
+          "iterations": 30000,
+          "position_lr_init": 0.00016,
+          "position_lr_final": 1.6e-06,
+          "position_lr_max_steps": 30000,
+          "feature_lr": 0.0025,
+          "opacity_lr": 0.025,
+          "scaling_lr": 0.005,
+          "rotation_lr": 0.001,
+          "lambda_dssim": 0.2,
+          "reg_weight": 0.0,
+          "learnable_viewproj": false
+        },
+        "densify": {
+          "densification_interval": 5,
+          "densify_from": 3,
+          "densify_until": -1,
+          "opacity_reset_interval": 10,
+          "opacity_reset_mode": "decay",
+          "prune_mode": "weight",
+          "target_primitives": 1000000,
+          "densify_grad_threshold": 0.00015,
+          "opacity_threshold": 0.005,
+          "screen_size_threshold": 128,
+          "percent_dense": 0.01
+        },
+        "runtime": {
+          "max_gaussians": 1000000,
+          "max_visibility_pairs": 8000000,
+          "optimizer": "optax",
+          "seed": 0
+        }
+      },
+      "variant_override": {
+        "pipeline": {
+          "tile_size": [
+            8,
+            8
+          ]
+        }
+      },
+      "psnr_difference_db_native": -0.030711638636070404,
+      "psnr_difference_db_common": -0.029136130922879033,
+      "quality_limits": "Three runs per tile shape on one scene and one seed. Mean PSNR is slightly lower for 8x8, inside the observed 8x16 run range; these samples do not establish quality equivalence across scenes."
+    },
+    "status": "verified optional benchmark configuration; default 8x16 retained because only one scene was tested, pair pressure increases and a small measured quality difference remains"
+  },
+  "pixel_group_backward": {
+    "parity": {
+      "mean": {
+        "relative_l2": 9.720084111371805e-08,
+        "max_abs": 4.206412995699793e-12,
+        "finite": true
+      },
+      "conic": {
+        "relative_l2": 1.6013164393314635e-06,
+        "max_abs": 0.000823974609375,
+        "finite": true
+      },
+      "color": {
+        "relative_l2": 0.0001760742008684627,
+        "max_abs": 3.7856807466596365e-08,
+        "finite": true
+      },
+      "alpha": {
+        "relative_l2": 1.00875871827838e-05,
+        "max_abs": 1.3932585716247559e-06,
+        "finite": true
+      }
+    },
+    "median_us": {
+      "baseline": 855.9078599015872,
+      "split": 734.9662067523848
+    },
+    "samples_us": {
+      "baseline": [
+        840.8491600615283,
+        856.9497001978258,
+        852.5694798057278,
+        861.4036533981562,
+        856.1371600565811,
+        855.6785597465932
+      ],
+      "split": [
+        724.3763927059869,
+        739.2359268851578,
+        730.6964866196116,
+        746.8504264640311,
+        729.1944798392555,
+        740.8665997597078
+      ]
+    },
+    "protocol": "same 8x16 visibility table and forward cache; one warp per pixel-pair group; replay original vertical power differences to preserve per-pixel alpha; no-statistics backward, symmetric conic, 30 warmup, six alternating rounds of 150 calls; includes output clearing and host dispatch",
+    "shorter_percent": 14.13021877881907,
+    "whole_step": {
+      "protocol": "same fresh million-capacity NPZ, view 0, SH3, Optax, fixed density, 8x16 tiles, 8M pairs, only backward pixel-group scheduling differs; 30 warmup and 500 timed steps; three alternating rounds; no other GPU compute process before or during runs; monitor every 0.5 seconds",
+      "runs": {
+        "baseline": [
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.02971894107758999,
+            "final_loss": 0.010149997659027576,
+            "pairs": 2685483,
+            "mean_step_ms": 2.371329362038523,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true,
+            "split_backward": false
+          },
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.029722459614276886,
+            "final_loss": 0.010152898728847504,
+            "pairs": 2684414,
+            "mean_step_ms": 2.3776506900321692,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true,
+            "split_backward": false
+          },
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.02972033992409706,
+            "final_loss": 0.010128939524292946,
+            "pairs": 2693515,
+            "mean_step_ms": 2.3756332600023597,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true,
+            "split_backward": false
+          }
+        ],
+        "split": [
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.029722509905695915,
+            "final_loss": 0.01016863714903593,
+            "pairs": 2691287,
+            "mean_step_ms": 2.2543654160108417,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true,
+            "split_backward": true
+          },
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.029714345932006836,
+            "final_loss": 0.010146998800337315,
+            "pairs": 2686529,
+            "mean_step_ms": 2.252002489985898,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true,
+            "split_backward": true
+          },
+          {
+            "tile": [
+              8,
+              16
+            ],
+            "capacity": 1000000,
+            "active": 993152,
+            "initial_loss": 0.02972644940018654,
+            "final_loss": 0.010151618160307407,
+            "pairs": 2683669,
+            "mean_step_ms": 2.2539623819757253,
+            "jit_cache_size": 1,
+            "steps": 500,
+            "warmup": 30,
+            "donation": true,
+            "split_backward": true
+          }
+        ]
+      },
+      "median_ms": {
+        "baseline": 2.3756332600023597,
+        "split": 2.2539623819757253
+      },
+      "shorter_percent": 5.121618731104716,
+      "optimization_config": "benchmarks/configs/bicycle_10k.toml"
+    },
+    "regression": {
+      "command": "temporary launch_backward substitution, then pytest -q -p no:cacheprovider tests/test_packed.py tests/test_work_balance.py tests/test_nnx.py tests/test_call_interfaces.py tests/test_production_training.py",
+      "passed": 108,
+      "failed": 1,
+      "seconds": 209.69,
+      "failed_test": "tests/test_work_balance.py::test_packed_staging_across_batches_matches_reference[True]",
+      "field": "color",
+      "rtol": 1e-05,
+      "atol": 1e-08,
+      "mismatched_elements": 292,
+      "elements": 540,
+      "max_abs_difference_among_violations": 4.2140484e-05,
+      "reason": "Statistics mode retained the old warp reduction while the ordinary VJP split pixel groups; changing the half2 reduction order violated the existing internal gradient consistency tolerance. Tests were not weakened."
+    },
+    "status": "rejected; no production source changes and no full-training speed or quality claim for this prototype",
+    "prototype_patch": "--- src/jaxgs/kernels/packed_rasterize.py\n+++ temporary-prototype/packed_rasterize.py\n@@ -394,14 +394,19 @@\n     tiles: int,\n     collect_stats: cutlass.Constexpr,\n     symmetric_conic: cutlass.Constexpr,\n+    split: cutlass.Constexpr,\n ):\n     lane, _, _ = cute.arch.thread_idx()\n     block, _, _ = cute.arch.block_idx()\n-    groups = tile_size * tile_height // 64\n-    if block < tiles:\n-        tile = order[block]\n+    tile_groups = tile_size * tile_height // 64\n+    parts = tile_groups if split else 1\n+    groups = 1 if split else tile_groups\n+    if block < tiles * parts:\n+        tile = order[block // parts]\n+        phase = block % parts\n         px = tile % tiles_x * tile_size + lane % tile_size\n-        py = tile // tiles_x * tile_height + lane // tile_size * groups * 2\n+        base_py = tile // tiles_x * tile_height + lane // tile_size * tile_groups * 2\n+        py = base_py + phase * 2\n         reg = cute.make_rmem_tensor((groups, 4), cutlass.Uint32)\n         grad = cute.make_rmem_tensor((groups, 3), cutlass.Uint32)\n         lst = cute.make_rmem_tensor((groups, 2), cutlass.Int32)\n@@ -464,7 +469,7 @@\n                 cute.arch.sync_warp()\n             g = _unstage(staged, staged_ids, k, point)\n             dx = h.bits_float(point[0]) - cute.Float32(px)\n-            dy = h.bits_float(point[1]) - cute.Float32(py)\n+            dy = h.bits_float(point[1]) - cute.Float32(base_py)\n             c00 = h.bits_float(point[4])\n             c01 = h.bits_float(point[5])\n             c11 = h.bits_float(point[6])\n@@ -472,6 +477,13 @@\n             red, green = h.splat(rg), h.splat(rg, True)\n             blue, opacity = h.splat(ba), h.splat(ba, True)\n             value, diff = _power(dx, dy, c00, c01, c11)\n+            if cutlass.const_expr(split):\n+                for skipped in cutlass.range_constexpr(tile_groups - 1):\n+                    if phase > skipped:\n+                        value += diff\n+                        diff -= c11\n+                        value += diff\n+                        diff -= c11\n             gr, gg, gb, ga, err = (\n                 cutlass.Uint32(0),\n                 cutlass.Uint32(0),\n@@ -519,13 +531,13 @@\n                         # Source accumulates squared partial sums within each lane.\n                         err = h.add(err, h.mul(h.mul(ga, h.pack(1 / 128, 1 / 128)), ga))\n                     basic += h.sum_pair(dp)\n-                    if cutlass.const_expr(i == 0):\n+                    if cutlass.const_expr(not split and i == 0):\n                         # Offsets (0, 1) give the same first and second moments.\n                         upper = h.get(dp, True)\n                         linear += upper\n                         quadratic += upper\n                     else:\n-                        offset = h.pack(i * 2, i * 2 + 1)\n+                        offset = h.pack((phase + i) * 2, (phase + i) * 2 + 1)\n                         linear += h.sum_pair(h.mul(dp, offset))\n                         quadratic += h.sum_pair(h.mul(h.mul(dp, offset), offset))\n             # LiteGS skips the reductions/atomics for noncontributing splats.\n@@ -748,4 +760,5 @@\n         tiles,\n         collect_stats,\n         symmetric_conic,\n-    ).launch(grid=[tiles, 1, 1], block=[32, 1, 1], stream=stream)\n+        not collect_stats,\n+    ).launch(grid=[tiles * (tile_size * tile_height // 64 if not collect_stats else 1), 1, 1], block=[32, 1, 1], stream=stream)\n"
+  },
+  "next_algorithm_priority": {
+    "proposal": "Split heavy backward jobs while sharing the same per-pixel alpha/transmittance sequence and keeping one gradient reduction convention across statistics and ordinary VJP paths. Only heavy jobs need finer partitioning; avoid growing the pair arena for all tiles.",
+    "limits": "The tested independent-warp split did not preserve the current half2 reduction convention. A cooperative reduction or checkpointed segment design needs its own correctness and full-training validation before merge.",
+    "segment_composition_real_arithmetic": {
+      "combine": "(C_A + T_A * C_B, T_A * T_B)",
+      "order": "A is in front of B; maintain depth order",
+      "floating_point_limit": "Associative in real arithmetic, not bit-exact under current half2 rounding and early termination. Reordering changes must be measured, not assumed safe."
+    }
+  },
+  "cleanup": {
+    "scope": "task-owned /tmp/jaxgs-algo-20261002-d1_im9_e and project Ruff cache; dataset, virtual environment and unrelated files excluded",
+    "status": "complete",
+    "task_directory_entries_removed": 333,
+    "task_regular_files_removed": 252,
+    "task_bytes_removed": 1327128463,
+    "ruff_cache_entries_removed": 8,
+    "ruff_cache_bytes_removed": 6102,
+    "total_bytes_removed": 1327134565
+  },
+  "verification": {
+    "config": "passes loader validation and matches measured full-training settings with only the tile-size override",
+    "documentation_links": "README and new analysis record: all local links resolve",
+    "ruff": {
+      "lint": "passed",
+      "format": "passed",
+      "formatted_python_files": 97
+    },
+    "git_diff_check": "passed",
+    "production_source_hashes": "all source SHA256 hashes match task-start snapshot; no production edits",
+    "baseline_regression": {
+      "command": "pytest -q -p no:cacheprovider tests/test_work_balance.py -k packed_staging_across_batches_matches_reference",
+      "passed": 2,
+      "deselected": 17,
+      "seconds": 8.67,
+      "uses_prototype": false,
+      "other_compute_processes": []
+    },
+    "result_arithmetic": "Full-training medians, mean PSNR, view counts, update counts, JIT variants, donation, pair capacities and finite reported loss/PSNR checked from retained raw samples."
+  }
+}

@@ -2,7 +2,6 @@
 
 import chex
 import cuda.bindings.driver as cuda
-import cutlass
 import cutlass.cute as cute
 import jax
 import jax.numpy as jnp
@@ -42,61 +41,3 @@ def compact_visible_clusters(point_mask: chex.Array, cluster_size: int) -> Visib
         size=visible.size,
     )
     return call(visible, ranks), ranks[-1:]
-
-
-@cute.kernel
-def _clear_projected(
-    mean: cute.Tensor,
-    depth: cute.Tensor,
-    conic: cute.Tensor,
-    radius: cute.Tensor,
-    color: cute.Tensor,
-    alpha: cute.Tensor,
-    visible: cute.Tensor,
-    capacity: int,
-):
-    tid, _, _ = cute.arch.thread_idx()
-    block, _, _ = cute.arch.block_idx()
-    i = block * 256 + tid
-    if i < capacity * 4:
-        conic[i] = cute.Float32(0)
-    if i < capacity * 3:
-        color[i] = cute.Float32(0)
-    if i < capacity * 2:
-        mean[i] = cute.Float32(0)
-    if i < capacity:
-        depth[i] = cute.Float32(float("inf"))
-        radius[i], alpha[i] = cute.Float32(0), cute.Float32(0)
-        visible[i] = cutlass.Int8(0)
-
-
-@cute.kernel
-def _clear_visible(visible: cute.Tensor, capacity: int):
-    tid, _, _ = cute.arch.thread_idx()
-    block, _, _ = cute.arch.block_idx()
-    i = block * 256 + tid
-    if i < capacity:
-        visible[i] = cutlass.Int8(0)
-
-
-@cute.kernel
-def _clear_parameter_grads(
-    xyz: cute.Tensor,
-    scale: cute.Tensor,
-    rotation: cute.Tensor,
-    opacity: cute.Tensor,
-    sh: cute.Tensor,
-    capacity: int,
-    sh_dim: int,
-):
-    tid, _, _ = cute.arch.thread_idx()
-    block, _, _ = cute.arch.block_idx()
-    i = block * 256 + tid
-    if i < capacity * sh_dim * 3:
-        sh[i] = cute.Float32(0)
-    if i < capacity * 4:
-        rotation[i] = cute.Float32(0)
-    if i < capacity * 3:
-        xyz[i], scale[i] = cute.Float32(0), cute.Float32(0)
-    if i < capacity:
-        opacity[i] = cute.Float32(0)

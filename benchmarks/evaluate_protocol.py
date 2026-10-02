@@ -15,9 +15,8 @@ def evaluate_jax(args):
     from jaxgs import CapacityConfig, GaussianModel
     from jaxgs.io_manager.checkpoint import load_gaussians
     from jaxgs.io_manager.colmap import load_colmap_images
-    from jaxgs.kernels.packed_rasterizer import packed_forward
-    from jaxgs.kernels.projector import project_cute
-    from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
+    from jaxgs.render import render, render_preprocess
+    from jaxgs.scene.cluster import world_cluster_bounds
 
     pool = load_gaussians(args.model)
     sh_dims = (1, 4, 9, 16)
@@ -26,20 +25,19 @@ def evaluate_jax(args):
     degree = sh_dims.index(pool.sh.shape[1])
     config = CapacityConfig(pool.xyz.shape[0], 128, 128, 16, degree, 8_000_000, tile_height=8)
     model = GaussianModel(pool)
+    bounds = world_cluster_bounds(pool, config.cluster_size)
 
     @nnx.jit(graph=False)
-    def render(model, camera):
-        projected = project_cute(model.as_arrays(), camera, config)
-        table = build_sorted_visibility_table_cute(projected, camera, config)
-        image, _, _ = packed_forward(projected, table, camera, config)
-        return jnp.clip(image, 0, 1), table.overflow
+    def render_view(model, camera):
+        clusters, _, culled = render_preprocess(bounds, camera, model.as_arrays(), config)
+        return render(camera, culled, clusters, degree, config)
 
     rows = []
     for frame in load_colmap_images(args.scene, args.images, resolution=-1)[::8]:
-        image, overflow = render(model, frame.camera)
-        if bool(overflow):
+        rendered = render_view(model, frame.camera)
+        if bool(rendered.overflow):
             raise RuntimeError(f"overflow in evaluation view {frame.image_path.name}")
-        mse = float(jnp.mean((image - frame.load_image()) ** 2))
+        mse = float(jnp.mean((rendered.image - frame.load_image()) ** 2))
         rows.append({"view": frame.image_path.name, "psnr": -10 * np.log10(mse)})
     return rows
 

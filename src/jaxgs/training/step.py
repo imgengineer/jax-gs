@@ -9,18 +9,13 @@ import jax.numpy as jnp
 from flax import nnx
 
 from ..config import CapacityConfig, OptimizationConfig, load_config
+from ..render import render_preprocess
 from ..render.types import FragmentStatistics
 from ..scene.camera import Camera
-from ..scene.cluster import frustum_cluster_mask
 from ..scene.point import GaussianArrays, GaussianModel
 from ..scene.types import WorldClusterBounds
-from .optimizer import (
-    MUON_PROGRAM_SHAPE,
-    AdamState,
-    create_muon_transform,
-    optax_update,
-    sparse_adam_update,
-)
+from .muon import MUON_PROGRAM_SHAPE, create_muon_transform
+from .optimizer import AdamState, optax_update, sparse_adam_update
 from .state import TrainingState
 
 _DEFAULT_OPTIMIZATION = load_config().optimization
@@ -51,18 +46,17 @@ def compute_training_step(
     optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
 ) -> tuple[GaussianArrays, AdamState, FragmentStatistics, dict[str, chex.Array]]:
     """Pure array computation shared by the JAX and NNX compilation boundaries."""
-    from ..kernels.cluster_compact import compact_visible_clusters
     from ..kernels.packed_rasterizer import packed_loss_and_grad
     from ..kernels.projector import project_with_compact_pullback
     from ..kernels.sorted_binning import build_sorted_visibility_table_cute
     from ..kernels.sorted_rasterizer import rasterize_loss_and_grad
 
-    visible_slots = frustum_cluster_mask(bounds, camera, config.cluster_size, config.max_gaussians)
-
-    visible_clusters = compact_visible_clusters(visible_slots, config.cluster_size)
+    visible_clusters, visible_slots, culled_gaussians = render_preprocess(
+        bounds, camera, pool, config
+    )
 
     projected_gaussians, projection_pullback = project_with_compact_pullback(
-        pool.replace(alive=pool.alive & visible_slots),
+        culled_gaussians,
         camera,
         config,
         active_degree,
@@ -85,7 +79,7 @@ def compute_training_step(
         visibility_table,
         camera,
         config,
-        target.astype(jnp.float32) / 255,
+        target if target.dtype == jnp.uint8 else target.astype(jnp.float32) / 255,
         collect_stats,
     )
     gradients = projection_pullback(projected_gradients)
@@ -196,14 +190,15 @@ def _update_training_state(
     target: chex.Array,
     step: int | chex.Array,
     scene_radius: float | chex.Array,
-    config: CapacityConfig,
+    *,
     active_degree: int,
     collect_stats: bool,
-    max_steps: int | None,
     overflow: chex.Array,
     peak_pairs: chex.Array,
-    optimizer: str = "optax",
-    optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
+    config: CapacityConfig,
+    max_steps: int | None,
+    optimizer: str,
+    optimization: OptimizationConfig,
 ) -> tuple[chex.Array, chex.Array, chex.Array]:
     state, stats, loss, overflow, peak_pairs = _update_model(
         training.adam.get_value(),
@@ -230,12 +225,24 @@ def _update_training_state(
 
 def bind_train_step(
     training: TrainingState,
+    config: CapacityConfig,
+    *,
+    max_steps: int | None = None,
+    optimizer: str = "optax",
+    optimization: OptimizationConfig = _DEFAULT_OPTIMIZATION,
 ) -> Callable[..., tuple[chex.Array, chex.Array, chex.Array]]:
-    """Pre-flatten fixed NNX buffers; their values remain mutable between calls."""
-    return nnx.jit_partial(
+    """Bind fixed buffers and configuration; SH degree and statistics vary per call."""
+    update = partial(
         _update_training_state,
+        config=config,
+        max_steps=max_steps,
+        optimizer=optimizer,
+        optimization=optimization,
+    )
+    return nnx.jit_partial(
+        update,
         training,
         graph=False,
-        static_argnames=_STATIC_ARGUMENTS,
+        static_argnames=("active_degree", "collect_stats"),
         donate_argnums=(0,),
     )

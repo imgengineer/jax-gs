@@ -22,6 +22,25 @@ def pack(x, y, *, loc=None, ip=None):
 
 
 @dsl_user_op
+def pack_pair_sums(a, b, *, loc=None, ip=None):
+    """Pack each input's horizontal half sum without float32 conversions."""
+    return Uint32(
+        llvm.inline_asm(
+            Uint32.mlir_type,
+            [Uint32(a).ir_value(loc=loc, ip=ip), Uint32(b).ir_value(loc=loc, ip=ip)],
+            "{ .reg .b32 other, sa, sb; "
+            "prmt.b32 other, $1, $1, 0x1032; add.rn.f16x2 sa, $1, other; "
+            "prmt.b32 other, $2, $2, 0x1032; add.rn.f16x2 sb, $2, other; "
+            "prmt.b32 $0, sa, sb, 0x5410; }",
+            "=r,r,r",
+            has_side_effects=False,
+            loc=loc,
+            ip=ip,
+        )
+    )
+
+
+@dsl_user_op
 def get(x, high=False, *, loc=None, ip=None):
     half = "hi" if high else "lo"
     return Float32(

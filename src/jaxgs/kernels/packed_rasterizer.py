@@ -27,10 +27,24 @@ def packed_forward(
     config: CapacityConfig,
     collect_stats: bool = False,
 ) -> tuple[chex.Array, PackedRasterCache, chex.Array]:
-    """Return RGB, (packed params, final T, last pair, backward tile work), and stats.
+    """Return RGB, the backward cache, and fragment statistics.
 
     The table may reference only visible Gaussians; others are not packed.
     """
+    return _packed_forward(
+        projected, table, camera, config, collect_stats, record_contributions=True
+    )
+
+
+def _packed_forward(
+    projected: ProjectedGaussians,
+    table: SortedVisibilityTable,
+    camera: Camera,
+    config: CapacityConfig,
+    collect_stats: bool,
+    *,
+    record_contributions: bool,
+) -> tuple[chex.Array, PackedRasterCache, chex.Array]:
     from cutlass.jax import cutlass_call
 
     from .packed_rasterize import launch_forward
@@ -39,6 +53,7 @@ def packed_forward(
         raise ValueError("Packed rasterizer supports tiles 8x8, 8x16, 12x16 and 16x16")
     pixels = camera.width * camera.height
     tiles = _tile_count(camera, config)
+    bit_words = (config.visibility_capacity + 31) // 32 + tiles if record_contributions else 1
     call = cutlass_call(
         launch_forward,
         output_shape_dtype=(
@@ -49,6 +64,7 @@ def packed_forward(
             jax.ShapeDtypeStruct((config.max_gaussians * 2 if collect_stats else 1,), jnp.float32),
             jax.ShapeDtypeStruct((tiles,), jnp.int32),
             jax.ShapeDtypeStruct((tiles,), jnp.int32),
+            jax.ShapeDtypeStruct((bit_words,), jnp.uint32),
         ),
         use_static_tensors=True,
         width=camera.width,
@@ -57,8 +73,9 @@ def packed_forward(
         tile_height=config.raster_tile_height,
         capacity=config.max_gaussians,
         collect_stats=int(collect_stats),
+        record_contributions=record_contributions,
     )
-    params, rgb, trans, last, stats, backward_work, _ = call(
+    params, rgb, trans, last, stats, backward_work, _, contribution_bits = call(
         projected.mean.reshape(-1),
         projected.conic.reshape(-1),
         projected.color.reshape(-1),
@@ -67,7 +84,11 @@ def packed_forward(
         table.gaussian_ids,
         table.tile_offsets,
     )
-    return rgb.reshape(camera.height, camera.width, 3), (params, trans, last, backward_work), stats
+    return (
+        rgb.reshape(camera.height, camera.width, 3),
+        (params, trans, last, backward_work, contribution_bits),
+        stats,
+    )
 
 
 def packed_backward(
@@ -81,6 +102,7 @@ def packed_backward(
     *,
     symmetric_conic: bool = False,
     visible_clusters: VisibleClusters | None = None,
+    image_grad_scale: chex.Array | None = None,
 ) -> tuple[ProjectedGaussians, chex.Array]:
     """Return field cotangents and per-Gaussian squared alpha gradients.
 
@@ -90,12 +112,18 @@ def packed_backward(
     contain every Gaussian in the table, mean, conic and color cotangents are
     defined only in those clusters, depth cotangents nowhere, and alpha
     cotangents everywhere when collecting statistics.
+    image_grad_scale may supply the same floored maximum absolute gradient,
+    avoiding a full-image reduction when the loss kernel already computed it.
     """
     from cutlass.jax import cutlass_call
 
     from .packed_rasterize import launch_backward
 
-    scale = jnp.maximum(jnp.max(jnp.abs(image_grad)), 1e-12).reshape(1)
+    scale = (
+        jnp.maximum(jnp.max(jnp.abs(image_grad)), 1e-12).reshape(1)
+        if image_grad_scale is None
+        else image_grad_scale
+    )
     fields = (projected.mean, projected.conic, projected.depth, projected.color, projected.alpha)
     call = cutlass_call(
         launch_backward,
@@ -114,7 +142,7 @@ def packed_backward(
         symmetric_conic=symmetric_conic,
         cluster_size=0 if visible_clusters is None else config.cluster_size,
     )
-    params, trans, last, backward_work = cache
+    params, trans, last, backward_work, contribution_bits = cache
     clusters = (
         (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))
         if visible_clusters is None
@@ -126,6 +154,7 @@ def packed_backward(
         table.tile_offsets,
         trans,
         last,
+        contribution_bits,
         backward_work,
         image_grad.reshape(-1),
         scale,
@@ -158,10 +187,10 @@ def packed_loss_and_grad(
 
     visible_clusters limits the defined gradients as in packed_backward.
     """
-    from .fused_loss import fused_loss_and_grad
+    from .fused_loss import _fused_loss_and_grad_with_scale
 
     image, cache, fragments = packed_forward(projected, table, camera, config, collect_stats)
-    loss, image_grad = fused_loss_and_grad(image, target)
+    loss, image_grad, image_grad_scale = _fused_loss_and_grad_with_scale(image, target)
     gradients, alpha_grad_sq_sum = packed_backward(
         projected,
         table,
@@ -172,6 +201,7 @@ def packed_loss_and_grad(
         collect_stats,
         symmetric_conic=symmetric_conic,
         visible_clusters=visible_clusters,
+        image_grad_scale=image_grad_scale,
     )
     stats = (
         jnp.stack((fragments[0::2], fragments[1::2], gradients.alpha, alpha_grad_sq_sum), axis=1)
@@ -194,7 +224,7 @@ def rasterize_packed_cute_vjp(
         current = projected.replace(
             mean=mean, conic=conic, color=color, alpha=alpha, visible=visible
         )
-        return packed_forward(current, table, camera, config)[0]
+        return _packed_forward(current, table, camera, config, False, record_contributions=False)[0]
 
     def forward(mean, conic, color, alpha, visible):
         current = projected.replace(

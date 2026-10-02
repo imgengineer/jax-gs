@@ -19,12 +19,50 @@ def _cluster_indices(count: int, cluster_size: int) -> np.ndarray:
     return indices
 
 
+def _load_gaussian_ply(path: Path, config):
+    """Load LiteGS's channel-major SH fields into a fixed Gaussian pool."""
+    import jax.numpy as jnp
+    from plyfile import PlyData
+
+    from jaxgs import create_gaussians
+
+    vertices = PlyData.read(path)["vertex"]
+    count = len(vertices)
+    if count > config.max_gaussians:
+        raise ValueError("PLY exceeds Gaussian pool capacity")
+
+    def fields(names):
+        return np.stack([vertices[name] for name in names], axis=-1).astype(np.float32)
+
+    pool = create_gaussians(config)
+    sh = np.zeros((count, config.sh_dim, 3), np.float32)
+    sh[:, 0] = fields([f"f_dc_{i}" for i in range(3)])
+    if config.sh_dim > 1:
+        # PLY stores [point, channel, coefficient]; the pool uses
+        # [point, coefficient, channel]. A direct (N, 15, 3) reshape is wrong.
+        rest = fields([f"f_rest_{i}" for i in range(3 * (config.sh_dim - 1))])
+        sh[:, 1:] = rest.reshape(count, 3, config.sh_dim - 1).transpose(0, 2, 1)
+    values = dict(
+        xyz=fields(["x", "y", "z"]),
+        log_scale=fields([f"scale_{i}" for i in range(3)]),
+        rotation=fields([f"rot_{i}" for i in range(4)]),
+        opacity=fields(["opacity"]),
+        sh=sh,
+    )
+    alive = jnp.arange(config.max_gaussians) < count
+    return pool.replace(
+        **{name: getattr(pool, name).at[:count].set(value) for name, value in values.items()},
+        alive=alive,
+        free_mask=~alive,
+        n_active=jnp.array(count, jnp.int32),
+    )
+
+
 def benchmark_jax(args):
     import jax
     import jax.numpy as jnp
     from flax import nnx
     from plyfile import PlyData
-    from sorted_pipeline import load_gaussian_ply
 
     from jaxgs import CapacityConfig, GaussianModel
     from jaxgs.config import load_config
@@ -40,7 +78,7 @@ def benchmark_jax(args):
     indices = _cluster_indices(input_count, 128)
     count = len(indices)
     config = CapacityConfig(count, 128, 128, 16, 3, args.pairs, tile_height=8)
-    pool = load_gaussian_ply(args.ply, config)
+    pool = _load_gaussian_ply(args.ply, config)
     if count != input_count:
         pool = pool.replace(
             **{name: getattr(pool, name)[indices] for name in PARAMETER_NAMES},

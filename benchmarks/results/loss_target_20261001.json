@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-01",
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "driver": "615.71.09",
+  "versions": {
+    "jax": "0.11.2",
+    "flax": "0.12.10",
+    "optax": "0.2.8",
+    "nvidia-cutlass-dsl": "4.8.0"
+  },
+  "baseline": {
+    "head": "e46b03e",
+    "scope": "initial working tree including pre-existing Muon and projection module relocations",
+    "fused_loss_sha256": "706aa1164ef73b032ae3cc1068e98c5fab7bdeaa553f5356d912351981a15d48"
+  },
+  "timing": "Measurements ran serially. No other GPU compute process was visible before the loss and fixed-count benchmarks.",
+  "loss_stage": {
+    "shape": [
+      822,
+      1237,
+      3
+    ],
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "protocol": "30 warmup calls per path, 8 alternating rounds of 1000 calls; includes host dispatch",
+    "loss_and_gradient_bitwise_equal": true,
+    "samples_us": {
+      "separate": [
+        84.26590298768133,
+        87.42655697278678,
+        88.15050893463194,
+        88.29604997299612,
+        88.31992000341415,
+        88.24234001804143,
+        88.2353390334174,
+        88.258340023458
+      ],
+      "fused": [
+        80.05152503028512,
+        81.68503199703991,
+        83.62186001613736,
+        83.98094202857465,
+        83.98237195797265,
+        83.81229091901332,
+        83.84142105933279,
+        83.87890201993287
+      ]
+    },
+    "median_us": {
+      "separate": 88.23883952572942,
+      "fused": 83.82685598917305
+    },
+    "memory": {
+      "separate": {
+        "argument_size_in_bytes": 15252210,
+        "output_size_in_bytes": 12201788,
+        "temp_size_in_bytes": 12210192,
+        "alias_size_in_bytes": 0
+      },
+      "fused": {
+        "argument_size_in_bytes": 15252210,
+        "output_size_in_bytes": 12201788,
+        "temp_size_in_bytes": 8208,
+        "alias_size_in_bytes": 0
+      }
+    }
+  },
+  "loss_stage_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute python benchmarks/loss_target.py --output loss_target.json",
+  "loss_stage_shorter_percent": 5.000047099746685,
+  "temporary_bytes_saved": 12201984,
+  "fixed_count": {
+    "command": "python benchmarks/fixed_model.py <bicycle> <bicycle_1000000.ply> --backend jaxgs --optimizer optax --pairs 8000000 --warmup 30 --steps 300 --output <result.json>",
+    "protocol": "1,000,000 PLY rows padded to 1,000,064; view 0 (_DSC8679.JPG), images_4, SH3; three alternating rounds against the initial snapshot",
+    "runs": {
+      "baseline": [
+        {
+          "input_count": 1000000,
+          "count": 1000064,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7163056450663134,
+          "warmup_seconds": 5.585028426954523,
+          "initial_loss": 0.035068806260824203,
+          "final_loss": 0.01287278812378645,
+          "final_pairs": 2781232,
+          "jit_cache_size": 1,
+          "donation": true,
+          "model": "flax.nnx.Module",
+          "jit": "nnx.jit_partial(graph=False)",
+          "optimizer": "optax",
+          "backend": "jaxgs",
+          "steps": 300,
+          "warmup_steps": 30,
+          "mean_step_ms": 2.387685483554378,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "input_count": 1000000,
+          "count": 1000064,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7153968960046768,
+          "warmup_seconds": 5.546761946985498,
+          "initial_loss": 0.03507324308156967,
+          "final_loss": 0.012899762019515038,
+          "final_pairs": 2774983,
+          "jit_cache_size": 1,
+          "donation": true,
+          "model": "flax.nnx.Module",
+          "jit": "nnx.jit_partial(graph=False)",
+          "optimizer": "optax",
+          "backend": "jaxgs",
+          "steps": 300,
+          "warmup_steps": 30,
+          "mean_step_ms": 2.3846563200155892,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "input_count": 1000000,
+          "count": 1000064,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7160265690181404,
+          "warmup_seconds": 5.554352528997697,
+          "initial_loss": 0.03507782518863678,
+          "final_loss": 0.012868346646428108,
+          "final_pairs": 2778251,
+          "jit_cache_size": 1,
+          "donation": true,
+          "model": "flax.nnx.Module",
+          "jit": "nnx.jit_partial(graph=False)",
+          "optimizer": "optax",
+          "backend": "jaxgs",
+          "steps": 300,
+          "warmup_steps": 30,
+          "mean_step_ms": 2.386755230060468,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ],
+      "fused": [
+        {
+          "input_count": 1000000,
+          "count": 1000064,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7117914831032977,
+          "warmup_seconds": 5.516400189953856,
+          "initial_loss": 0.03506924584507942,
+          "final_loss": 0.012861151248216629,
+          "final_pairs": 2776946,
+          "jit_cache_size": 1,
+          "donation": true,
+          "model": "flax.nnx.Module",
+          "jit": "nnx.jit_partial(graph=False)",
+          "optimizer": "optax",
+          "backend": "jaxgs",
+          "steps": 300,
+          "warmup_steps": 30,
+          "mean_step_ms": 2.372638277010992,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "input_count": 1000000,
+          "count": 1000064,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7180254079867154,
+          "warmup_seconds": 5.562453052960336,
+          "initial_loss": 0.035070862621068954,
+          "final_loss": 0.012852638028562069,
+          "final_pairs": 2779490,
+          "jit_cache_size": 1,
+          "donation": true,
+          "model": "flax.nnx.Module",
+          "jit": "nnx.jit_partial(graph=False)",
+          "optimizer": "optax",
+          "backend": "jaxgs",
+          "steps": 300,
+          "warmup_steps": 30,
+          "mean_step_ms": 2.393418026622385,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        },
+        {
+          "input_count": 1000000,
+          "count": 1000064,
+          "image": "_DSC8679.JPG",
+          "shape": [
+            822,
+            1237
+          ],
+          "seconds": 0.7164584030397236,
+          "warmup_seconds": 5.539752857992426,
+          "initial_loss": 0.03507043048739433,
+          "final_loss": 0.012897730804979801,
+          "final_pairs": 2777341,
+          "jit_cache_size": 1,
+          "donation": true,
+          "model": "flax.nnx.Module",
+          "jit": "nnx.jit_partial(graph=False)",
+          "optimizer": "optax",
+          "backend": "jaxgs",
+          "steps": 300,
+          "warmup_steps": 30,
+          "mean_step_ms": 2.388194676799079,
+          "scope": "fixed-count updates of one common PLY, one view, SH=3, spatial LR scale=1, no densification"
+        }
+      ]
+    },
+    "median_ms": {
+      "baseline": 2.386755230060468,
+      "fused": 2.388194676799079
+    },
+    "conclusion": "Complete-update medians are effectively unchanged; these trials do not show a whole-step speedup."
+  },
+  "validation": {
+    "targeted_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q tests/test_loss.py tests/test_training_protocol.py -k 'fused_loss or targets_match'",
+    "targeted_result": "4 passed, 29 deselected",
+    "baseline_suite": "344 passed after completing the pre-existing module relocations",
+    "sanitizer_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false compute-sanitizer --tool <memcheck|racecheck|synccheck> --report-api-errors no --error-exitcode 99 .venv/bin/python -m pytest -q tests/test_loss.py -k uint8 (racecheck/synccheck also use --kernel-name kns=kernel_cutlass__loss)",
+    "memcheck": "0 errors",
+    "racecheck": "0 hazards, 0 errors, 0 warnings",
+    "synccheck": "0 errors",
+    "full_suite_command": "XLA_PYTHON_CLIENT_PREALLOCATE=false uv run --extra cute pytest -q --cov=jaxgs --cov-report=term-missing --cov-report=json:coverage.json",
+    "full_suite_result": "347 passed in 509.81s",
+    "coverage": {
+      "covered_lines": 1934,
+      "num_statements": 1934,
+      "percent_covered": 100.0,
+      "percent_covered_display": "100.00",
+      "missing_lines": 0,
+      "excluded_lines": 3829,
+      "percent_statements_covered": 100.0,
+      "percent_statements_covered_display": "100.00",
+      "num_branches": 282,
+      "num_partial_branches": 0,
+      "covered_branches": 282,
+      "missing_branches": 0,
+      "percent_branches_covered": 100.0,
+      "percent_branches_covered_display": "100.00"
+    },
+    "coverage_policy": "Existing @cute.kernel, @cute.jit and @dsl_user_op exclusions are unchanged.",
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "git_diff_check": "passed"
+  }
+}

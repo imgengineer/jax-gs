@@ -16,6 +16,9 @@ nor the partials reach global memory. Per channel, the block
 4. blurs the partials horizontally (26x32), then vertically into the image
    gradient of the output tile.
 
+Packed training also reduces the gradient magnitude while writing each tile,
+so normalization does not need another traversal of the full image gradient.
+
 Every blur adds its taps in the source's order. The partial derivatives use
 approximate reciprocals of the SSIM denominators instead of the source's
 divisions, which changes the gradient by ~1e-6 relative.
@@ -30,6 +33,8 @@ import jax.numpy as jnp
 from cutlass._mlir.dialects import llvm
 from cutlass.cutlass_dsl import dsl_user_op
 from cutlass.memory import SmemAllocator
+
+from . import half2 as h
 
 _GAUSS = (
     0.001028380123898387,
@@ -79,7 +84,7 @@ def _copy_async(destination, source, size, *, loc=None, ip=None):
 
 
 @cute.jit
-def _copy_tiles(image, target, tiles, tid, x0, y0, c, width, height):
+def _copy_tiles(image, target, tiles, tid, x0, y0, c, width, height, uint8_target):
     """Start copying channel c of the image and target tiles (zero padded)."""
     rows = _THREADS // _IMAGE_W
     if tid < rows * _IMAGE_W:
@@ -94,11 +99,17 @@ def _copy_tiles(image, target, tiles, tid, x0, y0, c, width, height):
                 p = (gy * width + gx) * 3 + c
                 size = 4
             _copy_async(tiles.iterator + (r * _IMAGE_W + col), image.iterator + p, size)
-            _copy_async(
-                tiles.iterator + (_IMAGE_H * _IMAGE_W + r * _IMAGE_W + col),
-                target.iterator + p,
-                size,
-            )
+            if cutlass.const_expr(uint8_target):
+                value = cute.Float32(0)
+                if size != 0:
+                    value = cute.Float32(cutlass.Uint8(target[p])) * (1.0 / 255)
+                tiles[1, r, col] = value
+            else:
+                _copy_async(
+                    tiles.iterator + (_IMAGE_H * _IMAGE_W + r * _IMAGE_W + col),
+                    target.iterator + p,
+                    size,
+                )
             r += rows
     cute.arch.cp_async_commit_group()
 
@@ -109,8 +120,11 @@ def _loss(
     target: cute.Tensor,
     block_loss: cute.Tensor,
     gradient: cute.Tensor,
+    block_scale: cute.Tensor,
     width: cutlass.Constexpr,
     height: cutlass.Constexpr,
+    uint8_target: cutlass.Constexpr,
+    with_scale: cutlass.Constexpr,
 ):
     tid, _, _ = cute.arch.thread_idx()
     bx, by, _ = cute.arch.block_idx()
@@ -128,6 +142,8 @@ def _loss(
         byte_alignment=16,
     )
     warp_loss = smem.allocate_tensor(cutlass.Float32, cute.make_layout(_THREADS // 32))
+    if cutlass.const_expr(with_scale):
+        warp_scale = smem.allocate_tensor(cutlass.Uint32, cute.make_layout(_THREADS // 32))
     tiles = cute.make_tensor(
         first.iterator, cute.make_layout((2, _IMAGE_H, _IMAGE_W), stride=(image_size, _IMAGE_W, 1))
     )
@@ -156,7 +172,8 @@ def _loss(
     stat_pixels = cute.make_rmem_tensor((2, _COLUMN_SUMS), cutlass.Float32)
     out_pixels = cute.make_rmem_tensor((2, _COLUMN_PARTIALS), cutlass.Float32)
     loss = cute.Float32(0)
-    _copy_tiles(image, target, tiles, tid, x0, y0, 0, width, height)
+    scale_bits = cutlass.Uint32(0)
+    _copy_tiles(image, target, tiles, tid, x0, y0, 0, width, height, uint8_target)
     for c in range(3):
         cute.arch.cp_async_wait_group(0)
         cute.arch.sync_threads()
@@ -252,7 +269,7 @@ def _loss(
         cute.arch.sync_threads()
         # The partials are consumed: start the next channel's tiles.
         if c < 2:
-            _copy_tiles(image, target, tiles, tid, x0, y0, c + 1, width, height)
+            _copy_tiles(image, target, tiles, tid, x0, y0, c + 1, width, height, uint8_target)
         for r in cutlass.range_constexpr(_COLUMN_PARTIALS):
             s0, s1, s2 = cute.Float32(0), cute.Float32(0), cute.Float32(0)
             for d in cutlass.range_constexpr(_TAPS):
@@ -267,19 +284,30 @@ def _loss(
                     sign = 1.0
                 elif a < b:
                     sign = -1.0
-                gradient[(py * width + px) * 3 + c] = (
-                    s0 + 2.0 * a * s1 + b * s2 + 0.8 * sign / (width * height * 3)
-                )
+                value = s0 + 2.0 * a * s1 + b * s2 + 0.8 * sign / (width * height * 3)
+                gradient[(py * width + px) * 3 + c] = value
+                if cutlass.const_expr(with_scale):
+                    # Positive float bits sort by magnitude; NaNs stay above infinity.
+                    scale_bits = cute.max(scale_bits, h.float_bits(value) & 0x7FFFFFFF)
     for level in cutlass.range_constexpr(5):
         loss += cute.arch.shuffle_sync_bfly(loss, 16 >> level)
     if tid % 32 == 0:
         warp_loss[tid // 32] = loss
+    if cutlass.const_expr(with_scale):
+        scale_bits = cute.arch.warp_redux_sync(scale_bits, "max")
+        if tid % 32 == 0:
+            warp_scale[tid // 32] = scale_bits
     cute.arch.sync_threads()
     if tid == 0:
         total = cute.Float32(0)
         for w in cutlass.range_constexpr(_THREADS // 32):
             total += warp_loss[w]
-        block_loss[by * ((width + _TILE_W - 1) // _TILE_W) + bx] = total
+        block = by * ((width + _TILE_W - 1) // _TILE_W) + bx
+        block_loss[block] = total
+        if cutlass.const_expr(with_scale):
+            for w in cutlass.range_constexpr(_THREADS // 32):
+                scale_bits = cute.max(scale_bits, warp_scale[w])
+            block_scale[block] = h.bits_float(scale_bits)
 
 
 @cute.jit
@@ -289,35 +317,64 @@ def _launch(
     target: cute.Tensor,
     block_loss: cute.Tensor,
     gradient: cute.Tensor,
+    block_scale: cute.Tensor,
     *,
     width: cutlass.Constexpr,
     height: cutlass.Constexpr,
+    uint8_target: cutlass.Constexpr,
+    with_scale: cutlass.Constexpr,
 ):
     grid = [(width + _TILE_W - 1) // _TILE_W, (height + _TILE_H - 1) // _TILE_H, 1]
-    _loss(image, target, block_loss, gradient, width, height).launch(
-        grid=grid, block=[_THREADS, 1, 1], stream=stream
-    )
+    _loss(
+        image, target, block_loss, gradient, block_scale, width, height, uint8_target, with_scale
+    ).launch(grid=grid, block=[_THREADS, 1, 1], stream=stream)
 
 
 def fused_loss_and_grad(
     prediction: chex.Array, target: chex.Array
 ) -> tuple[chex.Array, chex.Array]:
-    """Mean LiteGS L1+SSIM and its image gradient (weight 0.2)."""
+    """Mean LiteGS L1+SSIM and its image gradient (weight 0.2).
+
+    Prediction is float32; target is normalized float32 or uint8 RGB.
+    Uint8 targets are normalized while loading tiles, without a full-image
+    float32 intermediate.
+    """
+    loss, gradient, _ = _fused_loss(prediction, target, with_scale=False)
+    return loss, gradient
+
+
+def _fused_loss_and_grad_with_scale(
+    prediction: chex.Array, target: chex.Array
+) -> tuple[chex.Array, chex.Array, chex.Array]:
+    """Also reduce the packed rasterizer's gradient scale while writing gradients."""
+    loss, gradient, block_scale = _fused_loss(prediction, target, with_scale=True)
+    scale = jnp.maximum(jnp.max(block_scale), 1e-12).reshape(1)
+    return loss, gradient, scale
+
+
+def _fused_loss(
+    prediction: chex.Array, target: chex.Array, *, with_scale: bool
+) -> tuple[chex.Array, chex.Array, chex.Array]:
     from cutlass.jax import cutlass_call
 
     height, width, channels = prediction.shape
     if channels != 3 or target.shape != prediction.shape:
         raise ValueError("L1+SSIM expects matching HWC RGB images")
     blocks = -(-width // _TILE_W) * -(-height // _TILE_H)
+    # CuTe byte tensors expose signless i8; dispatch with the JAX dtype and
+    # explicitly cast byte reads to Uint8 before normalizing them.
     call = cutlass_call(
         _launch,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((blocks,), jnp.float32),
             jax.ShapeDtypeStruct((prediction.size,), jnp.float32),
+            jax.ShapeDtypeStruct((blocks if with_scale else 1,), jnp.float32),
         ),
         use_static_tensors=True,
         width=width,
         height=height,
+        uint8_target=target.dtype == jnp.uint8,
+        with_scale=with_scale,
     )
-    block_loss, gradient = call(prediction.reshape(-1), target.reshape(-1))
-    return jnp.sum(block_loss) / prediction.size, gradient.reshape(prediction.shape)
+    block_loss, gradient, block_scale = call(prediction.reshape(-1), target.reshape(-1))
+    return jnp.sum(block_loss) / prediction.size, gradient.reshape(prediction.shape), block_scale

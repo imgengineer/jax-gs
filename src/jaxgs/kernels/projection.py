@@ -166,6 +166,41 @@ def _projection_kernel(
             out_color[gid * 3 + channel] = cute.max(value + 0.5, cute.Float32(0.0))
 
 
+@cute.kernel
+def _clear_projected(
+    mean: cute.Tensor,
+    depth: cute.Tensor,
+    conic: cute.Tensor,
+    radius: cute.Tensor,
+    color: cute.Tensor,
+    alpha: cute.Tensor,
+    visible: cute.Tensor,
+    capacity: int,
+):
+    tid, _, _ = cute.arch.thread_idx()
+    block, _, _ = cute.arch.block_idx()
+    i = block * 256 + tid
+    if i < capacity * 4:
+        conic[i] = cute.Float32(0)
+    if i < capacity * 3:
+        color[i] = cute.Float32(0)
+    if i < capacity * 2:
+        mean[i] = cute.Float32(0)
+    if i < capacity:
+        depth[i] = cute.Float32(float("inf"))
+        radius[i], alpha[i] = cute.Float32(0), cute.Float32(0)
+        visible[i] = cutlass.Int8(0)
+
+
+@cute.kernel
+def _clear_visible(visible: cute.Tensor, capacity: int):
+    tid, _, _ = cute.arch.thread_idx()
+    block, _, _ = cute.arch.block_idx()
+    i = block * 256 + tid
+    if i < capacity:
+        visible[i] = cutlass.Int8(0)
+
+
 @cute.jit
 def launch_projection(
     stream: cuda.CUstream,
@@ -201,14 +236,10 @@ def launch_projection(
 ):
     block = 128
     if cutlass.const_expr(compacted and clear_invisible):
-        from .cluster_compact import _clear_projected
-
         _clear_projected(
             out_mean, out_depth, out_conic, out_radius, out_color, out_alpha, out_visible, capacity
         ).launch(grid=[(capacity * 4 + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream)
     elif cutlass.const_expr(compacted):
-        from .cluster_compact import _clear_visible
-
         _clear_visible(out_visible, capacity).launch(
             grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
         )

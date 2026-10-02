@@ -10,15 +10,17 @@ from optax.contrib._muon import MuonDimensionNumbers, orthogonalize_via_newton_s
 
 from jaxgs import CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.scene.types import PARAMETER_NAMES, ParameterArrays
-from jaxgs.training.optimizer import (
+from jaxgs.training.muon import (
     MUON_PROGRAM_SHAPE,
     MUON_UPDATE_RMS,
     _orthogonalize,
     _orthogonalize_rank_one,
+    create_muon_transform,
+)
+from jaxgs.training.optimizer import (
     _parameter_learning_rates,
     create_adam_state,
     create_adam_transform,
-    create_muon_transform,
     optax_update,
     reset_adam_slots,
 )

@@ -34,3 +34,60 @@ def test_cute_fused_loss_value_and_image_gradient():
     loss, gradient = fused_loss_and_grad(image, image)
     np.testing.assert_allclose(loss, 0, atol=2e-6)
     np.testing.assert_allclose(gradient, 0, atol=2e-7)
+
+
+def test_cute_fused_loss_uint8_target_matches_normalized_float():
+    import importlib.util
+
+    import jax
+    import pytest
+
+    if jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None:
+        pytest.skip("CuTe fused loss requires JAX CUDA")
+    from jaxgs.kernels.fused_loss import fused_loss_and_grad
+
+    rng = np.random.default_rng(42)
+    loss_fn = jax.jit(fused_loss_and_grad)
+    normalize = jax.jit(lambda x: x.astype(jnp.float32) / 255)
+    for shape in ((1, 1, 3), (3, 5, 3), (17, 31, 3), (64, 49, 3)):
+        target = jnp.asarray(rng.integers(0, 256, shape, dtype=np.uint8))
+        target = target.at[0, 0].set(jnp.array([0, 128, 255], jnp.uint8))
+        normalized = normalize(target)
+        for prediction in (jnp.asarray(rng.uniform(0, 1, shape), jnp.float32), normalized):
+            expected = loss_fn(prediction, normalized)
+            actual = loss_fn(prediction, target)
+            for value, reference in zip(actual, expected, strict=True):
+                np.testing.assert_array_equal(value, reference)
+
+
+def test_cute_fused_gradient_scale_matches_full_image_reduction():
+    import importlib.util
+
+    import jax
+    import pytest
+
+    if jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None:
+        pytest.skip("CuTe fused loss requires JAX CUDA")
+    from jaxgs.kernels.fused_loss import _fused_loss_and_grad_with_scale, fused_loss_and_grad
+
+    loss_fn = jax.jit(fused_loss_and_grad)
+    scale_fn = jax.jit(_fused_loss_and_grad_with_scale)
+    rng = np.random.default_rng(43)
+    for shape in ((1, 1, 3), (17, 31, 3), (64, 49, 3)):
+        target = jnp.asarray(rng.integers(0, 256, shape, dtype=np.uint8))
+        prediction = jnp.asarray(rng.uniform(0.02, 0.98, shape), jnp.float32)
+        for target in (target, target.astype(jnp.float32) / 255):
+            expected_loss, expected_grad = loss_fn(prediction, target)
+            loss, gradient, scale = scale_fn(prediction, target)
+            np.testing.assert_array_equal(loss, expected_loss)
+            np.testing.assert_array_equal(gradient, expected_grad)
+            np.testing.assert_array_equal(
+                scale, jnp.maximum(jnp.max(jnp.abs(expected_grad)), 1e-12).reshape(1)
+            )
+    zeros = jnp.zeros((17, 31, 3), jnp.float32)
+    for value in (0.0, jnp.nan, jnp.inf):
+        prediction = zeros.at[0, 0, 0].set(value)
+        _, gradient, scale = scale_fn(prediction, zeros)
+        np.testing.assert_array_equal(
+            scale, jnp.maximum(jnp.max(jnp.abs(gradient)), 1e-12).reshape(1)
+        )

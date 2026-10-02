@@ -356,6 +356,29 @@ def _projection_backward_kernel(
                 ]
 
 
+@cute.kernel
+def _clear_parameter_grads(
+    xyz: cute.Tensor,
+    scale: cute.Tensor,
+    rotation: cute.Tensor,
+    opacity: cute.Tensor,
+    sh: cute.Tensor,
+    capacity: int,
+    sh_dim: int,
+):
+    tid, _, _ = cute.arch.thread_idx()
+    block, _, _ = cute.arch.block_idx()
+    i = block * 256 + tid
+    if i < capacity * sh_dim * 3:
+        sh[i] = cute.Float32(0)
+    if i < capacity * 4:
+        rotation[i] = cute.Float32(0)
+    if i < capacity * 3:
+        xyz[i], scale[i] = cute.Float32(0), cute.Float32(0)
+    if i < capacity:
+        opacity[i] = cute.Float32(0)
+
+
 @cute.jit
 def launch_projection_backward(
     stream: cuda.CUstream,
@@ -394,8 +417,6 @@ def launch_projection_backward(
 ):
     block = 128
     if cutlass.const_expr(compacted and not compact_gradients):
-        from .cluster_compact import _clear_parameter_grads
-
         _clear_parameter_grads(
             out_xyz, out_log_scale, out_rotation, out_opacity, out_sh, capacity, sh_gradient_dim
         ).launch(

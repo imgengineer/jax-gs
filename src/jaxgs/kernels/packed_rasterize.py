@@ -9,8 +9,9 @@ Tiles launch heaviest first: a one-block counting sort orders them by pair
 count (forward) or by the pairs before their last contributor (backward).
 A warp stages 32 splats at a time in shared memory; each lane loads the
 next batch's parameters into registers while the current batch composites,
-and the forward loop composites two splats per iteration. None of these
-changes alters any pixel's compositing order or arithmetic.
+and the forward loop composites two splats per iteration. Training records
+one contribution bit per pair; backward visits only set bits in reverse order.
+These changes preserve each pixel's compositing order and arithmetic.
 
 A splat's warp sums (backward gradients, forward statistics) share one
 transposed shuffle butterfly (half2.warp_sums), after which each lane adds
@@ -214,8 +215,9 @@ def _composite(
     present,
     groups: cutlass.Constexpr,
     collect_stats: cutlass.Constexpr,
+    record_contributions: cutlass.Constexpr,
 ):
-    """Composite one splat over a lane's pixel pairs; return (active, count, weight)."""
+    """Composite one splat; report active pixels, statistics and fragment validity."""
     dx = h.bits_float(point[0]) - cute.Float32(px)
     dy = h.bits_float(point[1]) - cute.Float32(py)
     c00 = h.bits_float(point[4])
@@ -226,6 +228,7 @@ def _composite(
     blue, opacity = h.splat(ba), h.splat(ba, True)
     value, diff = _power(dx, dy, c00, c01, c11)
     active = False
+    contributing = False
     fragment_count = cutlass.Int32(0)
     weight_sum = cutlass.Uint32(0)
     for i in cutlass.range_constexpr(groups):
@@ -250,6 +253,8 @@ def _composite(
             lst[i, 1] = local
         alpha = h.mul(opacity, h.exp(power))
         valid = mask & h.ge_mask(alpha, h.pack(1 / 256, 1 / 256))
+        if cutlass.const_expr(record_contributions):
+            contributing = contributing or valid != 0
         alpha = h.minimum(alpha, h.pack(255 / 256, 255 / 256)) & valid
         weight = h.mul(reg[i, 3], alpha)
         if cutlass.const_expr(collect_stats):
@@ -259,7 +264,7 @@ def _composite(
         reg[i, 1] = h.fma(green, weight, reg[i, 1])
         reg[i, 2] = h.fma(blue, weight, reg[i, 2])
         reg[i, 3] = h.mul(reg[i, 3], h.sub(h.pack(1, 1), alpha))
-    return active, fragment_count, weight_sum
+    return active, fragment_count, weight_sum, contributing
 
 
 @cute.kernel
@@ -273,6 +278,7 @@ def _forward(
     last: cute.Tensor,
     stats: cute.Tensor,
     backward_work: cute.Tensor,
+    contribution_bits: cute.Tensor,
     width: int,
     height: int,
     tile_size: cutlass.Constexpr,
@@ -280,6 +286,7 @@ def _forward(
     tiles_x: int,
     tiles: int,
     collect_stats: cutlass.Constexpr,
+    record_contributions: cutlass.Constexpr,
 ):
     lane, _, _ = cute.arch.thread_idx()
     block, _, _ = cute.arch.block_idx()
@@ -297,6 +304,9 @@ def _forward(
             reg[i, 3] = h.pack(128.0, 128.0)
         start, end = offsets[tile], offsets[tile + 1]
         index = start
+        # One padding word per tile makes adjacent unaligned segments disjoint.
+        bit_base = start // 32 + tile
+        bits = cutlass.Uint32(0)
         active = True
         staged, staged_ids = _staging()
         points = cute.make_rmem_tensor((_FORWARD_UNROLL, 8), cutlass.Uint32)
@@ -309,6 +319,10 @@ def _forward(
         while index < end and cute.arch.vote_any_sync(active):
             k = (index - start) % 32
             if k == 0:
+                if cutlass.const_expr(record_contributions):
+                    if index > start and lane == 0:
+                        contribution_bits[bit_base + (index - start) // 32 - 1] = bits
+                    bits = cutlass.Uint32(0)
                 cute.arch.sync_warp()
                 _stage(staged, staged_ids, lane, mine, my_id)
                 upcoming = index + 32 + lane
@@ -324,7 +338,7 @@ def _forward(
             for u in cutlass.range_constexpr(_FORWARD_UNROLL):
                 g = _unstage(staged, staged_ids, k + u, points[u, None])
                 present = index + u < end
-                active, fragments, weights = _composite(
+                active, fragments, weights, contributing = _composite(
                     points[u, None],
                     px,
                     py,
@@ -336,7 +350,11 @@ def _forward(
                     present,
                     groups,
                     collect_stats,
+                    record_contributions,
                 )
+                if cutlass.const_expr(record_contributions):
+                    if cute.arch.vote_any_sync(contributing):
+                        bits |= cutlass.Uint32(1) << (k + u)
                 if cutlass.const_expr(collect_stats):
                     sums += [cute.Float32(fragments), h.sum_pair(weights) / 128]
                     splat_ids.append(g)
@@ -353,7 +371,10 @@ def _forward(
                     if lane % (32 // len(sums)) == 0 and total != 0:
                         cute.arch.atomic_add(stats.iterator + g * 2 + (stat & 1), total)
             index += _FORWARD_UNROLL
-        # The backward pass visits exactly the pairs before the last contributor.
+        if cutlass.const_expr(record_contributions):
+            if lane == 0 and index > start:
+                contribution_bits[bit_base + (index - start - 1) // 32] = bits
+        # Last indices bound the initialized bitmap prefix consumed by backward.
         tile_last = cutlass.Int32(0)
         for i in cutlass.range_constexpr(groups):
             tile_last = cute.max(tile_last, cute.max(lst[i, 0], lst[i, 1]))
@@ -379,6 +400,7 @@ def _backward(
     order: cute.Tensor,
     final_t: cute.Tensor,
     last: cute.Tensor,
+    contribution_bits: cute.Tensor,
     image_grad: cute.Tensor,
     grad_scale: cute.Tensor,
     gmean: cute.Tensor,
@@ -408,6 +430,8 @@ def _backward(
         reg.fill(0)
         grad.fill(0)
         start = offsets[tile]
+        bit_base = start // 32 + tile
+        bits = cutlass.Uint32(0)
         index = start
         scale = grad_scale[0]
         inv_scale = cute.Float32(1) / scale
@@ -449,117 +473,137 @@ def _backward(
         mine = cute.make_rmem_tensor(8, cutlass.Uint32)
         mine.fill(0)
         my_id = cutlass.Int32(0)
-        if top - lane >= start:
-            my_id = ids[top - lane]
+        chunk = (top - start) // 32
+        if top >= start:
+            bits = cutlass.Uint32(contribution_bits[bit_base + chunk])
+            # The forward unroll may inspect pairs past every pixel's last index.
+            bits &= cutlass.Uint32(0xFFFFFFFF) >> (31 - (top - start) % 32)
+        if (bits & (cutlass.Uint32(1) << lane)) != 0:
+            my_id = ids[start + chunk * 32 + lane]
             _load_params(params, my_id, mine)
         while index >= start:
-            k = (top - index) % 32
-            if k == 0:
+            if bits != 0:
                 cute.arch.sync_warp()
                 _stage(staged, staged_ids, lane, mine, my_id)
-                upcoming = index - 32 - lane
-                if upcoming >= start:
-                    my_id = ids[upcoming]
-                    _load_params(params, my_id, mine)
                 cute.arch.sync_warp()
-            g = _unstage(staged, staged_ids, k, point)
-            dx = h.bits_float(point[0]) - cute.Float32(px)
-            dy = h.bits_float(point[1]) - cute.Float32(py)
-            c00 = h.bits_float(point[4])
-            c01 = h.bits_float(point[5])
-            c11 = h.bits_float(point[6])
-            rg, ba = point[3], point[7]
-            red, green = h.splat(rg), h.splat(rg, True)
-            blue, opacity = h.splat(ba), h.splat(ba, True)
-            value, diff = _power(dx, dy, c00, c01, c11)
-            gr, gg, gb, ga, err = (
-                cutlass.Uint32(0),
-                cutlass.Uint32(0),
-                cutlass.Uint32(0),
-                cutlass.Uint32(0),
-                cutlass.Uint32(0),
-            )
-            contributes = False
-            basic, linear, quadratic = cute.Float32(0), cute.Float32(0), cute.Float32(0)
-            for i in cutlass.range_constexpr(groups):
-                v0 = value
-                value += diff
-                diff -= c11
-                power = h.pack(v0, value)
-                value += diff
-                diff -= c11
-                gaussian = h.exp(power)
-                alpha = h.minimum(h.mul(opacity, gaussian), h.pack(255 / 256, 255 / 256))
-                mask = h.ge_mask(alpha, h.pack(1 / 256, 1 / 256))
-                if index >= lst[i, 0]:
-                    mask &= cutlass.Uint32(0xFFFF0000)
-                if index >= lst[i, 1]:
-                    mask &= cutlass.Uint32(0x0000FFFF)
-                if cute.arch.vote_any_sync(mask != 0):
-                    contributes = True
-                    alpha &= mask
-                    gaussian &= mask
-                    trans = h.minimum(
-                        h.pack(128, 128), h.mul(reg[i, 3], h.reciprocal(h.sub(h.pack(1, 1), alpha)))
-                    )
-                    reg[i, 3] = trans
-                    weight = h.mul(alpha, trans)
-                    gr = h.fma(weight, grad[i, 0], gr)
-                    gg = h.fma(weight, grad[i, 1], gg)
-                    gb = h.fma(weight, grad[i, 2], gb)
-                    da = h.mul(h.mul(h.sub(red, reg[i, 0]), trans), grad[i, 0])
-                    da = h.add(da, h.mul(h.mul(h.sub(green, reg[i, 1]), trans), grad[i, 1]))
-                    da = h.add(da, h.mul(h.mul(h.sub(blue, reg[i, 2]), trans), grad[i, 2]))
-                    reg[i, 0] = h.fma(alpha, h.sub(red, reg[i, 0]), reg[i, 0])
-                    reg[i, 1] = h.fma(alpha, h.sub(green, reg[i, 1]), reg[i, 1])
-                    reg[i, 2] = h.fma(alpha, h.sub(blue, reg[i, 2]), reg[i, 2])
-                    ga = h.fma(da, gaussian, ga)
-                    dp = h.mul(gaussian, h.mul(opacity, da))
-                    if cutlass.const_expr(collect_stats):
-                        # Source accumulates squared partial sums within each lane.
-                        err = h.add(err, h.mul(h.mul(ga, h.pack(1 / 128, 1 / 128)), ga))
-                    offset = h.pack(i * 2, i * 2 + 1)
-                    basic += h.sum_pair(dp)
-                    linear += h.sum_pair(h.mul(dp, offset))
-                    quadratic += h.sum_pair(h.mul(h.mul(dp, offset), offset))
-            # LiteGS skips the reductions/atomics for noncontributing splats.
-            # Test fragment validity so arbitrary RGB cotangents also work when
-            # their opacity gradient cancels but their color gradient does not.
-            if contributes:
-                total = h.warp_sums(
-                    (
-                        -(c00 * dx + c01 * dy) * basic + c01 * linear,
-                        -(c11 * dy + c01 * dx) * basic + c11 * linear,
-                        -0.5 * dx * dx * basic,
-                        (-dx * dy * basic + dx * linear) * 0.5,
-                        -0.5 * dy * dy * basic + dy * linear - 0.5 * quadratic,
-                        h.sum_pair(err) / 128,
-                        cute.Float32(0),
-                        cute.Float32(0),
-                    ),
-                    lane,
+            next_bits = cutlass.Uint32(0)
+            if chunk > 0:
+                next_bits = cutlass.Uint32(contribution_bits[bit_base + chunk - 1])
+            if (next_bits & (cutlass.Uint32(1) << lane)) != 0:
+                my_id = ids[start + (chunk - 1) * 32 + lane]
+                _load_params(params, my_id, mine)
+            while bits != 0:
+                # Highest set bit preserves reverse compositing and half2 reductions.
+                k = cutlass.Int32(cute.arch.bfind(bits))
+                index = start + chunk * 32 + k
+                g = _unstage(staged, staged_ids, k, point)
+                dx = h.bits_float(point[0]) - cute.Float32(px)
+                dy = h.bits_float(point[1]) - cute.Float32(py)
+                c00 = h.bits_float(point[4])
+                c01 = h.bits_float(point[5])
+                c11 = h.bits_float(point[6])
+                rg, ba = point[3], point[7]
+                red, green = h.splat(rg), h.splat(rg, True)
+                blue, opacity = h.splat(ba), h.splat(ba, True)
+                value, diff = _power(dx, dy, c00, c01, c11)
+                gr, gg, gb, ga, err = (
+                    cutlass.Uint32(0),
+                    cutlass.Uint32(0),
+                    cutlass.Uint32(0),
+                    cutlass.Uint32(0),
+                    cutlass.Uint32(0),
                 )
-                # Native half2 sums keep RG and BA paired across the warp.
-                colors = h.warp_sums(
-                    (
-                        h.pack(h.sum_pair(gr), h.sum_pair(gg)),
-                        h.pack(h.sum_pair(gb), h.sum_pair(ga)),
-                    ),
-                    lane,
-                    True,
-                )
-                if source == 1:
-                    total = h.get(colors)
-                if source == 2:
-                    total = h.get(colors, True)
-                if source >= 0:
-                    target = cute.make_ptr(
-                        cutlass.Float32,
-                        address + cutlass.Int64(g * stride) * 4,
-                        cute.AddressSpace.gmem,
+                contributes = False
+                basic, linear, quadratic = cute.Float32(0), cute.Float32(0), cute.Float32(0)
+                for i in cutlass.range_constexpr(groups):
+                    v0 = value
+                    value += diff
+                    diff -= c11
+                    power = h.pack(v0, value)
+                    value += diff
+                    diff -= c11
+                    gaussian = h.exp(power)
+                    alpha = h.minimum(h.mul(opacity, gaussian), h.pack(255 / 256, 255 / 256))
+                    mask = h.ge_mask(alpha, h.pack(1 / 256, 1 / 256))
+                    if index >= lst[i, 0]:
+                        mask &= cutlass.Uint32(0xFFFF0000)
+                    if index >= lst[i, 1]:
+                        mask &= cutlass.Uint32(0x0000FFFF)
+                    if cute.arch.vote_any_sync(mask != 0):
+                        contributes = True
+                        alpha &= mask
+                        gaussian &= mask
+                        trans = h.minimum(
+                            h.pack(128, 128),
+                            h.mul(reg[i, 3], h.reciprocal(h.sub(h.pack(1, 1), alpha))),
+                        )
+                        reg[i, 3] = trans
+                        weight = h.mul(alpha, trans)
+                        gr = h.fma(weight, grad[i, 0], gr)
+                        gg = h.fma(weight, grad[i, 1], gg)
+                        gb = h.fma(weight, grad[i, 2], gb)
+                        da = h.mul(h.mul(h.sub(red, reg[i, 0]), trans), grad[i, 0])
+                        da = h.add(da, h.mul(h.mul(h.sub(green, reg[i, 1]), trans), grad[i, 1]))
+                        da = h.add(da, h.mul(h.mul(h.sub(blue, reg[i, 2]), trans), grad[i, 2]))
+                        reg[i, 0] = h.fma(alpha, h.sub(red, reg[i, 0]), reg[i, 0])
+                        reg[i, 1] = h.fma(alpha, h.sub(green, reg[i, 1]), reg[i, 1])
+                        reg[i, 2] = h.fma(alpha, h.sub(blue, reg[i, 2]), reg[i, 2])
+                        ga = h.fma(da, gaussian, ga)
+                        dp = h.mul(gaussian, h.mul(opacity, da))
+                        if cutlass.const_expr(collect_stats):
+                            # Source accumulates squared partial sums within each lane.
+                            err = h.add(err, h.mul(h.mul(ga, h.pack(1 / 128, 1 / 128)), ga))
+                        basic += h.sum_pair(dp)
+                        if cutlass.const_expr(i == 0):
+                            # Offsets (0, 1) give the same first and second moments.
+                            upper = h.get(dp, True)
+                            linear += upper
+                            quadratic += upper
+                        else:
+                            offset = h.pack(i * 2, i * 2 + 1)
+                            linear += h.sum_pair(h.mul(dp, offset))
+                            quadratic += h.sum_pair(h.mul(h.mul(dp, offset), offset))
+                # LiteGS skips the reductions/atomics for noncontributing splats.
+                # Test fragment validity so arbitrary RGB cotangents also work when
+                # their opacity gradient cancels but their color gradient does not.
+                if contributes:
+                    total = h.warp_sums(
+                        (
+                            -(c00 * dx + c01 * dy) * basic + c01 * linear,
+                            -(c11 * dy + c01 * dx) * basic + c11 * linear,
+                            -0.5 * dx * dx * basic,
+                            (-dx * dy * basic + dx * linear) * 0.5,
+                            -0.5 * dy * dy * basic + dy * linear - 0.5 * quadratic,
+                            h.sum_pair(err) / 128,
+                            cute.Float32(0),
+                            cute.Float32(0),
+                        ),
+                        lane,
                     )
-                    cute.arch.atomic_add(target, total * factor)
-            index -= 1
+                    # Native half2 sums keep RG and BA paired across the warp.
+                    colors = h.warp_sums(
+                        (
+                            h.pack_pair_sums(gr, gg),
+                            h.pack_pair_sums(gb, ga),
+                        ),
+                        lane,
+                        True,
+                    )
+                    if source == 1:
+                        total = h.get(colors)
+                    if source == 2:
+                        total = h.get(colors, True)
+                    if source >= 0:
+                        target = cute.make_ptr(
+                            cutlass.Float32,
+                            address + cutlass.Int64(g * stride) * 4,
+                            cute.AddressSpace.gmem,
+                        )
+                        cute.arch.atomic_add(target, total * factor)
+                bits &= ~(cutlass.Uint32(1) << k)
+            index = start + chunk * 32 - 1
+            chunk -= 1
+            bits = next_bits
 
 
 @cute.kernel
@@ -623,6 +667,7 @@ def launch_forward(
     stats: cute.Tensor,
     backward_work: cute.Tensor,
     order: cute.Tensor,
+    contribution_bits: cute.Tensor,
     *,
     width: int,
     height: int,
@@ -630,6 +675,7 @@ def launch_forward(
     tile_height: cutlass.Constexpr,
     capacity: int,
     collect_stats: cutlass.Constexpr,
+    record_contributions: cutlass.Constexpr,
 ):
     tiles_x = (width + tile_size - 1) // tile_size
     tiles = tiles_x * ((height + tile_height - 1) // tile_height)
@@ -651,6 +697,7 @@ def launch_forward(
         last,
         stats,
         backward_work,
+        contribution_bits,
         width,
         height,
         tile_size,
@@ -658,6 +705,7 @@ def launch_forward(
         tiles_x,
         tiles,
         collect_stats,
+        record_contributions,
     ).launch(grid=[tiles, 1, 1], block=[32, 1, 1], stream=stream)
 
 
@@ -669,6 +717,7 @@ def launch_backward(
     offsets: cute.Tensor,
     final_t: cute.Tensor,
     last: cute.Tensor,
+    contribution_bits: cute.Tensor,
     backward_work: cute.Tensor,
     image_grad: cute.Tensor,
     grad_scale: cute.Tensor,
@@ -727,6 +776,7 @@ def launch_backward(
         order,
         final_t,
         last,
+        contribution_bits,
         image_grad,
         grad_scale,
         gmean,

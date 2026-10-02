@@ -44,9 +44,20 @@ class RenderResult:
     alpha: chex.Array  # [H, W]
 
 
+@struct.dataclass
+class RenderOutput:
+    """RGB pipeline output, binned primitive mask and capacity status."""
+
+    image: chex.Array  # [H, W, 3], clamped to [0, 1]
+    primitive_visible: chex.Array  # [C], appears in at least one tile
+    overflow: chex.Array  # scalar
+
+
 # Packed parameters [C * 8] uint32, final transmittance [H * W] float32,
-# last processed pair [H * W] int32 and per-tile backward pair counts [T] int32.
-type PackedRasterCache = tuple[chex.Array, chex.Array, chex.Array, chex.Array]
+# last processed pair [H * W] int32, backward pair counts [T] int32 and contribution
+# bits uint32. Tile t starts at floor(tile_offsets[t] / 32) + t; only words before
+# ceil(backward_pair_count / 32) are initialized. Remaining words must not be read.
+type PackedRasterCache = tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]
 
 # [C, 4]: fragment count, compositing weight, sum(dL/dalpha), sum((dL/dalpha)^2).
 type FragmentStatistics = chex.Array

@@ -308,3 +308,36 @@ def test_fragment_statistics_and_full_step():
     np.testing.assert_allclose(accumulated, stats, rtol=1e-4, atol=1e-5)
     assert bool(jnp.all(jnp.isfinite(next_pool.xyz)))
     np.testing.assert_array_equal(next_pool.sh[:, 1:], pool.sh[:, 1:])
+
+
+@pytest.mark.skipif(
+    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
+    reason="CuTe protocol requires JAX CUDA",
+)
+@pytest.mark.parametrize("tile_size", [4, 16])
+def test_training_uint8_targets_match_float_pixel_values(tile_size):
+    from jaxgs.scene.cluster import world_cluster_bounds
+    from jaxgs.training.step import array_train_step
+
+    config = CapacityConfig(2, 1, 2, tile_size, 1, 128)
+    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
+    pool = seed_gaussians(
+        create_gaussians(config),
+        jnp.array([[0.1, 0.0, 2.0]]),
+        jnp.array([[0.4, 0.3, 0.2]]),
+        scale=jnp.array([[0.15, 0.2, 0.3]]),
+        opacity=0.5,
+    )
+    args = (
+        pool,
+        create_adam_state(pool),
+        jnp.zeros((2, 4)),
+        world_cluster_bounds(pool, config.cluster_size),
+        camera,
+    )
+    target = jnp.arange(8 * 8 * 3, dtype=jnp.uint8).reshape(8, 8, 3)
+    step_args = (jnp.array(0), jnp.array(1.0), config, 1, True)
+    expected = array_train_step(*args, target.astype(jnp.float32), *step_args)
+    actual = array_train_step(*args, target, *step_args)
+    for value, reference in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
+        np.testing.assert_allclose(value, reference, rtol=2e-5, atol=2e-6)

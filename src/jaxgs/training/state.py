@@ -13,8 +13,10 @@ class TrainingState(nnx.Module):
     def __init__(
         self, model: GaussianModel, adam: AdamState, fragments: FragmentStatistics
     ) -> None:
-        # Keep Adam/statistics before the model in pytree order, matching the
-        # implicit update outputs so XLA reuses each donated buffer correctly.
+        # NNX flattens attributes in name order, not assignment order. These
+        # names keep the optimizer state and statistics before the model,
+        # matching the implicit update outputs so that XLA reuses each donated
+        # buffer correctly; renaming an attribute can reorder the pytree.
         self.adam = nnx.OptState(adam)
         self.fragments = nnx.Variable(fragments)
         self.model = model

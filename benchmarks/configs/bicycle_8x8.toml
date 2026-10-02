@@ -1,0 +1,7 @@
+# RTX 5090 tile experiment; uses the default 30k training schedule.
+[model]
+images = "images_4"
+eval = true
+
+[pipeline]
+tile_size = [8, 8]
