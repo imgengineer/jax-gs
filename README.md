@@ -47,6 +47,8 @@ reduced its separate matched baseline from 43.28 to 41.28 s.
   sparse Adam implementation are also available.
 - **Reference implementation:** JAX rendering and a small-scene trainer for
   numerical comparisons and CPU debugging.
+- **Web viewer:** viser camera controls and CuTe rendering, with four image
+  resolutions compiled before accepting connections.
 
 ## Getting started
 
@@ -216,6 +218,41 @@ and an overflow flag. Visibility overflow requires a larger pair capacity.
 For CPU correctness comparisons on small pools, pass `backend="reference"`
 to both rendering calls.
 
+## Web viewer
+
+```bash
+uv run jaxgs-view output/model.ply
+```
+
+Open **http://127.0.0.1:8080** to orbit, pan and zoom around the model. The
+viewer accepts Gaussian PLY and NPZ files. It fits the model bounds initially;
+for a reconstructed scene, start from its first COLMAP camera:
+
+```bash
+uv run jaxgs-view output/bicycle.ply \
+  --scene /path/to/bicycle --images images_4
+```
+
+The resolution selector offers **640×360, 640×480, 1280×720 and 1920×1080**;
+720p is the default. Startup warms one JIT executable per resolution. Camera
+pose, field of view and browser aspect ratio remain dynamic, so moving the
+camera, resizing the browser or switching between these presets reuses the
+compiled executables. Model buffers and cluster bounds stay on the GPU.
+
+Each browser has its own camera and resolution. Camera updates replace pending
+updates for that client; a single worker renders the latest view and sends
+JPEG frames. An idle camera does not continuously render. **Reset view** returns
+to the initial camera. The timing display separates rendering/readback from
+JPEG encoding/queueing; it excludes network and browser display time.
+
+Use `--resolution 1920x1080` or `--port 8081` to change the initial settings.
+For another machine to connect, bind with `--host 0.0.0.0` and use the server's
+address. The default visibility capacity is 8,000,000 Gaussian/tile pairs;
+if a view exceeds it, restart with a larger `--max-visibility-pairs` value.
+
+See the [viewer measurements](benchmarks/results/viewer_20261002.md) for
+synchronized JIT, eager and JPEG timings, including their measurement scope.
+
 ## Modular pipeline
 
 1. **Cluster culling and compaction:** use world-space bounds to identify
@@ -234,6 +271,7 @@ src/jaxgs/
 ├── data.py          # Image frames and Grain decoding
 ├── scene/           # NNX Gaussian model, cameras and spatial organization
 ├── render/          # Preprocessing, rendering and shared PyTrees
+├── viewer.py        # viser camera events, controls and frame delivery
 ├── kernels/         # CuTe kernels and JAX bindings
 ├── training/        # Initialization, warmup, compiled steps and epoch orchestration
 ├── reference/       # JAX correctness implementations
@@ -264,6 +302,18 @@ updates from a common Gaussian PLY without densification.
 [benchmarks/packed_parity.py](benchmarks/packed_parity.py) checks native kernel
 parity. LiteGS comparisons require a separate installed LiteGS checkout.
 
+Measure viewer rendering with the same camera path for eager and JIT calls:
+
+```bash
+uv run python benchmarks/viewer.py output/bicycle.ply \
+  --scene /path/to/bicycle --images images_4 \
+  --steps 100 --output output/viewer-benchmark.json
+```
+
+This checks image agreement within one uint8 level, synchronizes each timed
+call, records compilation separately and reports whether other GPU compute
+processes were observed. Reports retain the observed image differences.
+
 Additional records cover [loss target loading](benchmarks/results/loss_target_20261001.md),
 [kernel arithmetic](benchmarks/results/kernel_arithmetic_20261001.md) and
 [sequential scan](benchmarks/results/scan_training_20261002.md).
@@ -280,11 +330,12 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest -q \
   --cov=jaxgs --cov-report=term-missing
 ```
 
-The contribution-pruning validation passed **390 tests** with **100% Python line and branch
-coverage**: 2,001 statements and 292 branches. GPU DSL bodies are excluded from
-Python coverage; parity, gradient, training and CUDA device checks verify their
-behavior. The [contribution pruning record](benchmarks/results/contribution_pruning_20261002.md)
-also documents the CUDA checker options and diagnostic limitations.
+The [viewer validation](benchmarks/results/viewer_20261002.md) passed **422 tests**
+with **99.77% Python line and branch coverage**: 2,234 statements and 322 branches.
+GPU DSL bodies are excluded from Python coverage; parity, gradient, training
+and CUDA device checks verify their behavior. The
+[contribution pruning record](benchmarks/results/contribution_pruning_20261002.md)
+documents the CUDA checker options and diagnostic limitations.
 
 The small-scene reference trainer is available for CPU debugging:
 

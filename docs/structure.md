@@ -26,6 +26,8 @@ boundaries; the decisions below follow jaxgs's fixed shapes and custom kernels.
 | `io_manager/report.py` | Final checkpoint and production training report output. |
 | `scene/point.py` | `GaussianModel` owns NNX parameters and occupancy; `GaussianArrays` exposes the same buffers to kernels. |
 | `render/types.py`, `scene/types.py` | Shared PyTrees and the parameter ordering used across rendering and optimization. |
+| `render/view.py` | Fixed-model rendering with cached cluster bounds and four reusable JIT resolutions. |
+| `viewer.py` | viser camera conversion, per-client controls and serialized frame delivery. |
 | `kernels/`, `reference/` | GPU implementations and numerical correctness implementations. |
 | `training/state.py` | Ownership of model buffers, optimizer moments and fragment statistics. |
 | `training/step.py` | Pure single-step computation and thin JAX/NNX compilation boundaries. |
@@ -101,6 +103,14 @@ CuTe combines SH activation and projection in one kernel. Those operations
 remain in `render`; preprocessing performs cluster culling and compaction.
 Production training shares preprocessing, then uses its compact parameter
 pullback and fused loss kernels. Evaluation uses both public rendering calls.
+
+The web viewer binds a fixed model and configuration in `ViewRenderer`.
+`jax.jit` wraps preprocessing, RGB rendering and uint8 conversion together;
+model arrays and precomputed bounds remain device arguments, avoiding large
+embedded constants. Image dimensions select four compiled variants, while
+camera pose and intrinsics remain dynamic. The viser layer converts camera
+events on the CPU and retains only the latest pending view per client. GPU
+rendering runs in one worker; image readback and JPEG encoding follow it.
 
 ## Compiled steps
 

@@ -14,11 +14,13 @@ dependencies = [
     "pillow>=12.3.0",
     "plyfile>=1.1.5",
     "scipy>=1.18.1",
+    "viser>=1.1.1",
 ]
 
 [project.scripts]
 jaxgs-train-reference = "jaxgs.training.reference_trainer:main"
 jaxgs-train = "jaxgs.training.trainer:main"
+jaxgs-view = "jaxgs.viewer:main"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]

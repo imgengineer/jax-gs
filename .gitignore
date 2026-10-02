@@ -13,3 +13,6 @@ wheels/
 
 .coverage*
 htmlcov/
+
+# Generated models, viewer captures and local run logs
+output/
