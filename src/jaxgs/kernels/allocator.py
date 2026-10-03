@@ -17,6 +17,7 @@ def allocate_free_slots_cute(free_mask: chex.Array, max_new: int) -> tuple[chex.
     )
     call = cutlass_call(
         launch_allocate_free,
+        compile_key=launch_allocate_free,
         output_shape_dtype=shapes,
         use_static_tensors=True,
         capacity=capacity,

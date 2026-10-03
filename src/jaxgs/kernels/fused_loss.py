@@ -365,6 +365,7 @@ def _fused_loss(
     # explicitly cast byte reads to Uint8 before normalizing them.
     call = cutlass_call(
         _launch,
+        compile_key=_launch,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((blocks,), jnp.float32),
             jax.ShapeDtypeStruct((prediction.size,), jnp.float32),

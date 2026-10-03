@@ -18,6 +18,57 @@ from jaxgs.training.reference_trainer import train_step
     jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
     reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
+def test_compile_keys_preserve_projection_specializations_without_ir_lookup(monkeypatch):
+    from jaxgs.kernels.projector import project_cute_vjp
+
+    cutlass_jax = importlib.import_module("cutlass.jax")
+    compiler = importlib.import_module("cutlass.jax.compile")
+    cutlass_call = cutlass_jax.cutlass_call
+
+    def automatic_key(*args, **kwargs):
+        kwargs.pop("compile_key", None)
+        return cutlass_call(*args, **kwargs)
+
+    def unexpected_ir_lookup(*args, **kwargs):
+        raise AssertionError("explicit compile keys should skip IR generation for cache lookup")
+
+    config = CapacityConfig(17, 8, 16, 8, 3, 1024)
+    pool = seed_gaussians(
+        create_gaussians(config),
+        jnp.array([[0.1, -0.1, 2.0], [1.1, 0.2, 2.0], [-0.2, 0.1, 3.0]], jnp.float32),
+        jnp.array([[0.8, 0.3, 0.2], [0.2, 0.6, 0.8], [0.4, 0.7, 0.2]], jnp.float32),
+        scale=0.2,
+        opacity=0.5,
+    )
+    pool = pool.replace(
+        sh=pool.sh
+        + jnp.asarray(np.random.default_rng(912).normal(0, 0.03, pool.sh.shape), jnp.float32)
+    )
+    # Revisit SH0 after higher degrees, with unchanged tensor shapes. Static
+    # degree and camera dimensions must distinguish the compiled kernels.
+    for width, height in ((31, 19), (43, 27)):
+        camera = Camera.from_colmap(
+            [1, 0, 0, 0], [0, 0, 0], 25, 25, width / 2, height / 2, width, height
+        )
+        for degree in (0, 1, 2, 3, 0):
+            with monkeypatch.context() as context:
+                context.setattr(cutlass_jax, "cutlass_call", automatic_key)
+                expected = jax.jit(
+                    lambda p: project_cute_vjp(p, camera, config, active_degree=degree)
+                )(pool)
+            with monkeypatch.context() as context:
+                context.setattr(compiler, "_generate_precompiled_mlir", unexpected_ir_lookup)
+                actual = jax.jit(
+                    lambda p: project_cute_vjp(p, camera, config, active_degree=degree)
+                )(pool)
+            for name in ("mean", "depth", "conic", "radius", "color", "alpha", "visible"):
+                np.testing.assert_array_equal(getattr(actual, name), getattr(expected, name))
+
+
+@pytest.mark.skipif(
+    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
+    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
+)
 def test_cute_forward_and_backward_match_reference():
     from jaxgs.kernels.binning import build_visibility_table_cute
     from jaxgs.render.rasterizer import rasterize, rasterize_forward

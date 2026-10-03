@@ -36,6 +36,7 @@ def _forward_arrays(
     )
     call = cutlass_call(
         launch_forward,
+        compile_key=launch_forward,
         output_shape_dtype=shapes,
         use_static_tensors=True,
         width=width,
@@ -142,6 +143,7 @@ def rasterize_cute_vjp(
         )
         call = cutlass_call(
             launch_backward,
+            compile_key=launch_backward,
             output_shape_dtype=shapes,
             use_static_tensors=True,
             width=width,

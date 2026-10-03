@@ -36,6 +36,7 @@ def _forward_arrays(
     pixels = width * height
     call = cutlass_call(
         launch_forward_sorted,
+        compile_key=launch_forward_sorted,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((pixels * 3,), jnp.float32),
             jax.ShapeDtypeStruct((pixels,), jnp.float32),
@@ -104,6 +105,7 @@ def rasterize_sorted_cute_vjp(
         capacity = depth.shape[0]
         call = cutlass_call(
             launch_backward_sorted,
+            compile_key=launch_backward_sorted,
             output_shape_dtype=(
                 jax.ShapeDtypeStruct((mean.size,), jnp.float32),
                 jax.ShapeDtypeStruct((conic.size,), jnp.float32),
@@ -193,6 +195,7 @@ def rasterize_loss_and_grad(
     fields = (projected.mean, projected.conic, projected.depth, projected.color, projected.alpha)
     call = cutlass_call(
         launch_backward_sorted,
+        compile_key=launch_backward_sorted,
         output_shape_dtype=(
             *(jax.ShapeDtypeStruct((value.size,), jnp.float32) for value in fields),
             jax.ShapeDtypeStruct((config.max_gaussians * 3 if collect_stats else 1,), jnp.float32),

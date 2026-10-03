@@ -336,6 +336,7 @@ def sort_pairs_by_tile(
     max_blocks = -(-max_pairs // _BLOCK_PAIRS)
     call = cutlass_call(
         launch_sort_pairs,
+        compile_key=launch_sort_pairs,
         output_shape_dtype=(
             jax.ShapeDtypeStruct(tile_ids.shape, tile_ids.dtype),
             jax.ShapeDtypeStruct(gaussian_ids.shape, gaussian_ids.dtype),

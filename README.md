@@ -10,29 +10,35 @@ small-scene correctness checks on CPU.
 
 ## Training performance
 
-Measured on an RTX 5090 with Optax, 8×16 tiles and a one-million-slot pool.
-The bicycle experiment uses `images_4` at 1237×822,
+Two exclusive paired runs on an RTX 5090 use the default 10k budget, Optax,
+8×16 tiles and a one-million-slot pool. Bicycle uses `images_4` at 1237×822,
 169 training views and 25 held-out views.
 
-| Iteration budget | Actual updates | Final Gaussians | Training loop | Held-out PSNR |
-| --- | ---: | ---: | ---: | ---: |
-| 10,000 | 9,971 | 975,104 | 11.83 s | 24.547 dB |
-| 30,000 | 29,913 | 993,152 | 38.60 s | 25.479 dB |
+| Stage | Before | After | Less time |
+| --- | ---: | ---: | ---: |
+| Precompilation / warmup | 13.943 s | 10.421 s | 25.3% |
+| Training loop | 11.846 s | 11.686 s | 1.3% |
+| Image preload + warmup + loop | 26.222 s | 22.568 s | 13.9% |
 
-Time is the median of three runs; PSNR is the mean of the three held-out
-scores. Timing includes densification, pruning, opacity decay and spatial
-refinement, and excludes initialization, image preload, compilation and
-checkpoint writing. These measurements cover one scene and GPU.
+Times are medians of two runs. Explicit CuTe compilation keys avoid repeated
+IR generation for cache lookup; the training forward loop handles four splats
+per iteration. Both paired comparisons improved. Each run performs 9,971
+updates and ends with 975,104 or 975,232 Gaussians, matching within each pair.
+Mean held-out PSNR changes from 24.549 to 24.563 dB (+0.014 dB).
 
-Reconstructing SH gradients inside the Optax update reduced the matched training
-loop by **5.5% at 10k** and **6.1% at 30k**. Including image preload and warmup,
-the measured stage sums changed from 25.97 to 26.09 s at 10k and from 54.59 to
-52.83 s at 30k; short runs still spend substantial time compiling. Held-out
-means changed by −0.026 and +0.015 dB, respectively. The
-[training measurements](benchmarks/results/training_sh_20261003.md) include
-every run, quality comparison and compiled temporary-memory estimates.
-Earlier records cover [warp votes](benchmarks/results/warp_vote_20261002.md)
-and [contribution pruning](benchmarks/results/contribution_pruning_20261002.md).
+Loop timing includes densification, pruning, opacity decay, spatial refinement
+and epoch reports. The stage sum includes image preload and warmup, and
+excludes point initialization and checkpoint writing. These preliminary results
+cover one scene and GPU. A third run encountered GPU interference and was
+excluded; the third pair and 30k comparisons await an exclusive window.
+The [follow-up record](benchmarks/results/training_followup_20261003.md)
+contains every accepted sample, quality comparison and rejected prototype.
+
+Earlier [SH gradient deferral](benchmarks/results/training_sh_20261003.md)
+reduced its separate matched training loop by 5.5% at 10k and 6.1% at 30k,
+with a 33.7% reduction in compiled temporary storage. Additional records cover
+[warp votes](benchmarks/results/warp_vote_20261002.md) and
+[contribution pruning](benchmarks/results/contribution_pruning_20261002.md).
 
 ## Features
 
@@ -338,12 +344,13 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest tests -q \
   --cov=jaxgs --cov-report=term-missing
 ```
 
-The [training validation](benchmarks/results/training_sh_20261003.md) passed all
-**444 project tests**, with **99.77% Python line and branch coverage**:
-2,264 statements and 326 branches. CUDA memcheck reported zero errors in
-26 compact-projection and optimizer cases.
+The [training validation](benchmarks/results/training_followup_20261003.md) passed all
+**445 project tests**, with **99.77% Python line and branch coverage**:
+2,264 statements and 326 branches.
 GPU DSL bodies are excluded from Python coverage; parity, gradient, training
-and CUDA device checks verify their behavior. The
+and CUDA device checks verify their behavior. CUDA memcheck, racecheck and
+synccheck each passed 28 contribution/staging cases with zero device errors or
+race hazards. The
 [contribution pruning record](benchmarks/results/contribution_pruning_20261002.md)
 documents the CUDA checker options and diagnostic limitations.
 

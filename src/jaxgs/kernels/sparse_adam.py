@@ -110,6 +110,7 @@ def update_field(
 
     call = cutlass_call(
         _launch,
+        compile_key=_launch,
         output_shape_dtype=tuple(
             jax.ShapeDtypeStruct((x.size,), x.dtype) for x in (value, mean, variance)
         ),

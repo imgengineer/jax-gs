@@ -59,6 +59,7 @@ def _packed_forward(
     bit_words = (config.visibility_capacity + 31) // 32 + tiles if record_contributions else 1
     call = cutlass_call(
         launch_forward,
+        compile_key=launch_forward,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((config.max_gaussians * 8,), jnp.uint32),
             jax.ShapeDtypeStruct((pixels * 3,), jnp.float32),
@@ -130,6 +131,7 @@ def packed_backward(
     fields = (projected.mean, projected.conic, projected.depth, projected.color, projected.alpha)
     call = cutlass_call(
         launch_backward,
+        compile_key=launch_backward,
         output_shape_dtype=(
             *(jax.ShapeDtypeStruct((value.size,), jnp.float32) for value in fields),
             jax.ShapeDtypeStruct((config.max_gaussians if collect_stats else 1,), jnp.float32),

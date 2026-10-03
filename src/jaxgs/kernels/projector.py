@@ -55,6 +55,7 @@ def _project_gaussian_arrays(
     )
     project_kernel = cutlass_call(
         launch_projection,
+        compile_key=launch_projection,
         output_shape_dtype=output_shapes,
         use_static_tensors=True,
         capacity=capacity,
@@ -268,6 +269,7 @@ def _compute_projection_gradients(
     )
     backward_kernel = cutlass_call(
         launch_projection_backward,
+        compile_key=launch_projection_backward,
         output_shape_dtype=output_shapes,
         use_static_tensors=True,
         capacity=config.max_gaussians,

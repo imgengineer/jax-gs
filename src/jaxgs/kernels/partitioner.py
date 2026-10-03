@@ -19,6 +19,7 @@ def stable_split_partition_cute(split_mask: chex.Array, candidate_count: chex.Ar
     candidate_count = jnp.asarray(candidate_count, jnp.int32).reshape(1)
     count = cutlass_call(
         launch_count_splits,
+        compile_key=launch_count_splits,
         output_shape_dtype=jax.ShapeDtypeStruct(((capacity + 255) // 256,), jnp.int32),
         use_static_tensors=True,
         capacity=capacity,
@@ -26,6 +27,7 @@ def stable_split_partition_cute(split_mask: chex.Array, candidate_count: chex.Ar
     block_prefix = jnp.cumsum(count(split, candidate_count), dtype=jnp.int32)
     partition = cutlass_call(
         launch_partition_order,
+        compile_key=launch_partition_order,
         output_shape_dtype=jax.ShapeDtypeStruct((capacity,), jnp.int32),
         use_static_tensors=True,
         capacity=capacity,

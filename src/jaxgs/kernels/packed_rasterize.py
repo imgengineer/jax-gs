@@ -32,7 +32,7 @@ from .sorted_rasterize import _zero_fragments
 _ORDER_THREADS = 1024
 _ORDER_BUCKETS = 256
 # Training splats per iteration; divides the 32-splat staging batch.
-_FORWARD_UNROLL = 2
+_FORWARD_UNROLL = 4
 
 
 @cute.jit
@@ -293,8 +293,8 @@ def _forward(
     lane, _, _ = cute.arch.thread_idx()
     block, _, _ = cute.arch.block_idx()
     groups = tile_size * tile_height // 64
-    # Without statistics or backward bookkeeping, more independent exponentials
-    # fit in each iteration while each pixel retains its compositing order.
+    # Four training splats overlap independent exponentials and share the loop
+    # vote; RGB-only rendering fits eight without backward bookkeeping.
     unroll = _FORWARD_UNROLL if record_contributions else 8
     if block < tiles:
         tile = order[block]

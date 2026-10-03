@@ -32,6 +32,7 @@ def compact_clusters_cute(projected: ProjectedGaussians, config: CapacityConfig)
     )
     call = cutlass_call(
         launch_cluster_compact,
+        compile_key=launch_cluster_compact,
         output_shape_dtype=shapes,
         use_static_tensors=True,
         capacity=c,
@@ -70,6 +71,7 @@ def build_visibility_table_cute(
     )
     call = cutlass_call(
         launch_visibility_table,
+        compile_key=launch_visibility_table,
         output_shape_dtype=shapes,
         use_static_tensors=True,
         capacity=config.max_gaussians,

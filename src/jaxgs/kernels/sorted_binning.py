@@ -34,6 +34,7 @@ def build_sorted_visibility_table_cute(
     tile_dtype = jnp.uint16 if num_tiles <= 65535 else jnp.uint32
     count = cutlass_call(
         launch_count_pairs,
+        compile_key=launch_count_pairs,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((capacity,), jnp.int32),
             jax.ShapeDtypeStruct((capacity,), jnp.uint32),
@@ -64,6 +65,7 @@ def build_sorted_visibility_table_cute(
     scan_items = _SCAN_THREADS * _SCAN_ITEMS
     offsets = cutlass_call(
         launch_pair_offsets,
+        compile_key=launch_pair_offsets,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((capacity,), jnp.int32),
             jax.ShapeDtypeStruct((capacity,), jnp.int32),
@@ -76,6 +78,7 @@ def build_sorted_visibility_table_cute(
     pair_count = end_offsets[-1]
     emit = cutlass_call(
         launch_emit_pairs,
+        compile_key=launch_emit_pairs,
         output_shape_dtype=(
             jax.ShapeDtypeStruct((max_pairs,), tile_dtype),
             jax.ShapeDtypeStruct((max_pairs,), jnp.int32),
@@ -102,6 +105,7 @@ def build_sorted_visibility_table_cute(
     tile_ids, gaussian_ids = sort_pairs_by_tile(tile_ids, gaussian_ids, pair_count, num_tiles)
     ranges = cutlass_call(
         launch_tile_ranges,
+        compile_key=launch_tile_ranges,
         output_shape_dtype=jax.ShapeDtypeStruct((num_tiles + 1,), jnp.int32),
         use_static_tensors=True,
         max_pairs=max_pairs,

@@ -36,6 +36,7 @@ def compact_visible_clusters(point_mask: chex.Array, cluster_size: int) -> Visib
     ranks = jnp.cumsum(visible, dtype=jnp.int32)
     call = cutlass_call(
         _launch,
+        compile_key=_launch,
         output_shape_dtype=jax.ShapeDtypeStruct(visible.shape, jnp.int32),
         use_static_tensors=True,
         size=visible.size,
