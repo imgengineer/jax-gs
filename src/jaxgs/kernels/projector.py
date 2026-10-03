@@ -248,6 +248,7 @@ def _compute_projection_gradients(
     compact_gradients: bool,
     rgb_only: bool = False,
     active_sh_only: bool = False,
+    sh_color_only: bool = False,
 ) -> ParameterGradients:
     """Compute parameter gradients from projected-field cotangents in CuTe."""
     from cutlass.jax import cutlass_call
@@ -255,7 +256,9 @@ def _compute_projection_gradients(
     from .projection_backward import launch_projection_backward
 
     degree = config.sh_degree if active_degree is None else active_degree
-    sh_gradient_dim = (degree + 1) ** 2 if active_sh_only else config.sh_dim
+    sh_gradient_dim = (
+        1 if sh_color_only else ((degree + 1) ** 2 if active_sh_only else config.sh_dim)
+    )
     output_shapes = tuple(
         jax.ShapeDtypeStruct(
             (config.max_gaussians * sh_gradient_dim * 3 if index == 4 else value.size,),
@@ -276,6 +279,7 @@ def _compute_projection_gradients(
         compacted=visible_clusters is not None,
         compact_gradients=compact_gradients,
         rgb_only=rgb_only,
+        sh_color_only=sh_color_only,
     )
     cluster_arrays = (
         (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))
@@ -308,6 +312,7 @@ def project_with_compact_pullback(
     *,
     rgb_only: bool = False,
     active_sh_only: bool = False,
+    sh_color_only: bool = False,
 ) -> tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients]]:
     """CuTe projection and a pullback producing gradients in visible-cluster order.
 
@@ -318,6 +323,9 @@ def project_with_compact_pullback(
     rgb_only specializes the pullback for zero depth and radius cotangents.
     active_sh_only returns only (active_degree + 1)**2 SH gradient coefficients;
     parameter storage remains unchanged. Optax restores the zero gradient tail.
+    sh_color_only instead returns [capacity, 1, 3] masked color cotangents for
+    reconstruction inside Optax. The position gradient still includes the
+    SH direction derivative.
     Outside the visible clusters, only projected.visible is defined (False):
     binning and rasterization read the other fields of visible Gaussians only.
     """
@@ -365,11 +373,12 @@ def project_with_compact_pullback(
             True,
             rgb_only,
             active_sh_only,
+            sh_color_only,
         )
         return tuple(
             array.reshape(
-                (config.max_gaussians, (active_degree + 1) ** 2, 3)
-                if active_sh_only and index == 4
+                (config.max_gaussians, 1 if sh_color_only else (active_degree + 1) ** 2, 3)
+                if (active_sh_only or sh_color_only) and index == 4
                 else value.shape
             )
             for index, (array, value) in enumerate(zip(arrays, parameters, strict=True))

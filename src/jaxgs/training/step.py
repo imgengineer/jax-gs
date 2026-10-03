@@ -55,6 +55,8 @@ def compute_training_step(
         bounds, camera, pool, config
     )
 
+    # SH0 already has just three gradients; deferral only helps higher bands.
+    defer_sh = optimizer in ("optax", "muon") and active_degree > 0
     projected_gaussians, projection_pullback = project_with_compact_pullback(
         culled_gaussians,
         camera,
@@ -63,6 +65,7 @@ def compute_training_step(
         visible_clusters,
         rgb_only=True,
         active_sh_only=optimizer in ("optax", "muon"),
+        sh_color_only=defer_sh,
     )
     visibility_table = build_sorted_visibility_table_cute(
         jax.lax.stop_gradient(projected_gaussians), camera, config
@@ -100,6 +103,7 @@ def compute_training_step(
             compacted_clusters=visible_clusters,
             transform=create_muon_transform((active_degree + 1) ** 2) if muon else None,
             program_shape=MUON_PROGRAM_SHAPE if muon else None,
+            sh_pullback_center=camera.center if defer_sh else None,
         )
     elif optimizer == "cute":
         pool, state = sparse_adam_update(

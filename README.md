@@ -10,28 +10,29 @@ small-scene correctness checks on CPU.
 
 ## Training performance
 
-Measured on an RTX 5090 with a 30k iteration budget, Optax, 8×16 tiles and a
-one-million-slot pool. The bicycle experiment uses `images_4` at 1237×822,
+Measured on an RTX 5090 with Optax, 8×16 tiles and a one-million-slot pool.
+The bicycle experiment uses `images_4` at 1237×822,
 169 training views and 25 held-out views.
 
-| Scene | Actual updates | Final Gaussians | Training loop | Held-out PSNR |
+| Iteration budget | Actual updates | Final Gaussians | Training loop | Held-out PSNR |
 | --- | ---: | ---: | ---: | ---: |
-| bicycle | 29,913 | 993,152 | 41.17 s | 25.479 dB |
+| 10,000 | 9,971 | 975,104 | 11.83 s | 24.547 dB |
+| 30,000 | 29,913 | 993,152 | 38.60 s | 25.479 dB |
 
-Time is the median of four runs; PSNR is the mean of the four held-out
+Time is the median of three runs; PSNR is the mean of the three held-out
 scores. Timing includes densification, pruning, opacity decay and spatial
 refinement, and excludes initialization, image preload, compilation and
 checkpoint writing. These measurements cover one scene and GPU.
 
-Omitting redundant warp votes in ordinary backward gradients reduced the latest
-matched baseline from 41.34 to 41.17 s (0.41% less time), with mean PSNR changing
-by +0.027 dB. All four paired runs were faster, but run ranges overlap; this is
-a small measured improvement on one scene. A separate fixed-model comparison
-across four views took 0.76–0.97% less time. The
-[measurement and validation record](benchmarks/results/warp_vote_20261002.md)
-contains every sample and the rejected Tokamax-inspired prototypes. Earlier
-[contribution pruning](benchmarks/results/contribution_pruning_20261002.md)
-reduced its separate matched baseline from 43.28 to 41.28 s.
+Reconstructing SH gradients inside the Optax update reduced the matched training
+loop by **5.5% at 10k** and **6.1% at 30k**. Including image preload and warmup,
+the measured stage sums changed from 25.97 to 26.09 s at 10k and from 54.59 to
+52.83 s at 30k; short runs still spend substantial time compiling. Held-out
+means changed by −0.026 and +0.015 dB, respectively. The
+[training measurements](benchmarks/results/training_sh_20261003.md) include
+every run, quality comparison and compiled temporary-memory estimates.
+Earlier records cover [warp votes](benchmarks/results/warp_vote_20261002.md)
+and [contribution pruning](benchmarks/results/contribution_pruning_20261002.md).
 
 ## Features
 
@@ -333,12 +334,14 @@ warmup and training combined took 6.2% longer; the default loop is retained.
 uv sync --group dev
 uv run ruff check src tests benchmarks
 uv run ruff format --check src tests benchmarks
-XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest -q \
+XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest tests -q \
   --cov=jaxgs --cov-report=term-missing
 ```
 
-The [inference validation](benchmarks/results/inference_20261003.md) passed **426 tests**
-with **99.77% Python line and branch coverage**: 2,236 statements and 322 branches.
+The [training validation](benchmarks/results/training_sh_20261003.md) passed all
+**444 project tests**, with **99.77% Python line and branch coverage**:
+2,264 statements and 326 branches. CUDA memcheck reported zero errors in
+26 compact-projection and optimizer cases.
 GPU DSL bodies are excluded from Python coverage; parity, gradient, training
 and CUDA device checks verify their behavior. The
 [contribution pruning record](benchmarks/results/contribution_pruning_20261002.md)

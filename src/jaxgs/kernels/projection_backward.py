@@ -37,6 +37,7 @@ def _projection_backward_kernel(
     compacted: cutlass.Constexpr,
     compact_gradients: cutlass.Constexpr,
     rgb_only: cutlass.Constexpr,
+    sh_color_only: cutlass.Constexpr,
 ):
     tidx, _, _ = cute.arch.thread_idx()
     bidx, _, _ = cute.arch.block_idx()
@@ -251,20 +252,25 @@ def _projection_backward_kernel(
             gc = cute.Float32(0.0)
             if color[gid * 3 + channel] > 0.0:
                 gc = gcolor[gid * 3 + channel]
-            sh_cache[0 + channel, tidx] = gc * 0.28209479177387814
+            if cutlass.const_expr(not sh_color_only):
+                sh_cache[0 + channel, tidx] = gc * 0.28209479177387814
+            else:
+                sh_cache[channel, tidx] = gc
             if degree >= 1:
-                sh_cache[3 + channel, tidx] = -gc * 0.4886025119029199 * dy
-                sh_cache[6 + channel, tidx] = gc * 0.4886025119029199 * dz
-                sh_cache[9 + channel, tidx] = -gc * 0.4886025119029199 * dx
+                if cutlass.const_expr(not sh_color_only):
+                    sh_cache[3 + channel, tidx] = -gc * 0.4886025119029199 * dy
+                    sh_cache[6 + channel, tidx] = gc * 0.4886025119029199 * dz
+                    sh_cache[9 + channel, tidx] = -gc * 0.4886025119029199 * dx
                 gdx -= gc * 0.4886025119029199 * sh[base + 9]
                 gdy -= gc * 0.4886025119029199 * sh[base + 3]
                 gdz += gc * 0.4886025119029199 * sh[base + 6]
             if degree >= 2:
-                sh_cache[12 + channel, tidx] = gc * 1.0925484305920792 * dx * dy
-                sh_cache[15 + channel, tidx] = -gc * 1.0925484305920792 * dy * dz
-                sh_cache[18 + channel, tidx] = gc * 0.31539156525252005 * (2 * zz - xx - yy)
-                sh_cache[21 + channel, tidx] = -gc * 1.0925484305920792 * dx * dz
-                sh_cache[24 + channel, tidx] = gc * 0.5462742152960396 * (xx - yy)
+                if cutlass.const_expr(not sh_color_only):
+                    sh_cache[12 + channel, tidx] = gc * 1.0925484305920792 * dx * dy
+                    sh_cache[15 + channel, tidx] = -gc * 1.0925484305920792 * dy * dz
+                    sh_cache[18 + channel, tidx] = gc * 0.31539156525252005 * (2 * zz - xx - yy)
+                    sh_cache[21 + channel, tidx] = -gc * 1.0925484305920792 * dx * dz
+                    sh_cache[24 + channel, tidx] = gc * 0.5462742152960396 * (xx - yy)
                 gdx += gc * (
                     1.0925484305920792 * dy * sh[base + 12]
                     - 0.6307831305050401 * dx * sh[base + 18]
@@ -283,15 +289,20 @@ def _projection_backward_kernel(
                     - 1.0925484305920792 * dx * sh[base + 21]
                 )
             if degree >= 3:
-                sh_cache[27 + channel, tidx] = -gc * 0.5900435899266435 * dy * (3 * xx - yy)
-                sh_cache[30 + channel, tidx] = gc * 2.890611442640554 * dx * dy * dz
-                sh_cache[33 + channel, tidx] = -gc * 0.4570457994644658 * dy * (4 * zz - xx - yy)
-                sh_cache[36 + channel, tidx] = (
-                    gc * 0.3731763325901154 * dz * (2 * zz - 3 * xx - 3 * yy)
-                )
-                sh_cache[39 + channel, tidx] = -gc * 0.4570457994644658 * dx * (4 * zz - xx - yy)
-                sh_cache[42 + channel, tidx] = gc * 1.445305721320277 * dz * (xx - yy)
-                sh_cache[45 + channel, tidx] = -gc * 0.5900435899266435 * dx * (xx - 3 * yy)
+                if cutlass.const_expr(not sh_color_only):
+                    sh_cache[27 + channel, tidx] = -gc * 0.5900435899266435 * dy * (3 * xx - yy)
+                    sh_cache[30 + channel, tidx] = gc * 2.890611442640554 * dx * dy * dz
+                    sh_cache[33 + channel, tidx] = (
+                        -gc * 0.4570457994644658 * dy * (4 * zz - xx - yy)
+                    )
+                    sh_cache[36 + channel, tidx] = (
+                        gc * 0.3731763325901154 * dz * (2 * zz - 3 * xx - 3 * yy)
+                    )
+                    sh_cache[39 + channel, tidx] = (
+                        -gc * 0.4570457994644658 * dx * (4 * zz - xx - yy)
+                    )
+                    sh_cache[42 + channel, tidx] = gc * 1.445305721320277 * dz * (xx - yy)
+                    sh_cache[45 + channel, tidx] = -gc * 0.5900435899266435 * dx * (xx - 3 * yy)
                 gdx += gc * (
                     -3.540261539559861 * dx * dy * sh[base + 27]
                     + 2.890611442640554 * dy * dz * sh[base + 30]
@@ -414,6 +425,7 @@ def launch_projection_backward(
     compacted: cutlass.Constexpr,
     compact_gradients: cutlass.Constexpr,
     rgb_only: cutlass.Constexpr,
+    sh_color_only: cutlass.Constexpr,
 ):
     block = 128
     if cutlass.const_expr(compacted and not compact_gradients):
@@ -456,4 +468,5 @@ def launch_projection_backward(
         compacted,
         compact_gradients,
         rgb_only,
+        sh_color_only,
     ).launch(grid=[(capacity + block - 1) // block, 1, 1], block=[block, 1, 1], stream=stream)

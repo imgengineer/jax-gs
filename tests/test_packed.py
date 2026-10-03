@@ -65,6 +65,19 @@ def test_active_sh_prefix_pullback_matches_full_coefficients(degree, empty, clus
         np.testing.assert_allclose(
             result[:valid_count], reference[:valid_count], rtol=2e-5, atol=2e-6
         )
+    _, color_pullback = project_with_compact_pullback(
+        pool, camera, config, degree, clusters, rgb_only=True, sh_color_only=True
+    )
+    color_gradients = color_pullback(cotangents)
+    assert color_gradients[-1].shape == (capacity, 1, 3)
+    for index, (result, reference) in enumerate(zip(color_gradients, expected, strict=True)):
+        if index == 4:
+            # DC reconstructs the masked color cotangent with one constant.
+            result = result * 0.28209479177387814
+            reference = reference[:, :1]
+        np.testing.assert_allclose(
+            result[:valid_count], reference[:valid_count], rtol=2e-5, atol=2e-6
+        )
 
 
 @pytest.mark.parametrize("degree", [0, 3])

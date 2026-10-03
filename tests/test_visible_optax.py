@@ -184,3 +184,57 @@ def test_dense_update_without_the_triton_backend(monkeypatch):
     )
     for result, reference in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
         np.testing.assert_array_equal(result, reference)
+
+
+@pytest.mark.parametrize("degree", [None, 0, 1, 2, 3])
+@pytest.mark.parametrize("fallback", [False, True])
+def test_deferred_sh_matches_autodiff_with_invisible_and_free_slots(monkeypatch, degree, fallback):
+    from jaxgs.reference.sh import eval_sh
+    from jaxgs.training import optimizer
+
+    rng = np.random.default_rng(73)
+    capacity, cluster_size = 257, 65
+    pool = _pool(capacity, cluster_size, rng)
+    center = jnp.array([0.1, -0.2, 0.3])
+    pool = pool.replace(xyz=pool.xyz.at[0].set(center))
+    state = create_adam_state(pool)
+    state = state.replace(
+        m=jax.tree.map(lambda x: x + 0.2, state.m),
+        v=jax.tree.map(lambda x: x + 0.1, state.v),
+    )
+    delta = pool.xyz - center
+    direction = delta / jnp.maximum(jnp.linalg.norm(delta, axis=1, keepdims=True), 1e-8)
+    if fallback:
+        monkeypatch.setattr(optimizer, "_visible_kernel_available", lambda: False)
+    for pattern in ([True, False, True, True], [False]):
+        visible, clusters = _visible(capacity, cluster_size, pattern)
+        dense, compact = _compact(rng, pool, visible, cluster_size, 1)
+        # Clipping is already included in the supplied color cotangent. Keep
+        # reference RGB positive so autodiff only reconstructs the SH basis.
+        _, pullback = jax.vjp(
+            lambda sh: eval_sh(sh, direction, 3 if degree is None else degree),
+            jnp.zeros_like(pool.sh),
+        )
+        (sh_gradient,) = pullback(dense[-1][:, 0])
+        expected = jax.jit(
+            lambda p, s, g: optax_update(p, s, g, visible, 37, 2.0, active_degree=degree)
+        )(pool, state, (*dense[:-1], sh_gradient))
+        actual = jax.jit(
+            lambda p, s, g: optax_update(
+                p,
+                s,
+                g,
+                visible,
+                37,
+                2.0,
+                cluster_size=cluster_size,
+                compact_gradients=True,
+                active_degree=degree,
+                compacted_clusters=clusters,
+                sh_pullback_center=center,
+            )
+        )(pool, state, tuple(compact))
+        for result, reference in zip(
+            jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True
+        ):
+            np.testing.assert_allclose(result, reference, rtol=2e-6, atol=2e-7)

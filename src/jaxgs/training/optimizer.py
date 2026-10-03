@@ -193,6 +193,7 @@ def optax_update(
     compacted_clusters: VisibleClusters | None = None,
     transform: optax.GradientTransformationExtraArgs | None = None,
     program_shape: ProgramShape | None = None,
+    sh_pullback_center: chex.Array | None = None,
 ) -> tuple[GaussianArrays, AdamState]:
     """Apply an Optax transformation to fixed pool slots, preserving momentum in every SH band.
 
@@ -203,17 +204,27 @@ def optax_update(
     Their moments still decay and update parameters when slots are visible.
     With compacted_clusters and compact gradients, the same transformation
     runs on the GPU only over visible clusters, instead of every pool slot.
+    sh_pullback_center declares that the SH gradient holds masked RGB
+    cotangents; reconstruct its coefficients from the original positions
+    inside the transformation, including on the dense fallback path.
     """
     transform = _ADAM_TRANSFORM if transform is None else transform
     sh_dim = pool.sh.shape[1]
     active_sh_dim = sh_dim if active_degree is None else (active_degree + 1) ** 2
     if active_degree is not None and (active_degree < 0 or active_sh_dim > sh_dim):
         raise ValueError("active_degree must fit the pool's SH coefficients")
-    if active_sh_dim < sh_dim:
+    if active_sh_dim < sh_dim and sh_pullback_center is None:
         gradients = (*gradients[:-1], gradients[-1][:, :active_sh_dim])
     learning_rates = _parameter_learning_rates(
         pool.sh.shape[1], step, spatial_scale, max_steps, optimization
     )
+    transform_kwargs = {"rates": learning_rates}
+    if sh_pullback_center is not None:
+        from .sh_pullback import with_sh_pullback
+
+        degree = int(sh_dim**0.5) - 1 if active_degree is None else active_degree
+        transform = with_sh_pullback(transform, degree)
+        transform_kwargs["sh_center"] = sh_pullback_center[None, :]
     parameters = ParameterArrays(*(getattr(pool, name) for name in PARAMETER_NAMES))
     if compacted_clusters is not None and compact_gradients and _visible_kernel_available():
         from ..kernels.visible_optax import update_visible_clusters
@@ -228,7 +239,7 @@ def optax_update(
             compacted_clusters,
             cluster_size=cluster_size,
             program_shape=program_shape or ProgramShape(),
-            rates=learning_rates,
+            **transform_kwargs,
         )
         return pool.replace(**{name: getattr(parameters, name) for name in PARAMETER_NAMES}), state
     active_slots = visible & pool.alive
@@ -248,7 +259,7 @@ def optax_update(
             jnp.take(gradient, compact_indices, axis=0, mode="fill", fill_value=0)
             for gradient in gradients
         )
-    if active_sh_dim < sh_dim:
+    if active_sh_dim < sh_dim and sh_pullback_center is None:
         # XLA broadcasts the constant tail in the update fusion. No full-size
         # compact-gradient gather is needed for unused SH coefficients.
         gradients = (
@@ -256,7 +267,7 @@ def optax_update(
             jnp.pad(gradients[-1], ((0, 0), (0, sh_dim - active_sh_dim), (0, 0))),
         )
     parameter_updates, state = transform.update(
-        ParameterArrays(*gradients), state, parameters, active=active_slots, rates=learning_rates
+        ParameterArrays(*gradients), state, parameters, active=active_slots, **transform_kwargs
     )
     parameters = optax.apply_updates(parameters, parameter_updates)
     return pool.replace(**{name: getattr(parameters, name) for name in PARAMETER_NAMES}), state
