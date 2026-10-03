@@ -1,0 +1,3168 @@
+{
+  "date": "2026-10-03",
+  "baseline_revision": "36764ec248971be886075a51011017ef927381b5",
+  "status": "Correctness complete for three optimizer prototypes. Production defaults unchanged. Further performance measurements paused at the user's request; none is promoted as a confirmed speedup.",
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "driver": "615.71.09",
+    "cpu": "AMD Ryzen 9 9950X3D",
+    "python": "3.12.13",
+    "jax": "0.11.2",
+    "flax": "0.12.10",
+    "optax": "0.2.8",
+    "cutlass_dsl": "4.8.0"
+  },
+  "initial_gpu_occupancy": {
+    "pid": 2206020,
+    "process": "/home/lzc/Documents/jimm/.venv/bin/python",
+    "memory_mib": 24768,
+    "action": "Initial screening driver stopped before launching a baseline. Retried after that process exited."
+  },
+  "protocol": {
+    "model": "output/viewer_bicycle/model.ply",
+    "model_sha256": "48176880b2cd71073aaa5fc5582190a9723ef7ba6644deb31f835d8ac5873fb8",
+    "capacity": 975104,
+    "active": 975104,
+    "degree": 3,
+    "scene_radius": 1.0,
+    "first_step": 30000,
+    "warmup_updates": 30,
+    "timed_updates": 500,
+    "scope": "Single fresh-process screening sample per variant: common PLY, SH3, Optax, statistics off, 30 warmups and 500 timed complete NNX updates. These screens preceded the user's correctness-only instruction. Successful jobs had zero foreign-process observations. Later correctness checks provide no performance evidence.",
+    "donation": "All 15 parameter/moment addresses preserved; one JIT cache entry and no overflow.",
+    "rounds": 1,
+    "views": [
+      0
+    ],
+    "collect_stats": false
+  },
+  "source": {
+    "baseline_sha256": {
+      "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+      "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+      "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+      "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+      "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+      "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+      "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+      "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+      "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+      "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+      "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+      "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+      "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+      "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+      "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+      "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+      "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+      "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+      "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+      "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+      "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+      "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+      "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+      "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+      "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+      "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+      "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+      "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+      "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+      "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+      "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+      "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+      "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+      "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+      "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+      "src/jaxgs/kernels/visible_optax.py": "65e5ddace1342cc1a07d3d83d94b909f98b80feedf71613184ab5e786963502d",
+      "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+      "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+      "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+      "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+      "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+      "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+      "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+      "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+      "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+      "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+      "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+      "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+      "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+      "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+      "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+      "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+      "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+      "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+      "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+      "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+      "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+      "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+      "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+      "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+      "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+      "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+      "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+      "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+      "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+      "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+    },
+    "prototypes": {
+      "cg": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "4c8cc3fa68a2ae6ba69d870525dfc8ce870f648d67c505568d100647351de377",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -92,7 +92,7 @@\n def _load(ref, mask):\n     from jax.experimental.pallas import triton as plt\n \n-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)\n+    return plt.load(ref, cache_modifier=\".cg\") if mask is None else plt.load(ref, mask=mask, other=0, cache_modifier=\".cg\")\n \n \n def update_visible_clusters(\n"
+      },
+      "cg_stream": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "eebbed1634478d466159c072e6d46414920b8bc8bf93142098a28af7678d85f3",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -92,7 +92,7 @@\n def _load(ref, mask):\n     from jax.experimental.pallas import triton as plt\n \n-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)\n+    return plt.load(ref, cache_modifier=\".cg\") if mask is None else plt.load(ref, mask=mask, other=0, cache_modifier=\".cg\")\n \n \n def update_visible_clusters(\n@@ -213,7 +213,7 @@\n                     # A leaf returned as loaded keeps its aliased buffer; skipping\n                     # its store also lets Triton drop the unused load.\n                     if value is not block:\n-                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask)\n+                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask, eviction_policy=\"evict_first\")\n                 return carry\n \n             jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n"
+      },
+      "read_stream": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "f005ce89db56c407f43178c2b7a75646f47c72ec5ec6ddcd6cc371cb69c711ed",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -92,7 +92,7 @@\n def _load(ref, mask):\n     from jax.experimental.pallas import triton as plt\n \n-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)\n+    return plt.load(ref, eviction_policy=\"evict_first\") if mask is None else plt.load(ref, mask=mask, other=0, eviction_policy=\"evict_first\")\n \n \n def update_visible_clusters(\n"
+      },
+      "read_write_stream": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "cb95378a467988b08d7ba3a8d6e5f3f2baee88ef9bdb1eebdd78d5ea6fb8e78b",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -92,7 +92,7 @@\n def _load(ref, mask):\n     from jax.experimental.pallas import triton as plt\n \n-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)\n+    return plt.load(ref, eviction_policy=\"evict_first\") if mask is None else plt.load(ref, mask=mask, other=0, eviction_policy=\"evict_first\")\n \n \n def update_visible_clusters(\n@@ -213,7 +213,7 @@\n                     # A leaf returned as loaded keeps its aliased buffer; skipping\n                     # its store also lets Triton drop the unused load.\n                     if value is not block:\n-                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask)\n+                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask, eviction_policy=\"evict_first\")\n                 return carry\n \n             jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n"
+      },
+      "rows16": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "c9d1a3bf74d7937652efc37c155cc608f774b02933148998e9ed344e532e24f3",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,7 +45,7 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n+    rows: int = 16\n     warps: int = 4\n     blocks: int = 1\n \n"
+      },
+      "rows8": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "6ffddbb2a0ad56b33758be32a0354c846e087b4aa8b1aa098110bd01a5d7e098",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -45,7 +45,7 @@\n     inside the warp.\n     \"\"\"\n \n-    rows: int = 32\n+    rows: int = 8\n     warps: int = 4\n     blocks: int = 1\n \n"
+      },
+      "stream": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "db4d6299536ac2b4b7f2668fb243babce78761fcf4f3c8dc03c196ddd1c8a3f8",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "b4217d886b37f1b3eeb8d9ad5e40e8954ecb62d06178fd203c06476b366675d2",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/visible_optax.py\n+++ b/src/jaxgs/kernels/visible_optax.py\n@@ -213,7 +213,7 @@\n                     # A leaf returned as loaded keeps its aliased buffer; skipping\n                     # its store also lets Triton drop the unused load.\n                     if value is not block:\n-                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask)\n+                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask, eviction_policy=\"evict_first\")\n                 return carry\n \n             jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n"
+      },
+      "work_count": {
+        "source_sha256": {
+          "src/jaxgs/__init__.py": "3ac1356040ffd6fde893addc56fbf5918c201907c5db50a66ba477c38ad74151",
+          "src/jaxgs/config/__init__.py": "bc54cc00f3222c952a26b728e7ffc3dc47d71993facc6422267db3f4da69242a",
+          "src/jaxgs/config/capacity.py": "3c20a8deb2909a94e53c93612769601e5138b7543b36ef82a595ae5de927eb58",
+          "src/jaxgs/config/default.toml": "7a8ab66147939aab3d634282ba41641fd778716abf571491db371382d043eb69",
+          "src/jaxgs/config/training.py": "8095ee36753d1578d5a2d25f6c1faa36e2599c6bf9748741b3a3ebeb8c0362f7",
+          "src/jaxgs/data.py": "9b1c33c369e8911c2754a7a9a14a24e1bb587b979a13bf489cd78dff291fca31",
+          "src/jaxgs/io_manager/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/io_manager/checkpoint.py": "1ac010a77876fff8bc261c62c62c94f50fd41784572a721dd7ae81c09a684cf1",
+          "src/jaxgs/io_manager/colmap.py": "d3882ff2f05d072e6c198fef7e4231635d04ce63ae993a4bdecce702ef98162e",
+          "src/jaxgs/io_manager/report.py": "238894bc0a8171d9720e7ec4569fef114e6452544c57f83629c4a1a06aa721fe",
+          "src/jaxgs/kernels/LICENSE.LiteGS": "9f12cb2bc31c4e8e7dd5c3efa4e0a1f6f683de8085479b376fdf480a064cb54b",
+          "src/jaxgs/kernels/LICENSE.fused_ssim": "a8c94695b2966b09b4b89c785b62c0fa9d84f33fc29e070abbf70f1ab24f4a80",
+          "src/jaxgs/kernels/__init__.py": "d808d355c51972ef4952045ebbc56cd42be24a513cf490ea737cf7b6035e038d",
+          "src/jaxgs/kernels/allocation.py": "d51c5361ce655348cc449cd2b425aa381ab38f80162ac03d92b8c5143c6b11dd",
+          "src/jaxgs/kernels/allocator.py": "5ecb853023eb40d06f71e2866d275bea9e72f4b1dc2e5f89e9dc79c6346d3cf3",
+          "src/jaxgs/kernels/binning.py": "afeda9b78f293099c9366cbbb4f3349dc3a2cff8ae5da73c35cc020ffa22b564",
+          "src/jaxgs/kernels/cluster_compact.py": "7f4dec3ad16a077769bbe849e7e7ebd9899c686577f48e63d1a075d888c91526",
+          "src/jaxgs/kernels/fused_loss.py": "71f6d492b9f55638bb010901062b5a90a56d8bcf4b601c03238c240c75f8e0d2",
+          "src/jaxgs/kernels/half2.py": "6cea009964e7d706b2df0a159d839dcbf41bcd02acdce8bdf3a62aacccbe7c00",
+          "src/jaxgs/kernels/packed_rasterize.py": "4be393c77ebc7c4946d1a1327bd733061425d9b799fc939c424ff1b5807d535d",
+          "src/jaxgs/kernels/packed_rasterizer.py": "28225fcf6b12e80fc927c387b4f5c09e3f68cc3b675467d985a3dc3f9bf4c8c6",
+          "src/jaxgs/kernels/pair_sort.py": "871ea202837e07e81512964d17149ab8d3ef6bad91790be9ec90ca6a5b510108",
+          "src/jaxgs/kernels/partition.py": "1dbc93f5801a5c5c7398a079157ba37701a0742b8b3df104bb01c5f8877a140b",
+          "src/jaxgs/kernels/partitioner.py": "448851d26b9f97a3cf0df27b5340969b29448606d64f2ce0f0a93e9a93d7af97",
+          "src/jaxgs/kernels/projection.py": "a28711acb8394d1561df38dd70fa67a19661aa8ee606a7e7788a7d3dde9e7962",
+          "src/jaxgs/kernels/projection_backward.py": "5dbe399e067df5deeb17ea556f5bea4d523905fccd075050412c1b9d11c8dcc7",
+          "src/jaxgs/kernels/projector.py": "c8b8e071ba6d62426090c852def9ed138f6dc03bc941a71314c1e57596c27515",
+          "src/jaxgs/kernels/rasterize_backward.py": "027c53db58dd1784f29664ee68c3be97f3ae39030e2783b53d6ab85e2320b0e3",
+          "src/jaxgs/kernels/rasterize_forward.py": "d31d762a5411bb7f4cc3b901edf3c3839eacd21d77f768ce4c5286fe87e4051b",
+          "src/jaxgs/kernels/rasterizer.py": "602e4cc657598faf6dd07dfa21331d3fc944aa7917296bbbed3b0d110096c5ab",
+          "src/jaxgs/kernels/sorted_binning.py": "fcc7a3a4f1a3fd3852301f3f0f55e4639f87aad77007e6e234c6e4a4690a844d",
+          "src/jaxgs/kernels/sorted_rasterize.py": "fbfa9919cdaa5368621ba51ec98a759100224225cb9ce47849586a094f8a54b7",
+          "src/jaxgs/kernels/sorted_rasterizer.py": "cf38c8ad8b2b0af253fae1a4001351cde391d4a9f8ccf1db5ba478d80e44a304",
+          "src/jaxgs/kernels/sorted_visibility.py": "bdcebddd109617ab36b6d959f5683d3b20f16716dd337146404919e6365a1373",
+          "src/jaxgs/kernels/sparse_adam.py": "12077d8379c52c03db20b71589f9198988660822167a34d47e1275f66c53ce6d",
+          "src/jaxgs/kernels/visibility.py": "3f9896761d106d6c3ef96c40f1b76dafe589858172b9ebafa68a0c57c0928504",
+          "src/jaxgs/kernels/visible_optax.py": "65e5ddace1342cc1a07d3d83d94b909f98b80feedf71613184ab5e786963502d",
+          "src/jaxgs/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/reference/loss.py": "ddc69a937b2e58ae6476c9ed126b8d1fc70c612b2ba2bb5f0b05223a9cbb949d",
+          "src/jaxgs/reference/rasterizer_jax.py": "24bf921199238f30c2e3334be1e3f6e8eb9bfe2ab8161a13b9cc26e119d8d48a",
+          "src/jaxgs/reference/sh.py": "f2c59978edc2448773a0f657595aa91be585ed34248da7bde1d987167291a75a",
+          "src/jaxgs/render/__init__.py": "7c0c6632e64f3f81f61e836dd42956422e51d270c493a8e92d1afc46aade71e9",
+          "src/jaxgs/render/cluster_compact.py": "5c8db722b1a3fd3c41c9a11f90d2ab0e5a602fbba95665f981bed495e1c00ab7",
+          "src/jaxgs/render/cluster_culling.py": "be677981caac16ef9dabc0c45e41bc85dd646b130633ff8c91a1cea9a360ba63",
+          "src/jaxgs/render/projection.py": "69c961441a6347567ffa389d1d0b0b321570f65834b8706e5050e3b3f3d67391",
+          "src/jaxgs/render/rasterizer.py": "22acc25cdb6d49c5dc8f3a13fc1a8d8d9b36a9ffceb733d63676835ea60f3263",
+          "src/jaxgs/render/types.py": "1e10663afc2b009f980bf1148fd5239d9be8f7525b2808918153ee267192ba58",
+          "src/jaxgs/render/view.py": "a68d0b1e2b2f4f44a49e7ae4c3ef2f3b96a580ae2a6d6507e8579e9743f27396",
+          "src/jaxgs/render/visibility_table.py": "14c70fe724188ed02495eb693f1ee63762bc4358298dd245bf36c809ddfc6fbb",
+          "src/jaxgs/scene/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/jaxgs/scene/camera.py": "e66e21d280445c53a2a69add77b175d9292fc24b314f1b225fe660f6dae6f975",
+          "src/jaxgs/scene/cluster.py": "88a7eeb5afd2ea5227abbcd7a678c9f1ec854a7a2a78f131aecff9a371ded481",
+          "src/jaxgs/scene/point.py": "dd5f5022cab74fe0111d27b86db104643e080a4553830f5b47a7fed47a8a9f81",
+          "src/jaxgs/scene/spatial_refine.py": "55e1dfa1f8adba3b97e5301e207c5d36afe35061be43e6aceacdeb5ad68be4af",
+          "src/jaxgs/scene/types.py": "5b979b54e3ed38af374223d0c282a96ebcc2ae760b6ed1934ba1843faabea2b6",
+          "src/jaxgs/training/__init__.py": "20ed4dfc69e3edf458d8ca152ee733025cc5219057d3826a683ddb137e25b5b1",
+          "src/jaxgs/training/densify.py": "b9733134c1df1ed26eb90905e190cb54c6abddae032d39f3c5094c909e8cc84a",
+          "src/jaxgs/training/initialization.py": "c3d7c2c03ae27f495ca6a0c8e1aed21dfeb68696354b0407165f82241d06d7d5",
+          "src/jaxgs/training/muon.py": "3d794d4d8dd4df7302039b66f6e824ce64ef4b52113e98f6894d62102bd5e842",
+          "src/jaxgs/training/optimizer.py": "9a3f08d79a038f76d66b020ace6f82bab11703fe66282a081985ada14a615255",
+          "src/jaxgs/training/pool_ops.py": "edb858ec130decd663714183d6bc263fb6e4fec623c906026a1875b61ecaa342",
+          "src/jaxgs/training/reference_densify.py": "31d3ec87ce4f27185c9ca51a00eefab69bcd62048c3726d548f6cb46b7ee19a2",
+          "src/jaxgs/training/reference_trainer.py": "78dd17ca7f864c70e39d26e63e7228689f54d475a9139723a82a2c61c40d22f5",
+          "src/jaxgs/training/sh_pullback.py": "f52b6c8be734beeaa4434d332a8a5a80ad3e9b05ecb6af859ca0e52fecdd69a0",
+          "src/jaxgs/training/state.py": "8d16cf3df31abde78e58474ade2f7bb5d5eb0c8ef8a4fd1c2921b64fb9d9ad5a",
+          "src/jaxgs/training/step.py": "d4a93fc082cff33d54993e4a749063b8fea3a045044d00994b43d597d87fd8f7",
+          "src/jaxgs/training/trainer.py": "23288c690fbfc7d1cf1be1d77f7c71a3a425fbb0a51008decace2fa6e982ec3f",
+          "src/jaxgs/training/warmup.py": "4f32bb47471bbd9ff6c56a8517b420ff8802ba351e12a6ea581af007b0b85a42",
+          "src/jaxgs/viewer.py": "1cb0855854e6335e4354dc0b680ec67de50ebc1bd51bcee3fe2dc356c837da5a"
+        },
+        "patch": "--- a/src/jaxgs/kernels/packed_rasterize.py\n+++ b/src/jaxgs/kernels/packed_rasterize.py\n@@ -313,6 +313,7 @@\n         bit_base = start // 32 + tile\n         bits = cutlass.Uint32(0)\n         active = True\n+        contributors = cutlass.Int32(0)\n         staged, staged_ids = _staging()\n         points = cute.make_rmem_tensor((unroll, 8), cutlass.Uint32)\n         mine = cute.make_rmem_tensor(8, cutlass.Uint32)\n@@ -360,6 +361,7 @@\n                 if cutlass.const_expr(record_contributions):\n                     if cute.arch.vote_any_sync(contributing):\n                         bits |= cutlass.Uint32(1) << (k + u)\n+                        contributors += 1\n                 if cutlass.const_expr(collect_stats):\n                     sums += [cute.Float32(fragments), h.sum_pair(weights) / 128]\n                     splat_ids.append(g)\n@@ -386,7 +388,7 @@\n                 tile_last = cute.max(tile_last, cute.max(lst[i, 0], lst[i, 1]))\n             tile_last = cute.arch.warp_redux_sync(tile_last, \"max\")\n             if lane == 0:\n-                backward_work[tile] = tile_last\n+                backward_work[tile] = contributors\n         for i in cutlass.range_constexpr(groups):\n             for k in cutlass.range_constexpr(2):\n                 y = py + i * 2 + k\n"
+      }
+    }
+  },
+  "screens": {
+    "baseline": {
+      "report": [
+        {
+          "memory": {
+            "argument_size_in_bytes": 715066909,
+            "output_size_in_bytes": 711826117,
+            "temp_size_in_bytes": 186990720,
+            "alias_size_in_bytes": 711825924
+          },
+          "view": 0,
+          "image": "_DSC8679.JPG",
+          "collect_stats": false,
+          "capacity": 975104,
+          "active": 975104,
+          "steps": 500,
+          "warmup_steps": 30,
+          "warmup_seconds": 5.348345292033628,
+          "seconds": 0.9005814499687403,
+          "milliseconds": 1.8011628999374807,
+          "initial_loss": 0.05184720829129219,
+          "final_loss": 0.019747965037822723,
+          "peak_pairs": 2998555,
+          "donated_buffers": 15,
+          "jit_cache_size": 1
+        }
+      ],
+      "monitor": {
+        "variant": "baseline",
+        "command": [
+          ".venv/bin/python",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/final_fixed_update.py",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/baseline_screen.json",
+          "--profile",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/baseline_trace"
+        ],
+        "pid": 2226572,
+        "wall_seconds": 10.337476782966405,
+        "returncode": 0,
+        "monitor_samples": 20,
+        "foreign_processes": []
+      },
+      "less_time_percent": 0.0
+    },
+    "read_stream": {
+      "report": [
+        {
+          "memory": {
+            "argument_size_in_bytes": 715066909,
+            "output_size_in_bytes": 711826117,
+            "temp_size_in_bytes": 186990720,
+            "alias_size_in_bytes": 711825924
+          },
+          "view": 0,
+          "image": "_DSC8679.JPG",
+          "collect_stats": false,
+          "capacity": 975104,
+          "active": 975104,
+          "steps": 500,
+          "warmup_steps": 30,
+          "warmup_seconds": 4.999468446942046,
+          "seconds": 0.9001931080128998,
+          "milliseconds": 1.8003862160257995,
+          "initial_loss": 0.051838960498571396,
+          "final_loss": 0.019757531583309174,
+          "peak_pairs": 2998552,
+          "donated_buffers": 15,
+          "jit_cache_size": 1
+        }
+      ],
+      "monitor": {
+        "variant": "read_stream",
+        "command": [
+          ".venv/bin/python",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/final_fixed_update.py",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/read_stream_screen.json"
+        ],
+        "pid": 2234027,
+        "wall_seconds": 9.253828702960163,
+        "returncode": 0,
+        "monitor_samples": 18,
+        "foreign_processes": []
+      },
+      "less_time_percent": 0.04312124748451218
+    },
+    "read_write_stream": {
+      "report": [
+        {
+          "memory": {
+            "argument_size_in_bytes": 715066909,
+            "output_size_in_bytes": 711826117,
+            "temp_size_in_bytes": 186990720,
+            "alias_size_in_bytes": 711825924
+          },
+          "view": 0,
+          "image": "_DSC8679.JPG",
+          "collect_stats": false,
+          "capacity": 975104,
+          "active": 975104,
+          "steps": 500,
+          "warmup_steps": 30,
+          "warmup_seconds": 4.898563969996758,
+          "seconds": 0.8939690599218011,
+          "milliseconds": 1.7879381198436022,
+          "initial_loss": 0.051847346127033234,
+          "final_loss": 0.019730450585484505,
+          "peak_pairs": 2998558,
+          "donated_buffers": 15,
+          "jit_cache_size": 1
+        }
+      ],
+      "monitor": {
+        "variant": "read_write_stream",
+        "command": [
+          ".venv/bin/python",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/final_fixed_update.py",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/read_write_stream_screen.json"
+        ],
+        "pid": 2234655,
+        "wall_seconds": 9.250224336981773,
+        "returncode": 0,
+        "monitor_samples": 18,
+        "foreign_processes": []
+      },
+      "less_time_percent": 0.7342356482213597
+    },
+    "stream": {
+      "report": [
+        {
+          "memory": {
+            "argument_size_in_bytes": 715066909,
+            "output_size_in_bytes": 711826117,
+            "temp_size_in_bytes": 186990720,
+            "alias_size_in_bytes": 711825924
+          },
+          "view": 0,
+          "image": "_DSC8679.JPG",
+          "collect_stats": false,
+          "capacity": 975104,
+          "active": 975104,
+          "steps": 500,
+          "warmup_steps": 30,
+          "warmup_seconds": 5.033068854943849,
+          "seconds": 0.8978244269965217,
+          "milliseconds": 1.7956488539930433,
+          "initial_loss": 0.05184248462319374,
+          "final_loss": 0.01974896714091301,
+          "peak_pairs": 2998550,
+          "donated_buffers": 15,
+          "jit_cache_size": 1
+        }
+      ],
+      "monitor": {
+        "variant": "stream",
+        "command": [
+          ".venv/bin/python",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/final_fixed_update.py",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/stream_screen.json",
+          "--profile",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/stream_trace"
+        ],
+        "pid": 2233371,
+        "wall_seconds": 9.26216546993237,
+        "returncode": 0,
+        "monitor_samples": 18,
+        "foreign_processes": []
+      },
+      "less_time_percent": 0.3061381035901145
+    },
+    "work_count": {
+      "report": [
+        {
+          "memory": {
+            "argument_size_in_bytes": 715066909,
+            "output_size_in_bytes": 711826117,
+            "temp_size_in_bytes": 186990720,
+            "alias_size_in_bytes": 711825924
+          },
+          "view": 0,
+          "image": "_DSC8679.JPG",
+          "collect_stats": false,
+          "capacity": 975104,
+          "active": 975104,
+          "steps": 500,
+          "warmup_steps": 30,
+          "warmup_seconds": 4.967481550062075,
+          "seconds": 0.9027126949513331,
+          "milliseconds": 1.8054253899026662,
+          "initial_loss": 0.051848508417606354,
+          "final_loss": 0.019756577908992767,
+          "peak_pairs": 2998549,
+          "donated_buffers": 15,
+          "jit_cache_size": 1
+        }
+      ],
+      "monitor": {
+        "variant": "work_count",
+        "command": [
+          ".venv/bin/python",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/final_fixed_update.py",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/work_count_screen.json",
+          "--profile",
+          "/home/lzc/Documents/jax-gs/output/training_memory_20261003/work_count_trace"
+        ],
+        "pid": 2235271,
+        "wall_seconds": 9.24477033992298,
+        "returncode": 0,
+        "monitor_samples": 18,
+        "foreign_processes": []
+      },
+      "less_time_percent": -0.23665210766519174
+    }
+  },
+  "profiles": {
+    "baseline": [
+      {
+        "name": "kernel",
+        "calls": 20,
+        "mean_us": 603.97595,
+        "per_step_us": 603.97595,
+        "kernel_details": "regs:242 static_shared:0 dynamic_shared:256 grid:30472,1,1 block:128,1,1 occ_pct:16.6667"
+      },
+      {
+        "name": "kernel_cutlass__backward",
+        "calls": 20,
+        "mean_us": 432.8353,
+        "per_step_us": 432.8353,
+        "kernel_details": "regs:80 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:50"
+      },
+      {
+        "name": "kernel_cutlass__forward",
+        "calls": 20,
+        "mean_us": 176.6669,
+        "per_step_us": 176.6669,
+        "kernel_details": "regs:92 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:41.6667"
+      },
+      {
+        "name": "kernel_cutlass__projection_kernel",
+        "calls": 20,
+        "mean_us": 131.2305,
+        "per_step_us": 131.2305,
+        "kernel_details": "regs:43 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__projection_backward_kernel",
+        "calls": 20,
+        "mean_us": 100.898,
+        "per_step_us": 100.898,
+        "kernel_details": "regs:72 static_shared:0 dynamic_shared:1544 grid:7618,1,1 block:128,1,1 occ_pct:58.3333"
+      },
+      {
+        "name": "kernel_cutlass__loss",
+        "calls": 20,
+        "mean_us": 83.88395,
+        "per_step_us": 83.88395,
+        "kernel_details": "regs:94 static_shared:0 dynamic_shared:45280 grid:39,52,1 block:256,1,1 occ_pct:33.3333"
+      },
+      {
+        "name": "kernel_cutlass__emit",
+        "calls": 20,
+        "mean_us": 49.756150000000005,
+        "per_step_us": 49.756150000000005,
+        "kernel_details": "regs:64 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__scatter",
+        "calls": 60,
+        "mean_us": 13.393483333333334,
+        "per_step_us": 40.18045,
+        "kernel_details": "regs:59 static_shared:0 dynamic_shared:17456 grid:3907,1,1 block:256,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 80,
+        "mean_us": 9.658737499999999,
+        "per_step_us": 38.634949999999996,
+        "kernel_details": "regs:80 static_shared:28160 dynamic_shared:0 grid:150,1,1 block:384,1,1 occ_pct:50"
+      },
+      {
+        "name": "kernel_cutlass__count",
+        "calls": 20,
+        "mean_us": 25.801350000000003,
+        "per_step_us": 25.801350000000003,
+        "kernel_details": "regs:45 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__emit_shared",
+        "calls": 20,
+        "mean_us": 19.0109,
+        "per_step_us": 19.0109,
+        "kernel_details": "regs:48 static_shared:0 dynamic_shared:0 grid:2048,1,1 block:256,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__histogram",
+        "calls": 40,
+        "mean_us": 5.11435,
+        "per_step_us": 10.2287,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:512 grid:3907,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__zero_cluster_grads",
+        "calls": 20,
+        "mean_us": 9.799800000000001,
+        "per_step_us": 9.799800000000001,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__pack",
+        "calls": 20,
+        "mean_us": 8.230250000000002,
+        "per_step_us": 8.230250000000002,
+        "kernel_details": "regs:24 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__order_tiles",
+        "calls": 40,
+        "mean_us": 3.8944,
+        "per_step_us": 7.7888,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:1024 grid:1,1,1 block:1024,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__scan_blocks",
+        "calls": 40,
+        "mean_us": 3.1215249999999997,
+        "per_step_us": 6.243049999999999,
+        "kernel_details": "regs:28 static_shared:0 dynamic_shared:36 grid:128,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__gather_counts",
+        "calls": 20,
+        "mean_us": 5.26555,
+        "per_step_us": 5.26555,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:128 grid:953,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__tile_ranges",
+        "calls": 20,
+        "mean_us": 4.5024,
+        "per_step_us": 4.5024,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1024,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "Memset 3",
+        "calls": 120,
+        "mean_us": 0.7461749999999999,
+        "per_step_us": 4.47705,
+        "kernel_details": null
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 20,
+        "mean_us": 4.17755,
+        "per_step_us": 4.17755,
+        "kernel_details": "regs:40 static_shared:4096 dynamic_shared:0 grid:2040,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__scan_counts",
+        "calls": 20,
+        "mean_us": 2.75995,
+        "per_step_us": 2.75995,
+        "kernel_details": "regs:20 static_shared:0 dynamic_shared:128 grid:953,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__clear_visible",
+        "calls": 20,
+        "mean_us": 2.179,
+        "per_step_us": 2.179,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_convert_fusion",
+        "calls": 20,
+        "mean_us": 2.11525,
+        "per_step_us": 2.11525,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_concatenate_fusion_1",
+        "calls": 20,
+        "mean_us": 1.7935500000000002,
+        "per_step_us": 1.7935500000000002,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:4,1,1 occ_pct:6.25"
+      },
+      {
+        "name": "wrapped_iota",
+        "calls": 20,
+        "mean_us": 1.7696,
+        "per_step_us": 1.7696,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion",
+        "calls": 20,
+        "mean_us": 1.70395,
+        "per_step_us": 1.70395,
+        "kernel_details": "regs:29 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion_1",
+        "calls": 20,
+        "mean_us": 1.6960000000000002,
+        "per_step_us": 1.6960000000000002,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion",
+        "calls": 20,
+        "mean_us": 1.6031,
+        "per_step_us": 1.6031,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:0 grid:4,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_convert_fusion_1",
+        "calls": 20,
+        "mean_us": 1.5231,
+        "per_step_us": 1.5231,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "gemm_fusion_dot_general_8",
+        "calls": 20,
+        "mean_us": 1.41915,
+        "per_step_us": 1.41915,
+        "kernel_details": "regs:33 static_shared:0 dynamic_shared:1536 grid:477,1,1 block:64,1,1 occ_pct:100"
+      },
+      {
+        "name": "gemm_fusion_dot_general_7",
+        "calls": 20,
+        "mean_us": 1.3888,
+        "per_step_us": 1.3888,
+        "kernel_details": "regs:33 static_shared:0 dynamic_shared:1536 grid:477,1,1 block:64,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_and_convert_fusion",
+        "calls": 20,
+        "mean_us": 1.384,
+        "per_step_us": 1.384,
+        "kernel_details": "regs:32 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_fusion",
+        "calls": 20,
+        "mean_us": 1.0976000000000001,
+        "per_step_us": 1.0976000000000001,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:1,1,1 block:3,1,1 occ_pct:4.6875"
+      },
+      {
+        "name": "loop_concatenate_fusion",
+        "calls": 20,
+        "mean_us": 1.0624500000000001,
+        "per_step_us": 1.0624500000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:24,1,1 occ_pct:37.5"
+      },
+      {
+        "name": "input_concatenate_fusion",
+        "calls": 20,
+        "mean_us": 1.05435,
+        "per_step_us": 1.05435,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "memcpy32_post",
+        "calls": 20,
+        "mean_us": 1.0497,
+        "per_step_us": 1.0497,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "MemcpyD2D",
+        "calls": 20,
+        "mean_us": 1.0256500000000002,
+        "per_step_us": 1.0256500000000002,
+        "kernel_details": null
+      },
+      {
+        "name": "input_reduce_fusion",
+        "calls": 20,
+        "mean_us": 0.9679500000000001,
+        "per_step_us": 0.9679500000000001,
+        "kernel_details": "regs:23 static_shared:16 dynamic_shared:0 grid:1,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+        "calls": 20,
+        "mean_us": 0.9616,
+        "per_step_us": 0.9616,
+        "kernel_details": "regs:37 static_shared:2336 dynamic_shared:0 grid:4,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion_1",
+        "calls": 20,
+        "mean_us": 0.9583999999999999,
+        "per_step_us": 0.9583999999999999,
+        "kernel_details": "regs:37 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_maximum_fusion",
+        "calls": 20,
+        "mean_us": 0.9567500000000001,
+        "per_step_us": 0.9567500000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "input_reduce_fusion_1",
+        "calls": 20,
+        "mean_us": 0.9457000000000001,
+        "per_step_us": 0.9457000000000001,
+        "kernel_details": "regs:23 static_shared:0 dynamic_shared:16 grid:1,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_multiply_fusion",
+        "calls": 20,
+        "mean_us": 0.92635,
+        "per_step_us": 0.92635,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_maximum_slice_fusion",
+        "calls": 20,
+        "mean_us": 0.90725,
+        "per_step_us": 0.90725,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_or_fusion",
+        "calls": 20,
+        "mean_us": 0.89435,
+        "per_step_us": 0.89435,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "wrapped_dot",
+        "calls": 20,
+        "mean_us": 0.86725,
+        "per_step_us": 0.86725,
+        "kernel_details": "regs:20 static_shared:0 dynamic_shared:0 grid:1,1,1 block:16,1,1 occ_pct:25"
+      },
+      {
+        "name": "loop_multiply_fusion_1",
+        "calls": 20,
+        "mean_us": 0.72645,
+        "per_step_us": 0.72645,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "kernel_cutlass__reset_queue",
+        "calls": 20,
+        "mean_us": 0.5951,
+        "per_step_us": 0.5951,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "MemcpyH2D",
+        "calls": 20,
+        "mean_us": 0.3328,
+        "per_step_us": 0.3328,
+        "kernel_details": null
+      }
+    ],
+    "stream": [
+      {
+        "name": "kernel",
+        "calls": 20,
+        "mean_us": 602.41545,
+        "per_step_us": 602.41545,
+        "kernel_details": "regs:242 static_shared:0 dynamic_shared:256 grid:30472,1,1 block:128,1,1 occ_pct:16.6667"
+      },
+      {
+        "name": "kernel_cutlass__backward",
+        "calls": 20,
+        "mean_us": 431.88625,
+        "per_step_us": 431.88625,
+        "kernel_details": "regs:80 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:50"
+      },
+      {
+        "name": "kernel_cutlass__forward",
+        "calls": 20,
+        "mean_us": 177.72265,
+        "per_step_us": 177.72265,
+        "kernel_details": "regs:92 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:41.6667"
+      },
+      {
+        "name": "kernel_cutlass__projection_kernel",
+        "calls": 20,
+        "mean_us": 131.77905,
+        "per_step_us": 131.77905,
+        "kernel_details": "regs:43 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__projection_backward_kernel",
+        "calls": 20,
+        "mean_us": 100.51405,
+        "per_step_us": 100.51405,
+        "kernel_details": "regs:72 static_shared:0 dynamic_shared:1544 grid:7618,1,1 block:128,1,1 occ_pct:58.3333"
+      },
+      {
+        "name": "kernel_cutlass__loss",
+        "calls": 20,
+        "mean_us": 84.2406,
+        "per_step_us": 84.2406,
+        "kernel_details": "regs:94 static_shared:0 dynamic_shared:45280 grid:39,52,1 block:256,1,1 occ_pct:33.3333"
+      },
+      {
+        "name": "kernel_cutlass__emit",
+        "calls": 20,
+        "mean_us": 53.1403,
+        "per_step_us": 53.1403,
+        "kernel_details": "regs:64 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__scatter",
+        "calls": 60,
+        "mean_us": 13.394083333333333,
+        "per_step_us": 40.182249999999996,
+        "kernel_details": "regs:59 static_shared:0 dynamic_shared:17456 grid:3907,1,1 block:256,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 80,
+        "mean_us": 9.66145,
+        "per_step_us": 38.6458,
+        "kernel_details": "regs:80 static_shared:28160 dynamic_shared:0 grid:150,1,1 block:384,1,1 occ_pct:50"
+      },
+      {
+        "name": "kernel_cutlass__count",
+        "calls": 20,
+        "mean_us": 26.0542,
+        "per_step_us": 26.0542,
+        "kernel_details": "regs:45 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__emit_shared",
+        "calls": 20,
+        "mean_us": 19.073150000000002,
+        "per_step_us": 19.073150000000002,
+        "kernel_details": "regs:48 static_shared:0 dynamic_shared:0 grid:2048,1,1 block:256,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__histogram",
+        "calls": 40,
+        "mean_us": 5.140700000000001,
+        "per_step_us": 10.281400000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:512 grid:3907,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__zero_cluster_grads",
+        "calls": 20,
+        "mean_us": 9.769400000000001,
+        "per_step_us": 9.769400000000001,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__pack",
+        "calls": 20,
+        "mean_us": 8.1966,
+        "per_step_us": 8.1966,
+        "kernel_details": "regs:24 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__order_tiles",
+        "calls": 40,
+        "mean_us": 3.97755,
+        "per_step_us": 7.9551,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:1024 grid:1,1,1 block:1024,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__scan_blocks",
+        "calls": 40,
+        "mean_us": 3.145575,
+        "per_step_us": 6.29115,
+        "kernel_details": "regs:28 static_shared:0 dynamic_shared:36 grid:128,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__gather_counts",
+        "calls": 20,
+        "mean_us": 5.364800000000001,
+        "per_step_us": 5.364800000000001,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:128 grid:953,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__tile_ranges",
+        "calls": 20,
+        "mean_us": 4.505599999999999,
+        "per_step_us": 4.505599999999999,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1024,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "Memset 3",
+        "calls": 120,
+        "mean_us": 0.7428916666666667,
+        "per_step_us": 4.45735,
+        "kernel_details": null
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 20,
+        "mean_us": 4.1918500000000005,
+        "per_step_us": 4.1918500000000005,
+        "kernel_details": "regs:40 static_shared:4096 dynamic_shared:0 grid:2040,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__scan_counts",
+        "calls": 20,
+        "mean_us": 2.8175,
+        "per_step_us": 2.8175,
+        "kernel_details": "regs:20 static_shared:0 dynamic_shared:128 grid:953,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__clear_visible",
+        "calls": 20,
+        "mean_us": 2.176,
+        "per_step_us": 2.176,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_convert_fusion",
+        "calls": 20,
+        "mean_us": 2.13915,
+        "per_step_us": 2.13915,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "wrapped_iota",
+        "calls": 20,
+        "mean_us": 1.76805,
+        "per_step_us": 1.76805,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_concatenate_fusion_1",
+        "calls": 20,
+        "mean_us": 1.75835,
+        "per_step_us": 1.75835,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:4,1,1 occ_pct:6.25"
+      },
+      {
+        "name": "loop_reduce_window_fusion_1",
+        "calls": 20,
+        "mean_us": 1.7136,
+        "per_step_us": 1.7136,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion",
+        "calls": 20,
+        "mean_us": 1.70715,
+        "per_step_us": 1.70715,
+        "kernel_details": "regs:29 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion",
+        "calls": 20,
+        "mean_us": 1.6128,
+        "per_step_us": 1.6128,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:0 grid:4,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "gemm_fusion_dot_general_8",
+        "calls": 20,
+        "mean_us": 1.584,
+        "per_step_us": 1.584,
+        "kernel_details": "regs:39 static_shared:0 dynamic_shared:4608 grid:120,1,1 block:64,1,1 occ_pct:91.6667"
+      },
+      {
+        "name": "loop_convert_fusion_1",
+        "calls": 20,
+        "mean_us": 1.5424,
+        "per_step_us": 1.5424,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_and_convert_fusion",
+        "calls": 20,
+        "mean_us": 1.3904,
+        "per_step_us": 1.3904,
+        "kernel_details": "regs:32 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "gemm_fusion_dot_general_7",
+        "calls": 20,
+        "mean_us": 1.3872,
+        "per_step_us": 1.3872,
+        "kernel_details": "regs:33 static_shared:0 dynamic_shared:1536 grid:477,1,1 block:64,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_concatenate_fusion",
+        "calls": 20,
+        "mean_us": 1.072,
+        "per_step_us": 1.072,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_concatenate_fusion",
+        "calls": 20,
+        "mean_us": 1.0672000000000001,
+        "per_step_us": 1.0672000000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:24,1,1 occ_pct:37.5"
+      },
+      {
+        "name": "loop_reduce_fusion",
+        "calls": 20,
+        "mean_us": 1.0592000000000001,
+        "per_step_us": 1.0592000000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:3,1,1 block:32,1,1 occ_pct:50"
+      },
+      {
+        "name": "memcpy32_post",
+        "calls": 20,
+        "mean_us": 1.0464,
+        "per_step_us": 1.0464,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "MemcpyD2D",
+        "calls": 20,
+        "mean_us": 1.0256500000000002,
+        "per_step_us": 1.0256500000000002,
+        "kernel_details": null
+      },
+      {
+        "name": "input_reduce_fusion_1",
+        "calls": 20,
+        "mean_us": 0.9983000000000001,
+        "per_step_us": 0.9983000000000001,
+        "kernel_details": "regs:23 static_shared:16 dynamic_shared:0 grid:1,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion_1",
+        "calls": 20,
+        "mean_us": 0.968,
+        "per_step_us": 0.968,
+        "kernel_details": "regs:37 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+        "calls": 20,
+        "mean_us": 0.96,
+        "per_step_us": 0.96,
+        "kernel_details": "regs:37 static_shared:2336 dynamic_shared:0 grid:4,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_reduce_fusion",
+        "calls": 20,
+        "mean_us": 0.952,
+        "per_step_us": 0.952,
+        "kernel_details": "regs:23 static_shared:16 dynamic_shared:0 grid:1,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_maximum_fusion",
+        "calls": 20,
+        "mean_us": 0.944,
+        "per_step_us": 0.944,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_multiply_fusion",
+        "calls": 20,
+        "mean_us": 0.9327500000000001,
+        "per_step_us": 0.9327500000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_maximum_slice_fusion",
+        "calls": 20,
+        "mean_us": 0.90245,
+        "per_step_us": 0.90245,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_or_fusion",
+        "calls": 20,
+        "mean_us": 0.89435,
+        "per_step_us": 0.89435,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "wrapped_dot",
+        "calls": 20,
+        "mean_us": 0.86235,
+        "per_step_us": 0.86235,
+        "kernel_details": "regs:20 static_shared:0 dynamic_shared:0 grid:1,1,1 block:16,1,1 occ_pct:25"
+      },
+      {
+        "name": "loop_multiply_fusion_1",
+        "calls": 20,
+        "mean_us": 0.72325,
+        "per_step_us": 0.72325,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "kernel_cutlass__reset_queue",
+        "calls": 20,
+        "mean_us": 0.5792499999999999,
+        "per_step_us": 0.5792499999999999,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "MemcpyH2D",
+        "calls": 20,
+        "mean_us": 0.28475,
+        "per_step_us": 0.28475,
+        "kernel_details": null
+      }
+    ],
+    "work_count": [
+      {
+        "name": "kernel",
+        "calls": 20,
+        "mean_us": 603.9707000000001,
+        "per_step_us": 603.9707000000001,
+        "kernel_details": "regs:242 static_shared:0 dynamic_shared:256 grid:30472,1,1 block:128,1,1 occ_pct:16.6667"
+      },
+      {
+        "name": "kernel_cutlass__backward",
+        "calls": 20,
+        "mean_us": 429.64965,
+        "per_step_us": 429.64965,
+        "kernel_details": "regs:80 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:50"
+      },
+      {
+        "name": "kernel_cutlass__forward",
+        "calls": 20,
+        "mean_us": 182.73714999999999,
+        "per_step_us": 182.73714999999999,
+        "kernel_details": "regs:94 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:41.6667"
+      },
+      {
+        "name": "kernel_cutlass__projection_kernel",
+        "calls": 20,
+        "mean_us": 131.15525,
+        "per_step_us": 131.15525,
+        "kernel_details": "regs:43 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__projection_backward_kernel",
+        "calls": 20,
+        "mean_us": 100.97965,
+        "per_step_us": 100.97965,
+        "kernel_details": "regs:72 static_shared:0 dynamic_shared:1544 grid:7618,1,1 block:128,1,1 occ_pct:58.3333"
+      },
+      {
+        "name": "kernel_cutlass__loss",
+        "calls": 20,
+        "mean_us": 84.2598,
+        "per_step_us": 84.2598,
+        "kernel_details": "regs:94 static_shared:0 dynamic_shared:45280 grid:39,52,1 block:256,1,1 occ_pct:33.3333"
+      },
+      {
+        "name": "kernel_cutlass__emit",
+        "calls": 20,
+        "mean_us": 48.97235,
+        "per_step_us": 48.97235,
+        "kernel_details": "regs:64 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__scatter",
+        "calls": 60,
+        "mean_us": 13.38915,
+        "per_step_us": 40.16745,
+        "kernel_details": "regs:59 static_shared:0 dynamic_shared:17456 grid:3907,1,1 block:256,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortOnesweepKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned int, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, unsigned int*, unsigned int const*, unsigned int*, unsigned int const*, int, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 80,
+        "mean_us": 9.6375,
+        "per_step_us": 38.55,
+        "kernel_details": "regs:80 static_shared:28160 dynamic_shared:0 grid:150,1,1 block:384,1,1 occ_pct:50"
+      },
+      {
+        "name": "kernel_cutlass__count",
+        "calls": 20,
+        "mean_us": 26.271750000000004,
+        "per_step_us": 26.271750000000004,
+        "kernel_details": "regs:45 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__emit_shared",
+        "calls": 20,
+        "mean_us": 19.51165,
+        "per_step_us": 19.51165,
+        "kernel_details": "regs:48 static_shared:0 dynamic_shared:0 grid:2048,1,1 block:256,1,1 occ_pct:83.3333"
+      },
+      {
+        "name": "kernel_cutlass__histogram",
+        "calls": 40,
+        "mean_us": 5.10715,
+        "per_step_us": 10.2143,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:512 grid:3907,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__zero_cluster_grads",
+        "calls": 20,
+        "mean_us": 9.84005,
+        "per_step_us": 9.84005,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:7618,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__pack",
+        "calls": 20,
+        "mean_us": 8.2494,
+        "per_step_us": 8.2494,
+        "kernel_details": "regs:24 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__order_tiles",
+        "calls": 40,
+        "mean_us": 3.8856,
+        "per_step_us": 7.7712,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:1024 grid:1,1,1 block:1024,1,1 occ_pct:66.6667"
+      },
+      {
+        "name": "kernel_cutlass__scan_blocks",
+        "calls": 40,
+        "mean_us": 3.1391,
+        "per_step_us": 6.2782,
+        "kernel_details": "regs:28 static_shared:0 dynamic_shared:36 grid:128,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__gather_counts",
+        "calls": 20,
+        "mean_us": 5.28805,
+        "per_step_us": 5.28805,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:128 grid:953,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "Memset 3",
+        "calls": 120,
+        "mean_us": 0.7720166666666668,
+        "per_step_us": 4.6321,
+        "kernel_details": null
+      },
+      {
+        "name": "kernel_cutlass__tile_ranges",
+        "calls": 20,
+        "mean_us": 4.4911,
+        "per_step_us": 4.4911,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1024,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortHistogramKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, (cub::_V_300200_SM_750_800_900_1000_1100_1200::SortOrder)0, unsigned int, unsigned long long, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t>(unsigned long long*, unsigned int const*, unsigned long long, int, int, cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::identity_decomposer_t)",
+        "calls": 20,
+        "mean_us": 4.212750000000001,
+        "per_step_us": 4.212750000000001,
+        "kernel_details": "regs:40 static_shared:4096 dynamic_shared:0 grid:2040,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__scan_counts",
+        "calls": 20,
+        "mean_us": 2.78705,
+        "per_step_us": 2.78705,
+        "kernel_details": "regs:20 static_shared:0 dynamic_shared:128 grid:953,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "kernel_cutlass__clear_visible",
+        "calls": 20,
+        "mean_us": 2.1759500000000003,
+        "per_step_us": 2.1759500000000003,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:3809,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_convert_fusion",
+        "calls": 20,
+        "mean_us": 2.09435,
+        "per_step_us": 2.09435,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_concatenate_fusion_1",
+        "calls": 20,
+        "mean_us": 1.7760000000000002,
+        "per_step_us": 1.7760000000000002,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:4,1,1 occ_pct:6.25"
+      },
+      {
+        "name": "wrapped_iota",
+        "calls": 20,
+        "mean_us": 1.77595,
+        "per_step_us": 1.77595,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion_1",
+        "calls": 20,
+        "mean_us": 1.7169,
+        "per_step_us": 1.7169,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_slice_fusion",
+        "calls": 20,
+        "mean_us": 1.7055,
+        "per_step_us": 1.7055,
+        "kernel_details": "regs:29 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_window_fusion",
+        "calls": 20,
+        "mean_us": 1.6,
+        "per_step_us": 1.6,
+        "kernel_details": "regs:22 static_shared:0 dynamic_shared:0 grid:4,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_convert_fusion_1",
+        "calls": 20,
+        "mean_us": 1.5279500000000001,
+        "per_step_us": 1.5279500000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1905,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "gemm_fusion_dot_general_8",
+        "calls": 20,
+        "mean_us": 1.4543,
+        "per_step_us": 1.4543,
+        "kernel_details": "regs:36 static_shared:0 dynamic_shared:4608 grid:120,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "gemm_fusion_dot_general_7",
+        "calls": 20,
+        "mean_us": 1.42875,
+        "per_step_us": 1.42875,
+        "kernel_details": "regs:33 static_shared:0 dynamic_shared:1536 grid:477,1,1 block:64,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_and_convert_fusion",
+        "calls": 20,
+        "mean_us": 1.3568500000000001,
+        "per_step_us": 1.3568500000000001,
+        "kernel_details": "regs:32 static_shared:0 dynamic_shared:0 grid:60,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_reduce_fusion",
+        "calls": 20,
+        "mean_us": 1.1009,
+        "per_step_us": 1.1009,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:1,1,1 block:3,1,1 occ_pct:4.6875"
+      },
+      {
+        "name": "input_concatenate_fusion",
+        "calls": 20,
+        "mean_us": 1.0673,
+        "per_step_us": 1.0673,
+        "kernel_details": "regs:18 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_concatenate_fusion",
+        "calls": 20,
+        "mean_us": 1.0641,
+        "per_step_us": 1.0641,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:24,1,1 occ_pct:37.5"
+      },
+      {
+        "name": "memcpy32_post",
+        "calls": 20,
+        "mean_us": 1.04475,
+        "per_step_us": 1.04475,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "MemcpyD2D",
+        "calls": 20,
+        "mean_us": 1.0223499999999999,
+        "per_step_us": 1.0223499999999999,
+        "kernel_details": null
+      },
+      {
+        "name": "loop_slice_fusion_1",
+        "calls": 20,
+        "mean_us": 0.9696,
+        "per_step_us": 0.9696,
+        "kernel_details": "regs:37 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "void cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<cub::_V_300200_SM_750_800_900_1000_1100_1200::detail::radix::policy_hub<unsigned int, unsigned int, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",
+        "calls": 20,
+        "mean_us": 0.95845,
+        "per_step_us": 0.95845,
+        "kernel_details": "regs:37 static_shared:2336 dynamic_shared:0 grid:4,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_maximum_fusion",
+        "calls": 20,
+        "mean_us": 0.9553,
+        "per_step_us": 0.9553,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "input_reduce_fusion",
+        "calls": 20,
+        "mean_us": 0.9536,
+        "per_step_us": 0.9536,
+        "kernel_details": "regs:23 static_shared:16 dynamic_shared:0 grid:1,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "input_reduce_fusion_1",
+        "calls": 20,
+        "mean_us": 0.9504999999999999,
+        "per_step_us": 0.9504999999999999,
+        "kernel_details": "regs:23 static_shared:0 dynamic_shared:16 grid:1,1,1 block:128,1,1 occ_pct:100"
+      },
+      {
+        "name": "loop_multiply_fusion",
+        "calls": 20,
+        "mean_us": 0.9247500000000001,
+        "per_step_us": 0.9247500000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_maximum_slice_fusion",
+        "calls": 20,
+        "mean_us": 0.91365,
+        "per_step_us": 0.91365,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "loop_or_fusion",
+        "calls": 20,
+        "mean_us": 0.9040000000000001,
+        "per_step_us": 0.9040000000000001,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "wrapped_dot",
+        "calls": 20,
+        "mean_us": 0.87045,
+        "per_step_us": 0.87045,
+        "kernel_details": "regs:20 static_shared:0 dynamic_shared:0 grid:1,1,1 block:16,1,1 occ_pct:25"
+      },
+      {
+        "name": "loop_multiply_fusion_1",
+        "calls": 20,
+        "mean_us": 0.7183999999999999,
+        "per_step_us": 0.7183999999999999,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:1,1,1 occ_pct:1.5625"
+      },
+      {
+        "name": "kernel_cutlass__reset_queue",
+        "calls": 20,
+        "mean_us": 0.5855499999999999,
+        "per_step_us": 0.5855499999999999,
+        "kernel_details": "regs:16 static_shared:0 dynamic_shared:0 grid:1,1,1 block:256,1,1 occ_pct:100"
+      },
+      {
+        "name": "MemcpyH2D",
+        "calls": 20,
+        "mean_us": 0.28155,
+        "per_step_us": 0.28155,
+        "kernel_details": null
+      }
+    ]
+  },
+  "disposition": {
+    "cg": "Rejected: installed JAX 0.11.2 load lowering accepts .cg but indexes a dictionary keyed by cg, causing KeyError before execution.",
+    "cg_stream": "Not executed: contains the same unsupported .cg load path.",
+    "stream": "Single screening sample only; no established speed improvement.",
+    "read_stream": "Single screening sample only; no established speed improvement.",
+    "read_write_stream": "Correctness validated; observed single-sample difference is too small to establish a speedup. Repeated measurements pending.",
+    "work_count": "Not adopted: contributor-count ordering lowered backward time in its diagnostic trace but increased forward time; complete update was slightly slower. It changes the internal work-cache meaning, and no complete correctness or quality validation is claimed.",
+    "rows16": "Correctness validated. Retains four warps and one block, reduces rows per program from 32 to 16. Performance not measured.",
+    "rows8": "Correctness validated. Retains four warps and one block, reduces rows per program from 32 to 8. Performance not measured."
+  },
+  "validation": {
+    "targeted": [
+      {
+        "variant": "read_write_stream",
+        "passed": 51,
+        "log": "...................................................                      [100%]\n51 passed in 72.64s (0:01:12)\n"
+      },
+      {
+        "variant": "rows16",
+        "passed": 51,
+        "log": "...................................................                      [100%]\n51 passed in 49.04s\n"
+      },
+      {
+        "variant": "rows8",
+        "passed": 51,
+        "log": "...................................................                      [100%]\n51 passed in 42.31s\n"
+      }
+    ],
+    "command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/test_visible_optax.py",
+      "tests/test_optax.py",
+      "tests/test_sh_pullback.py",
+      "tests/test_muon.py",
+      "-q",
+      "-p",
+      "no:cacheprovider"
+    ],
+    "isolated_updates": [
+      {
+        "variant": "read_write_stream",
+        "arrays": 95,
+        "bit_exact": true
+      },
+      {
+        "variant": "rows16",
+        "arrays": 95,
+        "bit_exact": true
+      },
+      {
+        "variant": "rows8",
+        "arrays": 95,
+        "bit_exact": true
+      }
+    ],
+    "state_comparison": {
+      "arrays": 138,
+      "arrays_equal": 80,
+      "max_abs": 2.384185791015625e-07,
+      "max_relative_l2": 2.301373695449125e-08,
+      "rtol": 2e-05,
+      "atol": 2e-06,
+      "rows": [
+        {
+          "name": "optax_sh0_statsFalse/xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/log_scale",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/rotation",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/opacity",
+          "equal": false,
+          "max_abs": 1.4901161193847656e-08,
+          "relative_l2": 1.842573599595582e-09
+        },
+        {
+          "name": "optax_sh0_statsFalse/sh",
+          "equal": false,
+          "max_abs": 2.9802322387695312e-08,
+          "relative_l2": 3.7578004645929365e-09
+        },
+        {
+          "name": "optax_sh0_statsFalse/fragments",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/adam_step",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/alive",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/free_mask",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/n_active",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/m_xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/m_log_scale",
+          "equal": false,
+          "max_abs": 1.1368683772161603e-13,
+          "relative_l2": 2.0374052158514824e-11
+        },
+        {
+          "name": "optax_sh0_statsFalse/m_rotation",
+          "equal": false,
+          "max_abs": 1.7763568394002505e-15,
+          "relative_l2": 6.51862276909977e-13
+        },
+        {
+          "name": "optax_sh0_statsFalse/m_opacity",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/m_sh",
+          "equal": false,
+          "max_abs": 7.105427357601002e-15,
+          "relative_l2": 5.572534357520877e-12
+        },
+        {
+          "name": "optax_sh0_statsFalse/v_xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/v_log_scale",
+          "equal": false,
+          "max_abs": 6.617444900424222e-24,
+          "relative_l2": 3.8507187250807465e-17
+        },
+        {
+          "name": "optax_sh0_statsFalse/v_rotation",
+          "equal": false,
+          "max_abs": 1.3234889800848443e-23,
+          "relative_l2": 3.8360169347690715e-16
+        },
+        {
+          "name": "optax_sh0_statsFalse/v_opacity",
+          "equal": false,
+          "max_abs": 1.0587911840678754e-22,
+          "relative_l2": 2.635027798085497e-15
+        },
+        {
+          "name": "optax_sh0_statsFalse/v_sh",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/loss",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/overflow",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh0_statsFalse/peak_pairs",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/log_scale",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/rotation",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/opacity",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/sh",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/fragments",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/adam_step",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/alive",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/free_mask",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/n_active",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/m_xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/m_log_scale",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/m_rotation",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/m_opacity",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/m_sh",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/v_xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/v_log_scale",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/v_rotation",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/v_opacity",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/v_sh",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/loss",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/overflow",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "optax_sh3_statsTrue/peak_pairs",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/log_scale",
+          "equal": false,
+          "max_abs": 2.384185791015625e-07,
+          "relative_l2": 6.945356094657222e-09
+        },
+        {
+          "name": "muon_sh0_statsFalse/rotation",
+          "equal": false,
+          "max_abs": 1.4901161193847656e-08,
+          "relative_l2": 1.406614390487707e-09
+        },
+        {
+          "name": "muon_sh0_statsFalse/opacity",
+          "equal": false,
+          "max_abs": 3.725290298461914e-08,
+          "relative_l2": 4.599345091138149e-09
+        },
+        {
+          "name": "muon_sh0_statsFalse/sh",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/fragments",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/adam_step",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/alive",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/free_mask",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/n_active",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/m_xyz",
+          "equal": false,
+          "max_abs": 8.526512829121202e-14,
+          "relative_l2": 7.550827475412015e-12
+        },
+        {
+          "name": "muon_sh0_statsFalse/m_log_scale",
+          "equal": false,
+          "max_abs": 9.103828801926284e-15,
+          "relative_l2": 2.0886263949365986e-12
+        },
+        {
+          "name": "muon_sh0_statsFalse/m_rotation",
+          "equal": false,
+          "max_abs": 9.094947017729282e-13,
+          "relative_l2": 3.5206195505230526e-10
+        },
+        {
+          "name": "muon_sh0_statsFalse/m_opacity",
+          "equal": false,
+          "max_abs": 1.4210854715202004e-14,
+          "relative_l2": 7.565544627095725e-12
+        },
+        {
+          "name": "muon_sh0_statsFalse/m_sh",
+          "equal": false,
+          "max_abs": 1.7763568394002505e-15,
+          "relative_l2": 1.97257031266191e-12
+        },
+        {
+          "name": "muon_sh0_statsFalse/v_xyz",
+          "equal": false,
+          "max_abs": 2.168404344971009e-19,
+          "relative_l2": 2.416920517637823e-13
+        },
+        {
+          "name": "muon_sh0_statsFalse/v_log_scale",
+          "equal": false,
+          "max_abs": 5.421010862427522e-20,
+          "relative_l2": 3.253301271811052e-13
+        },
+        {
+          "name": "muon_sh0_statsFalse/v_rotation",
+          "equal": false,
+          "max_abs": 1.0842021724855044e-19,
+          "relative_l2": 3.2204578917875738e-12
+        },
+        {
+          "name": "muon_sh0_statsFalse/v_opacity",
+          "equal": false,
+          "max_abs": 1.0587911840678754e-22,
+          "relative_l2": 2.6971081929382557e-15
+        },
+        {
+          "name": "muon_sh0_statsFalse/v_sh",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/loss",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/overflow",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh0_statsFalse/peak_pairs",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/log_scale",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/rotation",
+          "equal": false,
+          "max_abs": 7.450580596923828e-09,
+          "relative_l2": 7.015665181215027e-10
+        },
+        {
+          "name": "muon_sh3_statsTrue/opacity",
+          "equal": false,
+          "max_abs": 7.450580596923828e-08,
+          "relative_l2": 1.0497274192830044e-08
+        },
+        {
+          "name": "muon_sh3_statsTrue/sh",
+          "equal": false,
+          "max_abs": 4.470348358154297e-08,
+          "relative_l2": 1.1878338411819082e-08
+        },
+        {
+          "name": "muon_sh3_statsTrue/fragments",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/adam_step",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/alive",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/free_mask",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/n_active",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/m_xyz",
+          "equal": false,
+          "max_abs": 7.275957614183426e-12,
+          "relative_l2": 5.26509322117501e-10
+        },
+        {
+          "name": "muon_sh3_statsTrue/m_log_scale",
+          "equal": false,
+          "max_abs": 3.410605131648481e-13,
+          "relative_l2": 6.630048913046388e-11
+        },
+        {
+          "name": "muon_sh3_statsTrue/m_rotation",
+          "equal": false,
+          "max_abs": 1.8189894035458565e-12,
+          "relative_l2": 1.0006969117168359e-09
+        },
+        {
+          "name": "muon_sh3_statsTrue/m_opacity",
+          "equal": false,
+          "max_abs": 3.637978807091713e-12,
+          "relative_l2": 1.9590716542114905e-09
+        },
+        {
+          "name": "muon_sh3_statsTrue/m_sh",
+          "equal": false,
+          "max_abs": 1.8189894035458565e-12,
+          "relative_l2": 7.349771808334708e-10
+        },
+        {
+          "name": "muon_sh3_statsTrue/v_xyz",
+          "equal": false,
+          "max_abs": 1.3877787807814457e-17,
+          "relative_l2": 1.4547409825607991e-11
+        },
+        {
+          "name": "muon_sh3_statsTrue/v_log_scale",
+          "equal": false,
+          "max_abs": 6.938893903907228e-18,
+          "relative_l2": 4.10309995124068e-11
+        },
+        {
+          "name": "muon_sh3_statsTrue/v_rotation",
+          "equal": false,
+          "max_abs": 1.3877787807814457e-17,
+          "relative_l2": 3.7409055570288787e-10
+        },
+        {
+          "name": "muon_sh3_statsTrue/v_opacity",
+          "equal": false,
+          "max_abs": 1.3877787807814457e-17,
+          "relative_l2": 3.5901578922594654e-10
+        },
+        {
+          "name": "muon_sh3_statsTrue/v_sh",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/loss",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/overflow",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "muon_sh3_statsTrue/peak_pairs",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/log_scale",
+          "equal": false,
+          "max_abs": 1.1920928955078125e-07,
+          "relative_l2": 4.8992553373790206e-09
+        },
+        {
+          "name": "cute_sh0_statsFalse/rotation",
+          "equal": false,
+          "max_abs": 5.960464477539063e-08,
+          "relative_l2": 5.7507054579624895e-09
+        },
+        {
+          "name": "cute_sh0_statsFalse/opacity",
+          "equal": false,
+          "max_abs": 1.1920928955078125e-07,
+          "relative_l2": 2.301373695449125e-08
+        },
+        {
+          "name": "cute_sh0_statsFalse/sh",
+          "equal": false,
+          "max_abs": 7.450580596923828e-09,
+          "relative_l2": 9.668299490840435e-10
+        },
+        {
+          "name": "cute_sh0_statsFalse/fragments",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/adam_step",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/alive",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/free_mask",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/n_active",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/m_xyz",
+          "equal": false,
+          "max_abs": 2.2737367544323206e-13,
+          "relative_l2": 3.125175700677904e-11
+        },
+        {
+          "name": "cute_sh0_statsFalse/m_log_scale",
+          "equal": false,
+          "max_abs": 3.637978807091713e-12,
+          "relative_l2": 6.516576893226672e-10
+        },
+        {
+          "name": "cute_sh0_statsFalse/m_rotation",
+          "equal": false,
+          "max_abs": 3.637978807091713e-12,
+          "relative_l2": 1.3869146041251166e-09
+        },
+        {
+          "name": "cute_sh0_statsFalse/m_opacity",
+          "equal": false,
+          "max_abs": 3.637978807091713e-12,
+          "relative_l2": 1.9184462721341655e-09
+        },
+        {
+          "name": "cute_sh0_statsFalse/m_sh",
+          "equal": false,
+          "max_abs": 4.547473508864641e-13,
+          "relative_l2": 4.734519200887307e-10
+        },
+        {
+          "name": "cute_sh0_statsFalse/v_xyz",
+          "equal": false,
+          "max_abs": 6.938893903907228e-18,
+          "relative_l2": 8.375776886237519e-12
+        },
+        {
+          "name": "cute_sh0_statsFalse/v_log_scale",
+          "equal": false,
+          "max_abs": 2.168404344971009e-19,
+          "relative_l2": 1.261803553734179e-12
+        },
+        {
+          "name": "cute_sh0_statsFalse/v_rotation",
+          "equal": false,
+          "max_abs": 1.734723475976807e-18,
+          "relative_l2": 7.234932754746127e-11
+        },
+        {
+          "name": "cute_sh0_statsFalse/v_opacity",
+          "equal": false,
+          "max_abs": 1.3877787807814457e-17,
+          "relative_l2": 3.4537852522055856e-10
+        },
+        {
+          "name": "cute_sh0_statsFalse/v_sh",
+          "equal": false,
+          "max_abs": 1.734723475976807e-18,
+          "relative_l2": 1.9051453406907402e-10
+        },
+        {
+          "name": "cute_sh0_statsFalse/loss",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/overflow",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh0_statsFalse/peak_pairs",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/xyz",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/log_scale",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/rotation",
+          "equal": false,
+          "max_abs": 5.960464477539063e-08,
+          "relative_l2": 5.66478206204591e-09
+        },
+        {
+          "name": "cute_sh3_statsTrue/opacity",
+          "equal": false,
+          "max_abs": 8.940696716308594e-08,
+          "relative_l2": 1.0039290117145341e-08
+        },
+        {
+          "name": "cute_sh3_statsTrue/sh",
+          "equal": false,
+          "max_abs": 1.4901161193847656e-08,
+          "relative_l2": 3.370330925351882e-09
+        },
+        {
+          "name": "cute_sh3_statsTrue/fragments",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/adam_step",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/alive",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/free_mask",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/n_active",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/m_xyz",
+          "equal": false,
+          "max_abs": 1.4551915228366852e-11,
+          "relative_l2": 1.1493898397456496e-09
+        },
+        {
+          "name": "cute_sh3_statsTrue/m_log_scale",
+          "equal": false,
+          "max_abs": 7.275957614183426e-12,
+          "relative_l2": 1.4418668980965676e-09
+        },
+        {
+          "name": "cute_sh3_statsTrue/m_rotation",
+          "equal": false,
+          "max_abs": 1.4551915228366852e-11,
+          "relative_l2": 5.554111486059795e-09
+        },
+        {
+          "name": "cute_sh3_statsTrue/m_opacity",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/m_sh",
+          "equal": false,
+          "max_abs": 9.094947017729282e-13,
+          "relative_l2": 3.101467534291914e-10
+        },
+        {
+          "name": "cute_sh3_statsTrue/v_xyz",
+          "equal": false,
+          "max_abs": 1.7763568394002505e-15,
+          "relative_l2": 1.7739447466899735e-09
+        },
+        {
+          "name": "cute_sh3_statsTrue/v_log_scale",
+          "equal": false,
+          "max_abs": 2.220446049250313e-16,
+          "relative_l2": 1.2048106189472962e-09
+        },
+        {
+          "name": "cute_sh3_statsTrue/v_rotation",
+          "equal": false,
+          "max_abs": 3.469446951953614e-18,
+          "relative_l2": 1.02317547190923e-10
+        },
+        {
+          "name": "cute_sh3_statsTrue/v_opacity",
+          "equal": false,
+          "max_abs": 9.926167350636332e-24,
+          "relative_l2": 2.47387004357219e-16
+        },
+        {
+          "name": "cute_sh3_statsTrue/v_sh",
+          "equal": false,
+          "max_abs": 3.469446951953614e-18,
+          "relative_l2": 5.3095738551304793e-11
+        },
+        {
+          "name": "cute_sh3_statsTrue/loss",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/overflow",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        },
+        {
+          "name": "cute_sh3_statsTrue/peak_pairs",
+          "equal": true,
+          "max_abs": 0.0,
+          "relative_l2": 0.0
+        }
+      ]
+    },
+    "state_checks": {
+      "baseline": [
+        {
+          "optimizer": "optax",
+          "degree": 0,
+          "collect_stats": false,
+          "loss": 0.49481719732284546,
+          "peak_pairs": 546,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "optax",
+          "degree": 3,
+          "collect_stats": true,
+          "loss": 0.49342450499534607,
+          "peak_pairs": 540,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "muon",
+          "degree": 0,
+          "collect_stats": false,
+          "loss": 0.49669861793518066,
+          "peak_pairs": 546,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "muon",
+          "degree": 3,
+          "collect_stats": true,
+          "loss": 0.49683260917663574,
+          "peak_pairs": 542,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "cute",
+          "degree": 0,
+          "collect_stats": false,
+          "loss": 0.49481719732284546,
+          "peak_pairs": 546,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "cute",
+          "degree": 3,
+          "collect_stats": true,
+          "loss": 0.49342450499534607,
+          "peak_pairs": 540,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        }
+      ],
+      "read_write_stream": [
+        {
+          "optimizer": "optax",
+          "degree": 0,
+          "collect_stats": false,
+          "loss": 0.49481719732284546,
+          "peak_pairs": 546,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "optax",
+          "degree": 3,
+          "collect_stats": true,
+          "loss": 0.49342450499534607,
+          "peak_pairs": 540,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "muon",
+          "degree": 0,
+          "collect_stats": false,
+          "loss": 0.49669861793518066,
+          "peak_pairs": 546,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "muon",
+          "degree": 3,
+          "collect_stats": true,
+          "loss": 0.49683260917663574,
+          "peak_pairs": 542,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "cute",
+          "degree": 0,
+          "collect_stats": false,
+          "loss": 0.49481719732284546,
+          "peak_pairs": 546,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        },
+        {
+          "optimizer": "cute",
+          "degree": 3,
+          "collect_stats": true,
+          "loss": 0.49342450499534607,
+          "peak_pairs": 540,
+          "input_overflow_preserved": true,
+          "donated_buffers": 15,
+          "addresses_preserved": true,
+          "cache_size": 1,
+          "updates": 8
+        }
+      ]
+    },
+    "cuda_memcheck": [
+      {
+        "variant": "read_write_stream",
+        "command": [
+          "/usr/local/cuda/bin/compute-sanitizer",
+          "--tool",
+          "memcheck",
+          "--report-api-errors",
+          "no",
+          "--error-exitcode",
+          "86",
+          ".venv/bin/python",
+          "-m",
+          "pytest",
+          "tests/test_visible_optax.py",
+          "-k",
+          "matches_dense_optax or runs_other_row_local_transforms or deferred_sh_matches",
+          "-q",
+          "-p",
+          "no:cacheprovider"
+        ],
+        "returncode": 0,
+        "log": "========= COMPUTE-SANITIZER\n.................                                                        [100%]\n17 passed, 2 deselected in 18.43s\n========= ERROR SUMMARY: 0 errors\n",
+        "passed": 17,
+        "deselected": 2,
+        "errors": 0
+      },
+      {
+        "variant": "rows16",
+        "command": [
+          "/usr/local/cuda/bin/compute-sanitizer",
+          "--tool",
+          "memcheck",
+          "--report-api-errors",
+          "no",
+          "--error-exitcode",
+          "86",
+          ".venv/bin/python",
+          "-m",
+          "pytest",
+          "tests/test_visible_optax.py",
+          "-k",
+          "matches_dense_optax or runs_other_row_local_transforms or deferred_sh_matches",
+          "-q",
+          "-p",
+          "no:cacheprovider"
+        ],
+        "returncode": 0,
+        "log": "========= COMPUTE-SANITIZER\n.................                                                        [100%]\n17 passed, 2 deselected in 17.20s\n========= ERROR SUMMARY: 0 errors\n",
+        "passed": 17,
+        "deselected": 2,
+        "errors": 0
+      },
+      {
+        "variant": "rows8",
+        "command": [
+          "/usr/local/cuda/bin/compute-sanitizer",
+          "--tool",
+          "memcheck",
+          "--report-api-errors",
+          "no",
+          "--error-exitcode",
+          "86",
+          ".venv/bin/python",
+          "-m",
+          "pytest",
+          "tests/test_visible_optax.py",
+          "-k",
+          "matches_dense_optax or runs_other_row_local_transforms or deferred_sh_matches",
+          "-q",
+          "-p",
+          "no:cacheprovider"
+        ],
+        "returncode": 0,
+        "log": "========= COMPUTE-SANITIZER\n.................                                                        [100%]\n17 passed, 2 deselected in 23.36s\n========= ERROR SUMMARY: 0 errors\n",
+        "passed": 17,
+        "deselected": 2,
+        "errors": 0
+      }
+    ],
+    "cuda_scope": "17 optimizer cases per prototype, including empty visibility, free slots, partial clusters, undefined compact-gradient tails and deferred SH. --report-api-errors no follows the existing driver symbol-query diagnostic limitation. Device instrumentation has no kernel filter.",
+    "logs": {
+      "state_validation.log": "baseline state checks complete\nread_write_stream state checks complete\n{'arrays': 138, 'arrays_equal': 80, 'max_abs': 2.384185791015625e-07, 'max_relative_l2': 2.301373695449125e-08, 'rtol': 2e-05, 'atol': 2e-06}\n",
+      "final_validation.log": "baseline isolated update complete\nread_write_stream isolated update complete\nrows16 isolated update complete\nrows8 isolated update complete\nread_write_stream memcheck 0\n========= COMPUTE-SANITIZER\n.................                                                        [100%]\n17 passed, 2 deselected in 18.43s\n========= ERROR SUMMARY: 0 errors\n\nrows16 memcheck 0\n========= COMPUTE-SANITIZER\n.................                                                        [100%]\n17 passed, 2 deselected in 17.20s\n========= ERROR SUMMARY: 0 errors\n\nrows8 memcheck 0\n========= COMPUTE-SANITIZER\n.................                                                        [100%]\n17 passed, 2 deselected in 23.36s\n========= ERROR SUMMARY: 0 errors\n\n",
+      "row_validation.log": "rows16 0\n...................................................                      [100%]\n51 passed in 49.04s\n\nrows8 0\n...................................................                      [100%]\n51 passed in 42.31s\n\n",
+      "states_baseline.log": "{\"optimizer\": \"optax\", \"degree\": 0, \"collect_stats\": false, \"loss\": 0.49481719732284546, \"peak_pairs\": 546, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"optax\", \"degree\": 3, \"collect_stats\": true, \"loss\": 0.49342450499534607, \"peak_pairs\": 540, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"muon\", \"degree\": 0, \"collect_stats\": false, \"loss\": 0.49669861793518066, \"peak_pairs\": 546, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"muon\", \"degree\": 3, \"collect_stats\": true, \"loss\": 0.49683260917663574, \"peak_pairs\": 542, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"cute\", \"degree\": 0, \"collect_stats\": false, \"loss\": 0.49481719732284546, \"peak_pairs\": 546, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"cute\", \"degree\": 3, \"collect_stats\": true, \"loss\": 0.49342450499534607, \"peak_pairs\": 540, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n",
+      "states_read_write_stream.log": "{\"optimizer\": \"optax\", \"degree\": 0, \"collect_stats\": false, \"loss\": 0.49481719732284546, \"peak_pairs\": 546, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"optax\", \"degree\": 3, \"collect_stats\": true, \"loss\": 0.49342450499534607, \"peak_pairs\": 540, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"muon\", \"degree\": 0, \"collect_stats\": false, \"loss\": 0.49669861793518066, \"peak_pairs\": 546, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"muon\", \"degree\": 3, \"collect_stats\": true, \"loss\": 0.49683260917663574, \"peak_pairs\": 542, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"cute\", \"degree\": 0, \"collect_stats\": false, \"loss\": 0.49481719732284546, \"peak_pairs\": 546, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n{\"optimizer\": \"cute\", \"degree\": 3, \"collect_stats\": true, \"loss\": 0.49342450499534607, \"peak_pairs\": 540, \"input_overflow_preserved\": true, \"donated_buffers\": 15, \"addresses_preserved\": true, \"cache_size\": 1, \"updates\": 8}\n",
+      "isolated_baseline.log": "{\"arrays\": 95, \"degree_schedule\": [0, 1, 2, 3, 0], \"partial_clusters\": true, \"free_and_invisible_slots\": true, \"nonzero_momentum\": true, \"undefined_gradient_tail\": true}\n",
+      "isolated_read_write_stream.log": "{\"arrays\": 95, \"degree_schedule\": [0, 1, 2, 3, 0], \"partial_clusters\": true, \"free_and_invisible_slots\": true, \"nonzero_momentum\": true, \"undefined_gradient_tail\": true}\n",
+      "isolated_rows16.log": "{\"arrays\": 95, \"degree_schedule\": [0, 1, 2, 3, 0], \"partial_clusters\": true, \"free_and_invisible_slots\": true, \"nonzero_momentum\": true, \"undefined_gradient_tail\": true}\n",
+      "isolated_rows8.log": "{\"arrays\": 95, \"degree_schedule\": [0, 1, 2, 3, 0], \"partial_clusters\": true, \"free_and_invisible_slots\": true, \"nonzero_momentum\": true, \"undefined_gradient_tail\": true}\n"
+    },
+    "test_sha256": {
+      "tests/test_visible_optax.py": "485b6b31ee192d9b3083c1b6295708223098defcf66fd88c7c2bd620699ed93a",
+      "tests/test_optax.py": "c518ba0458a5b375fd2dd71518ae0f5c71344ce0e3d1045fbbf6e930f0ce6791",
+      "tests/test_sh_pullback.py": "1e7d6b4c12fb5b15abd1fa948fe831320ece98ed717aa9f09cff50f934877213",
+      "tests/test_muon.py": "c3cdec6adb0513f5bf8368eb5c111185c94d858f382808b8b172353240dd7e57"
+    },
+    "archive_checks": {
+      "production_source_unchanged": true,
+      "project_tests_unchanged": true,
+      "source_files": 70,
+      "prototype_patches_verified": 8,
+      "screening_reports_verified": 5,
+      "reproduction_scripts_parsed": 9,
+      "common_model_hash_verified": true,
+      "local_markdown_links_exist": true
+    },
+    "static_checks": {
+      "ruff_check": "passed",
+      "ruff_format_check": "120 files already formatted",
+      "git_diff_check": "passed"
+    }
+  },
+  "compiler_diagnostic": {
+    "monitor": {
+      "variant": "cg",
+      "command": [
+        ".venv/bin/python",
+        "/home/lzc/Documents/jax-gs/output/training_memory_20261003/final_fixed_update.py",
+        "/home/lzc/Documents/jax-gs/output/training_memory_20261003/cg_screen.json",
+        "--profile",
+        "/home/lzc/Documents/jax-gs/output/training_memory_20261003/cg_trace"
+      ],
+      "pid": 2227520,
+      "wall_seconds": 8.261918129050173,
+      "returncode": 1,
+      "monitor_samples": 16,
+      "foreign_processes": []
+    },
+    "log": "Traceback (most recent call last):\n  File \"/home/lzc/Documents/jax-gs/output/training_memory_20261003/cg/src/jaxgs/kernels/visible_optax.py\", line 172, in _\n    extras[i] = _load(ref.at[offset], mask)\n  File \"/home/lzc/Documents/jax-gs/output/training_memory_20261003/cg/src/jaxgs/kernels/visible_optax.py\", line 95, in _load\n    return plt.load(ref, cache_modifier=\".cg\") if mask is None else plt.load(ref, mask=mask, other=0, cache_modifier=\".cg\")\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/primitives.py\", line 268, in load\n    return pallas_primitives.load(\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/primitives.py\", line 457, in load\n    return load_p.bind(\njax._src.source_info_util.JaxStackTraceBeforeTransformation: KeyError: '.cg'\n\nThe preceding stack trace is the source of the JAX operation that, once transformed by JAX, triggered the following exception.\n\n--------------------\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/lzc/Documents/jax-gs/output/training_memory_20261003/final_fixed_update.py\", line 49, in <module>\n    pool, adam, stats, metrics = jax.block_until_ready(array_train_step(\n                                                       ^^^^^^^^^^^^^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/pallas_call.py\", line 928, in _pallas_call_lowering\n    return mlir.lower_per_platform(\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/pallas_call.py\", line 926, in gpu_lowering\n    return rule(ctx, *in_nodes, compiler_params=compiler_params, **params)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/pallas_call_registration.py\", line 120, in pallas_call_lowering\n    lowering_result = lowering.lower_jaxpr_to_triton_module(\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/lowering.py\", line 385, in lower_jaxpr_to_triton_module\n    () = lower_jaxpr_to_triton_ir(ctx, jaxpr, block_infos, *entry.arguments)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/lowering.py\", line 435, in lower_jaxpr_to_triton_ir\n    outvals: Any = rule(rule_ctx, *invals, **eqn.params)\n    ^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/lowering.py\", line 2918, in _cond_lowering_rule\n    outs1 = lower_jaxpr_to_triton_ir(\n            ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/lowering.py\", line 435, in lower_jaxpr_to_triton_ir\n    outvals: Any = rule(rule_ctx, *invals, **eqn.params)\n    ^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/lowering.py\", line 2186, in _masked_load_lowering_rule\n    values = _load(\n             ^^^^^^\n  File \"/home/lzc/Documents/jax-gs/.venv/lib/python3.12/site-packages/jax/_src/pallas/triton/lowering.py\", line 2040, in _load\n    cache = _STR_TO_CACHE_MODIFIER[cache_modifier]\n            ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\nKeyError: '.cg'\n--------------------\nFor simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.\n"
+  },
+  "reproduction_scripts": {
+    "run_checked.py": "import json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport time\n\nwork = Path(__file__).parent\nvariant, name, *command = sys.argv[1:]\nenv = dict(os.environ, PYTHONPATH=str(work / variant / 'src'),\n           XLA_PYTHON_CLIENT_PREALLOCATE='false')\nchecks = 0\nstart = time.perf_counter()\nsamples = []\napps = subprocess.check_output(\n    ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader'], text=True).strip()\nif apps:\n    raise RuntimeError(f'GPU is already occupied: {apps}')\nwith (work / f'{name}.log').open('w') as log:\n    process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)\n    while process.poll() is None:\n        checks += 1\n        apps = subprocess.check_output(\n            ['nvidia-smi', '--query-compute-apps=pid,process_name', '--format=csv,noheader'],\n            text=True).strip().splitlines()\n        foreign = [line for line in apps if int(line.split(',')[0]) != process.pid]\n        if foreign:\n            samples.append({'seconds': time.perf_counter() - start, 'foreign': foreign})\n        time.sleep(0.5)\nrecord = dict(variant=variant, command=command, pid=process.pid,\n              wall_seconds=time.perf_counter() - start,\n              returncode=process.returncode, monitor_samples=checks, foreign_processes=samples)\n(work / f'{name}.monitor.json').write_text(json.dumps(record, indent=2) + '\\n')\nprint(json.dumps(record), flush=True)\nif process.returncode or samples:\n    print((work / f'{name}.log').read_text()[-4000:])\n    sys.exit(process.returncode or 1)\n",
+    "final_fixed_update.py": "import argparse\nimport json\nfrom pathlib import Path\nfrom time import perf_counter\n\nimport jax\nimport jax.numpy as jnp\n\nfrom jaxgs import CapacityConfig, GaussianModel\nfrom jaxgs.config import load_config\nfrom jaxgs.io_manager.checkpoint import load_gaussians\nfrom jaxgs.io_manager.colmap import load_colmap_images\nfrom jaxgs.scene.cluster import world_cluster_bounds\nfrom jaxgs.scene.types import PARAMETER_NAMES\nfrom jaxgs.training.optimizer import create_adam_state\nfrom jaxgs.training.state import TrainingState\nfrom jaxgs.training.step import array_train_step, bind_train_step\n\nparser = argparse.ArgumentParser()\nparser.add_argument('output', type=Path)\nparser.add_argument('--views', type=int, nargs='+', default=[0])\nparser.add_argument('--stats', action='store_true')\nparser.add_argument('--profile', type=Path)\nparser.add_argument('--steps', type=int, default=500)\nargs = parser.parse_args()\nwork = Path(__file__).parent\noriginal = load_gaussians(Path('output/viewer_bicycle/model.ply'))\nconfig = CapacityConfig(original.xyz.shape[0], 128, 128, 16, 3, 8_000_000, tile_height=8)\noptimization = load_config().optimization\nframes = load_colmap_images('/home/lzc/datasets/benchmarks/MipNerf360/bicycle',\n                            'images_4', resolution=1)\nbounds = world_cluster_bounds(original, 128)\nradius = jnp.array(1.0, jnp.float32)\nrows = []\n\ndef pointers(training):\n    pool = training.model.as_arrays()\n    adam = training.adam.get_value()\n    return [getattr(arrays, name).unsafe_buffer_pointer()\n            for arrays in (pool, adam.m, adam.v) for name in PARAMETER_NAMES]\n\nfor view in args.views:\n    frame = frames[view]\n    target = jnp.asarray(frame.load_rgb())\n    pool = jax.tree.map(jnp.copy, original)\n    adam = create_adam_state(pool)\n    stats = jnp.zeros((config.max_gaussians, 4), jnp.float32)\n    start = perf_counter()\n    pool, adam, stats, metrics = jax.block_until_ready(array_train_step(\n        pool, adam, stats, bounds, frame.camera, target, jnp.array(30000), radius,\n        config, 3, args.stats, max_steps=30000, optimization=optimization))\n    training = TrainingState(GaussianModel(pool), adam, stats)\n    update = bind_train_step(training, config, max_steps=30000, optimization=optimization)\n    overflow, pairs = metrics['overflow'], metrics['pairs']\n    def step(index):\n        return update(bounds, frame.camera, target, jnp.array(30000 + index), radius,\n                      active_degree=3, collect_stats=args.stats,\n                      overflow=overflow, peak_pairs=pairs)\n    for index in range(1, 30):\n        loss, overflow, pairs = step(index)\n    jax.block_until_ready((training, loss, overflow, pairs))\n    warmup = perf_counter() - start\n    before = pointers(training)\n    initial_loss = float(loss)\n    start = perf_counter()\n    for index in range(30, 30 + args.steps):\n        loss, overflow, pairs = step(index)\n    jax.block_until_ready((training, loss, overflow, pairs))\n    seconds = perf_counter() - start\n    assert before == pointers(training), 'buffer donation changed'\n    assert not bool(overflow), 'pair capacity overflow'\n    if args.profile:\n        with jax.profiler.trace(str(args.profile), create_perfetto_trace=True):\n            for index in range(20):\n                result = step(1000 + index)\n            jax.block_until_ready((training, result))\n    executable = update.lower(\n        bounds, frame.camera, target, jnp.array(30000), radius,\n        active_degree=3, collect_stats=args.stats, overflow=overflow, peak_pairs=pairs,\n    ).compile()\n    info = executable.memory_analysis()\n    memory = {name: getattr(info, name) for name in (\n        'argument_size_in_bytes', 'output_size_in_bytes', 'temp_size_in_bytes', 'alias_size_in_bytes'\n    )}\n    row = dict(memory=memory, view=view, image=frame.image_path.name, collect_stats=args.stats,\n               capacity=config.max_gaussians, active=int(original.n_active),\n               steps=args.steps, warmup_steps=30, warmup_seconds=warmup,\n               seconds=seconds, milliseconds=seconds * 1000 / args.steps,\n               initial_loss=initial_loss, final_loss=float(loss), peak_pairs=int(pairs),\n               donated_buffers=15, jit_cache_size=update.jitted_fn._cache_size())\n    rows.append(row)\n    args.output.write_text(json.dumps(rows, indent=2) + '\\n')\n    print(json.dumps(row), flush=True)\n",
+    "check_training.py": "import json\nimport sys\nfrom pathlib import Path\n\nimport jax\nimport jax.numpy as jnp\nimport numpy as np\n\nfrom jaxgs import Camera, CapacityConfig, GaussianModel, create_gaussians, seed_gaussians\nfrom jaxgs.scene.cluster import world_cluster_bounds\nfrom jaxgs.scene.types import PARAMETER_NAMES\nfrom jaxgs.training.optimizer import create_adam_state\nfrom jaxgs.training.state import TrainingState\nfrom jaxgs.training.step import bind_train_step\n\noutput = Path(sys.argv[1])\nconfig = CapacityConfig(129, 65, 64, 16, 3, 32768, tile_height=8)\ncamera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 28, 28, 18, 12, 37, 25)\nrng = np.random.default_rng(67)\nxyz = rng.normal(0, 0.35, (129, 3)).astype(np.float32)\nxyz[:, 2] += 3\nxyz[13::17] = [100, 0, -2]\npool = seed_gaussians(\n    create_gaussians(config),\n    jnp.asarray(xyz),\n    jnp.asarray(rng.random((129, 3)), jnp.float32),\n    scale=jnp.asarray(rng.uniform(0.06, 0.3, (129, 3)), jnp.float32),\n    opacity=0.3,\n)\npool = pool.replace(\n    sh=jnp.asarray(rng.normal(0, 0.1, pool.sh.shape), jnp.float32),\n    rotation=jnp.tile(jnp.array([0.9, 0.1, -0.2, 0.05]), (129, 1)),\n)\nbounds = world_cluster_bounds(pool, 65)\ntarget = jnp.asarray(rng.integers(0, 256, (25, 37, 3), dtype=np.uint8))\narrays, records = {}, []\nfor optimizer in (\"optax\", \"muon\", \"cute\"):\n    for degree, stats in ((0, False), (3, True)):\n        # Each variant gets independent device arrays because the updates donate.\n        initial = jax.tree.map(lambda x: jnp.array(x, copy=True), pool)\n        training = TrainingState(\n            GaussianModel(initial), create_adam_state(initial), jnp.ones((129, 4), jnp.float32)\n        )\n        update = bind_train_step(training, config, optimizer=optimizer, max_steps=181)\n\n        def buffers():\n            values = [getattr(training.model, name).get_value() for name in PARAMETER_NAMES]\n            for moments in (training.adam.get_value().m, training.adam.get_value().v):\n                values += [getattr(moments, name) for name in PARAMETER_NAMES]\n            return [x.unsafe_buffer_pointer() for x in values]\n\n        addresses = buffers()\n        overflow, peak = jnp.array(True), jnp.array(321, jnp.int32)\n        for step in range(17, 25):\n            loss, overflow, peak = update(\n                bounds,\n                camera,\n                target,\n                jnp.array(step, jnp.int32),\n                jnp.array(1.0),\n                active_degree=degree,\n                collect_stats=stats,\n                overflow=overflow,\n                peak_pairs=peak,\n            )\n        jax.block_until_ready((training, loss, overflow, peak))\n        assert buffers() == addresses\n        assert update.jitted_fn._cache_size() == 1\n        assert np.isfinite(float(loss))\n        assert bool(overflow)\n        prefix = f\"{optimizer}_sh{degree}_stats{stats}\"\n        values = dict(\n            zip(\n                PARAMETER_NAMES,\n                (getattr(training.model, name).get_value() for name in PARAMETER_NAMES),\n                strict=True,\n            )\n        )\n        values[\"fragments\"] = training.fragments.get_value()\n        values[\"adam_step\"] = training.adam.get_value().step\n        for field in (\"alive\", \"free_mask\", \"n_active\"):\n            values[field] = getattr(training.model, field).get_value()\n        for moment in (\"m\", \"v\"):\n            for field in PARAMETER_NAMES:\n                values[f\"{moment}_{field}\"] = getattr(\n                    getattr(training.adam.get_value(), moment), field\n                )\n        values[\"loss\"], values[\"overflow\"], values[\"peak_pairs\"] = loss, overflow, peak\n        arrays.update({f\"{prefix}/{key}\": np.asarray(value) for key, value in values.items()})\n        records.append(\n            dict(\n                optimizer=optimizer,\n                degree=degree,\n                collect_stats=stats,\n                loss=float(loss),\n                peak_pairs=int(peak),\n                input_overflow_preserved=True,\n                donated_buffers=len(addresses),\n                addresses_preserved=True,\n                cache_size=update.jitted_fn._cache_size(),\n                updates=8,\n            )\n        )\n        print(json.dumps(records[-1]), flush=True)\nnp.savez(output, **arrays)\noutput.with_suffix(\".json\").write_text(json.dumps(records, indent=2) + \"\\n\")\n",
+    "isolated_update.py": "import importlib.util\nimport json\nimport sys\nfrom pathlib import Path\n\nimport jax\nimport jax.numpy as jnp\nimport numpy as np\n\nfrom jaxgs.training.optimizer import create_adam_state, optax_update\n\nspec = importlib.util.spec_from_file_location(\"visible_cases\", \"tests/test_visible_optax.py\")\ncases = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(cases)\noutput = Path(sys.argv[1])\nrng = np.random.default_rng(718)\npool = cases._pool(257, 65, rng)\nstate = create_adam_state(pool)\nstate = state.replace(\n    m=jax.tree.map(lambda x: x + 0.2, state.m),\n    v=jax.tree.map(lambda x: x + 0.1, state.v),\n    step=jnp.arange(257, dtype=jnp.int32),\n)\nvisible, clusters = cases._visible(257, 65, [True, False, True, True])\ncenter = jnp.array([0.1, -0.2, 0.3], jnp.float32)\npool = pool.replace(xyz=pool.xyz.at[0].set(center))\narrays = {}\nfor index, degree in enumerate((0, 1, 2, 3, 0)):\n    _, gradients = cases._compact(rng, pool, visible, 65, 1)\n    pool, state = jax.jit(lambda p, s, g: optax_update(\n        p, s, g, visible, 37 + index, 2.0, cluster_size=65,\n        compact_gradients=True, active_degree=degree, compacted_clusters=clusters,\n        sh_pullback_center=center if degree > 0 else None,\n    ))(pool, state, tuple(gradients))\n    for leaf, value in enumerate(jax.tree.leaves((pool, state))):\n        arrays[f\"stage{index}_sh{degree}/{leaf}\"] = np.asarray(value)\nnp.savez(output, **arrays)\nprint(json.dumps(dict(arrays=len(arrays), degree_schedule=[0, 1, 2, 3, 0],\n                      partial_clusters=True, free_and_invisible_slots=True,\n                      nonzero_momentum=True, undefined_gradient_tail=True)), flush=True)\n",
+    "validate_states.py": "import json\nimport os\nimport subprocess\nfrom pathlib import Path\n\nimport numpy as np\n\nwork = Path(__file__).parent\nfor variant in (\"baseline\", \"read_write_stream\"):\n    command = [\".venv/bin/python\", str(work / \"check_training.py\"), str(work / f\"states_{variant}.npz\")]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"states_{variant}.log\").open(\"w\") as log:\n        subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)\n    print(variant, \"state checks complete\", flush=True)\n\nbaseline = np.load(work / \"states_baseline.npz\")\ncandidate = np.load(work / \"states_read_write_stream.npz\")\nassert set(baseline.files) == set(candidate.files)\nrows = []\nfor name in baseline.files:\n    expected, actual = baseline[name], candidate[name]\n    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-6)\n    delta = actual.astype(np.float64) - expected.astype(np.float64)\n    rows.append(dict(name=name, equal=bool(np.array_equal(actual, expected)),\n                     max_abs=float(np.max(np.abs(delta))),\n                     relative_l2=float(np.linalg.norm(delta) / max(np.linalg.norm(expected.astype(np.float64)), 1e-20))))\nresult = dict(arrays=len(rows), arrays_equal=sum(row[\"equal\"] for row in rows),\n              max_abs=max(row[\"max_abs\"] for row in rows),\n              max_relative_l2=max(row[\"relative_l2\"] for row in rows),\n              rtol=2e-5, atol=2e-6, rows=rows)\n(work / \"state_comparison.json\").write_text(json.dumps(result, indent=2) + \"\\n\")\nprint({key: value for key, value in result.items() if key != \"rows\"}, flush=True)\n",
+    "validate_rows.py": "import json\nimport os\nimport subprocess\nfrom pathlib import Path\n\nwork = Path(__file__).parent\nrecords = []\nfor variant in (\"rows16\", \"rows8\"):\n    command = [\n        \".venv/bin/python\", \"-m\", \"pytest\",\n        \"tests/test_visible_optax.py\", \"tests/test_optax.py\",\n        \"tests/test_sh_pullback.py\", \"tests/test_muon.py\",\n        \"-q\", \"-p\", \"no:cacheprovider\",\n    ]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"{variant}_tests.log\").open(\"w\") as log:\n        result = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT)\n    records.append(dict(variant=variant, command=command, returncode=result.returncode))\n    (work / \"row_validation.json\").write_text(json.dumps(records, indent=2) + \"\\n\")\n    print(variant, result.returncode, flush=True)\n    print((work / f\"{variant}_tests.log\").read_text()[-1200:], flush=True)\n    if result.returncode:\n        raise SystemExit(result.returncode)\n",
+    "validate_final.py": "import json\nimport os\nimport subprocess\nfrom pathlib import Path\n\nimport numpy as np\n\nwork = Path(__file__).parent\nvariants = (\"baseline\", \"read_write_stream\", \"rows16\", \"rows8\")\nrecords = []\nfor variant in variants:\n    command = [\".venv/bin/python\", str(work / \"isolated_update.py\"), str(work / f\"isolated_{variant}.npz\")]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"isolated_{variant}.log\").open(\"w\") as log:\n        subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)\n    print(variant, \"isolated update complete\", flush=True)\nbaseline = np.load(work / \"isolated_baseline.npz\")\nfor variant in variants[1:]:\n    candidate = np.load(work / f\"isolated_{variant}.npz\")\n    assert set(baseline.files) == set(candidate.files)\n    for name in baseline.files:\n        np.testing.assert_array_equal(candidate[name], baseline[name])\n    records.append(dict(variant=variant, arrays=len(baseline.files), bit_exact=True))\n(work / \"isolated_comparison.json\").write_text(json.dumps(records, indent=2) + \"\\n\")\n\nchecks = []\nfor variant in variants[1:]:\n    command = [\n        \"/usr/local/cuda/bin/compute-sanitizer\", \"--tool\", \"memcheck\",\n        \"--report-api-errors\", \"no\", \"--error-exitcode\", \"86\",\n        \".venv/bin/python\", \"-m\", \"pytest\", \"tests/test_visible_optax.py\",\n        \"-k\", \"matches_dense_optax or runs_other_row_local_transforms or deferred_sh_matches\",\n        \"-q\", \"-p\", \"no:cacheprovider\",\n    ]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"memcheck_{variant}.log\").open(\"w\") as log:\n        result = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT)\n    checks.append(dict(variant=variant, command=command, returncode=result.returncode))\n    (work / \"cuda_checks.json\").write_text(json.dumps(checks, indent=2) + \"\\n\")\n    print(variant, \"memcheck\", result.returncode, flush=True)\n    print((work / f\"memcheck_{variant}.log\").read_text()[-1000:], flush=True)\n    if result.returncode:\n        raise SystemExit(result.returncode)\n",
+    "screen.py": "import json\nimport subprocess\nfrom pathlib import Path\n\nwork = Path(__file__).parent\npython = \".venv/bin/python\"\nfor variant in (\"baseline\", \"cg\", \"stream\", \"cg_stream\"):\n    name = f\"{variant}_screen\"\n    command = [\n        python, str(work / \"run_checked.py\"), variant, name,\n        python, str(work / \"final_fixed_update.py\"), str(work / f\"{name}.json\"),\n    ]\n    if variant in (\"baseline\", \"cg\"):\n        command += [\"--profile\", str(work / f\"{variant}_trace\")]\n    subprocess.run(command, check=True)\n    print(variant, json.loads((work / f\"{name}.json\").read_text()), flush=True)\n",
+    "screen_next.py": "import json\nimport subprocess\nfrom pathlib import Path\n\nwork = Path(__file__).parent\npython = \".venv/bin/python\"\nfor variant in (\"stream\", \"read_stream\", \"read_write_stream\", \"work_count\"):\n    name = f\"{variant}_screen\"\n    command = [\n        python, str(work / \"run_checked.py\"), variant, name,\n        python, str(work / \"final_fixed_update.py\"), str(work / f\"{name}.json\"),\n    ]\n    if variant in (\"stream\", \"work_count\"):\n        command += [\"--profile\", str(work / f\"{variant}_trace\")]\n    subprocess.run(command, check=True)\n    print(variant, json.loads((work / f\"{name}.json\").read_text()), flush=True)\n"
+  },
+  "pending_performance_checks": [
+    "Three alternating fixed-model comparisons on four views for row16, row8 and streaming candidates.",
+    "Measure register usage/occupancy of smaller-row candidates.",
+    "Only for a winner: matched 10k and 30k training with common-renderer quality evaluation."
+  ],
+  "installed_jax_source_sha256": {
+    "primitives.py": "7d068281e33a77fcceb7998a10dbd4cae6eca53e3293576ce6790f1520970980",
+    "lowering.py": "af62244e11960b579ad49cecb9f882819222fc766a9211d5f267905d6bf4c3c9"
+  },
+  "cleanup": {
+    "removed": "output/training_memory_20261003",
+    "logical_bytes_removed": 18689530,
+    "original_viewer_model_preserved": true,
+    "scope": "Only this study's source copies, scripts, profiles and intermediate arrays. All tested/rejected patches, screening reports, validation logs and reproduction scripts are archived in this record."
+  }
+}

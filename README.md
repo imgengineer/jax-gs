@@ -51,6 +51,10 @@ with a 33.7% reduction in compiled temporary storage. Additional records cover
 [warp votes](benchmarks/results/warp_vote_20261002.md) and
 [contribution pruning](benchmarks/results/contribution_pruning_20261002.md).
 
+The [optimizer memory study](benchmarks/results/training_memory_20261003.md)
+validates streaming access and smaller row-block prototypes. Repeated
+performance measurements are pending; these prototypes are not enabled.
+
 ## Features
 
 - **Modular rendering:** cluster culling and compaction, projection, visibility
