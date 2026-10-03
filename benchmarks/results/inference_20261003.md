@@ -1,10 +1,10 @@
 # RGB-only forward prototype — 2026-10-03
 
-The candidate on `perf/inference-forward` passes correctness checks and remains
-separate from `main`. A sustained exclusive GPU window was unavailable; final
-performance validation, including frame readback and JPEG encoding, is pending.
-The measurements below are preliminary screening results, not a final speedup
-claim for this branch.
+The candidate on `perf/inference-forward` passed correctness checks and the
+subsequent [exclusive performance comparison](inference_exclusive_20261003.md),
+including frame readback and JPEG encoding. It is accepted for `main`. The
+measurements below document the earlier prototype screening, when a sustained
+exclusive GPU window was unavailable; use the follow-up for final timings.
 
 [Experiment data and reproduction scripts](inference_20261003.json) retain the
 selected prototype's raw samples, all prototypes' round summaries and patches,
@@ -82,10 +82,10 @@ produced these full-render call times in milliseconds:
 | XiaoChe | 1280×720 | 2.261 | 1.774 | 21.5% |
 | XiaoChe | 1920×1080 | 1.700 | 1.401 | 17.6% |
 
-These runs still allocated the baseline cache shapes. The branch's scalar
-placeholder allocation was added afterward and has received correctness and
-memory checks, but no final controlled timing. The table therefore describes
-the archived kernel prototype, not the complete current candidate.
+These runs still allocated the baseline cache shapes. Scalar placeholder
+allocation was added afterward and received correctness and memory checks.
+The table describes the archived kernel prototype; the complete candidate is
+measured in the [exclusive follow-up](inference_exclusive_20261003.md).
 
 ## Correctness and memory
 
@@ -148,8 +148,6 @@ the original kernel-only procedure and requires the baseline wrapper; using
 that procedure with scalar cache allocations would give the baseline kernel
 undersized output buffers.
 
-When an exclusive window is available, run `compare.py --steps 100 --rounds 3
---output output/optimization_20261003/final_comparison.json`, then measure
-readback/JPEG for both revisions using
-[benchmarks/viewer.py](../viewer.py). Complete that comparison before merging
-the candidate into `main`.
+The planned exclusive comparison is complete. The
+[follow-up record](inference_exclusive_20261003.md#reproduce) contains the final
+five-round moving/fixed JIT and readback/JPEG commands and results.

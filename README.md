@@ -314,10 +314,12 @@ This checks image agreement within one uint8 level, synchronizes each timed
 call, records compilation separately and reports whether other GPU compute
 processes were observed. Reports retain the observed image differences.
 
-The [RGB-only forward prototype](benchmarks/results/inference_20261003.md)
-skips backward caches and expands the raster loop. Its correctness checks pass;
-final performance validation awaits an exclusive GPU window before merging
-`perf/inference-forward` into `main`.
+The [RGB-only forward optimization](benchmarks/results/inference_exclusive_20261003.md)
+skips backward caches and expands the raster loop. Across the four presets,
+exclusive paired measurements reduced moving JIT latency by **4.6–10.3% for
+bicycle** and **17.9–23.7% for XiaoChe**. At 720p, render/readback/JPEG time fell
+from 2.822 to 2.768 ms and 4.351 to 3.701 ms, respectively. These measurements
+cover two local camera paths and exclude network and browser display.
 
 Additional records cover [loss target loading](benchmarks/results/loss_target_20261001.md),
 [kernel arithmetic](benchmarks/results/kernel_arithmetic_20261001.md) and
