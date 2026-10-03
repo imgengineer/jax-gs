@@ -10,29 +10,40 @@ small-scene correctness checks on CPU.
 
 ## Training performance
 
-Two exclusive paired runs on an RTX 5090 use the default 10k budget, Optax,
-8×16 tiles and a one-million-slot pool. Bicycle uses `images_4` at 1237×822,
-169 training views and 25 held-out views.
+Three exclusive paired runs per budget on an RTX 5090 use Optax, 8×16 tiles
+and a one-million-slot pool. Bicycle uses `images_4` at 1237×822, 169 training
+views and 25 held-out views. The default budget remains 10k.
 
-| Stage | Before | After | Less time |
-| --- | ---: | ---: | ---: |
-| Precompilation / warmup | 13.943 s | 10.421 s | 25.3% |
-| Training loop | 11.846 s | 11.686 s | 1.3% |
-| Image preload + warmup + loop | 26.222 s | 22.568 s | 13.9% |
+| Budget | Stage | Baseline median | Candidate median | Less time |
+| --- | --- | ---: | ---: | ---: |
+| 10k | Precompilation / warmup | 14.112 s | 10.392 s | 26.4% |
+| 10k | Training loop | 11.853 s | 11.694 s | 1.3% |
+| 10k | Image preload + warmup + loop | 26.402 s | 22.544 s | 14.6% |
+| 30k | Precompilation / warmup | 13.878 s | 10.369 s | 25.3% |
+| 30k | Training loop | 38.667 s | 38.060 s | 1.6% |
+| 30k | Image preload + warmup + loop | 52.980 s | 48.832 s | 7.8% |
 
-Times are medians of two runs. Explicit CuTe compilation keys avoid repeated
-IR generation for cache lookup; the training forward loop handles four splats
-per iteration. Both paired comparisons improved. Each run performs 9,971
-updates and ends with 975,104 or 975,232 Gaussians, matching within each pair.
-Mean held-out PSNR changes from 24.549 to 24.563 dB (+0.014 dB).
+Explicit CuTe compilation keys avoid repeated IR generation for cache lookup;
+the training forward loop handles four splats per iteration. All six paired
+training-loop comparisons improved. The 10k and 30k budgets perform 9,971 and
+29,913 actual updates, respectively. Final point counts match within each pair.
+Fixed-model training updates across four views take 1.1–1.6% less time.
+
+Mean held-out PSNR changes from 24.552 to 24.562 dB at 10k (+0.010 dB), and
+from 25.481 to 25.437 dB at 30k (−0.044 dB). The largest 30k per-view mean
+decrease is 0.922 dB. These measurements cover one scene and GPU; the speed
+improvement does not establish long-run quality equivalence.
+An additional three-run cache-only control averages 25.431 dB at 30k, so these
+samples do not isolate the quality difference to forward unrolling.
 
 Loop timing includes densification, pruning, opacity decay, spatial refinement
 and epoch reports. The stage sum includes image preload and warmup, and
-excludes point initialization and checkpoint writing. These preliminary results
-cover one scene and GPU. A third run encountered GPU interference and was
-excluded; the third pair and 30k comparisons await an exclusive window.
-The [follow-up record](benchmarks/results/training_followup_20261003.md)
-contains every accepted sample, quality comparison and rejected prototype.
+excludes point initialization and checkpoint writing. The originally interfered
+run remains excluded; its replacement and the remaining measurements completed
+in an exclusive window. The
+[follow-up record](benchmarks/results/training_followup_20261003.md) contains
+every accepted sample, per-view quality, fixed-model timings and rejected
+prototype.
 
 Earlier [SH gradient deferral](benchmarks/results/training_sh_20261003.md)
 reduced its separate matched training loop by 5.5% at 10k and 6.1% at 30k,

@@ -41,10 +41,18 @@ resolution factor 1, evaluation split and iteration budget override defaults.
 The optimizer is Optax, with 8×16 tiles, one million slots, eight million
 visibility pairs, seed 0 and a 30k position learning-rate horizon.
 
-Two fresh-process 10k pairs completed in alternating order. The same frozen
-baseline renderer evaluates every accepted checkpoint. All performance jobs
-run sequentially; a monitor checks for other GPU compute processes before
-launch and approximately every 0.5 seconds during each job.
+Three fresh-process pairs completed at each of 10k and 30k in alternating
+baseline/candidate order. The first two 10k pairs were measured in the initial
+window. The third pair was rerun in a later exclusive window, together with all
+30k and fixed-model runs. Candidate source is commit
+`1ec157defe79308884a8e0ffe6e4d73e021ec932`; source hashes, dependency versions
+and the common fixed-model hash match the initial record.
+
+The same frozen baseline renderer evaluates every accepted checkpoint. All
+performance jobs run sequentially; a monitor checks for other GPU compute
+processes before launch and approximately every 0.5 seconds during each job.
+All 28 completion-window jobs (22 main measurements and six additional
+cache-only control jobs) returned success with zero foreign-process observations.
 
 Loop timing includes density control, opacity decay, spatial reordering and
 epoch reports. It excludes initialization, image preload, precompilation and
@@ -52,35 +60,90 @@ checkpoint writing. The additional stage sum includes image preload, warmup
 and the loop, but excludes point initialization and checkpoint writing.
 Monitor wall time has 0.5-second polling granularity and is diagnostic only.
 
-## Completed 10k comparisons
+## Completed training comparisons
 
-| Stage | Baseline median | Candidate median | Less time |
+| Budget | Stage | Baseline median | Candidate median | Less time |
+| --- | --- | ---: | ---: | ---: |
+| 10k | Precompilation / warmup | 14.112 s | 10.392 s | 26.4% |
+| 10k | Training loop | 11.853 s | 11.694 s | 1.3% |
+| 10k | Image preload + warmup + loop | 26.402 s | 22.544 s | 14.6% |
+| 30k | Precompilation / warmup | 13.878 s | 10.369 s | 25.3% |
+| 30k | Training loop | 38.667 s | 38.060 s | 1.6% |
+| 30k | Image preload + warmup + loop | 52.980 s | 48.832 s | 7.8% |
+
+Each median has **three samples**. All six paired loop comparisons improved
+by 1.22–1.94%. Each run reused seven compiled variants with donation enabled,
+no visibility overflow and finite loss. The 10k runs performed 9,971 updates;
+point counts were 975,104, 975,232 and 975,104 for pairs 1–3, matching within
+each pair. The 30k runs performed 29,913 updates and all ended at 993,152 points.
+
+| Budget | Pair | Baseline loop | Candidate loop | Baseline PSNR | Candidate PSNR |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 10k | 1 | 11.839 s | 11.664 s | 24.565 dB | 24.570 dB |
+| 10k | 2 | 11.853 s | 11.708 s | 24.534 dB | 24.557 dB |
+| 10k | 3 | 11.855 s | 11.694 s | 24.557 dB | 24.558 dB |
+| 30k | 1 | 38.760 s | 38.007 s | 25.536 dB | 25.438 dB |
+| 30k | 2 | 38.546 s | 38.060 s | 25.457 dB | 25.399 dB |
+| 30k | 3 | 38.667 s | 38.113 s | 25.450 dB | 25.473 dB |
+
+Mean held-out PSNR changes from 24.552 to 24.562 dB at 10k (+0.010 dB), and
+from 25.481 to 25.437 dB at 30k (−0.044 dB). Each score averages all 25 held-out
+views. At 30k, baseline run means span 25.450–25.536 dB and candidate means
+25.399–25.473 dB. Two pairs favor the baseline; the third favors the candidate.
+
+The 30k per-view means decrease on 14 of 25 views. Differences range from
+−0.922 to +0.184 dB; the largest decrease is on `_DSC8768.JPG` (23.721 to
+22.799 dB). A small scene-wide mean difference therefore does not imply small
+differences on every view. These three repeats on one scene do not establish
+long-run quality equivalence, despite passing short-run numerical regressions.
+
+The original third baseline job encountered a foreign `jimm` GPU process.
+Its report is retained separately and excluded; the replacement pair above
+completed without interference. No planned main comparison remains deferred.
+
+## Fixed-model training updates
+
+The same 975,104-point PLY starts every view with fresh Adam state. Three
+alternating process pairs cover views 0, 48, 96 and 144, at SH3 with statistics
+off and no densification. Each view has 30 warmup updates followed by a block
+of 500 complete NNX training updates. Timing synchronizes at block boundaries;
+values below are medians of the three per-update block means.
+
+| View | Baseline | Candidate | Less time |
 | --- | ---: | ---: | ---: |
-| Precompilation / warmup | 13.943 s | 10.421 s | 25.3% |
-| Training loop | 11.846 s | 11.686 s | 1.3% |
-| Image preload + warmup + loop | 26.222 s | 22.568 s | 13.9% |
+| 0 | 1.837 ms | 1.808 ms | 1.60% |
+| 48 | 1.711 ms | 1.693 ms | 1.06% |
+| 96 | 1.649 ms | 1.631 ms | 1.12% |
+| 144 | 1.617 ms | 1.597 ms | 1.23% |
 
-Each median has **two samples**. Both pairs improved: loop time fell by
-1.48% and 1.22%, and the stage sum by 13.25% and 14.61%. Each run performed
-9,971 actual updates and reused seven compiled variants, with donation enabled
-and no visibility overflow. The first pair ended with 975,104 active points;
-the second with 975,232, identical between implementations within each pair.
+All 24 view runs preserve the 15 donated parameter/moment addresses, use one
+JIT cache entry and pass the overflow check. Compiled temporary storage is
+186,990,720 bytes for both implementations. These are complete training
+updates, not rendering-only frame times.
 
-| Pair | Baseline loop | Candidate loop | Baseline PSNR | Candidate PSNR |
+## Cache-only control
+
+The lower 30k mean PSNR prompted three additional runs with explicit compilation
+keys and the original two-splat rasterizer. This control restores the complete
+baseline `packed_rasterize.py`; all other source matches the candidate. It uses
+the same scene, settings and frozen baseline evaluator. The control group ran
+after the main measurements, so these are not three additional alternating
+pairs.
+
+| 30k implementation | Warmup median | Loop median | Stage sum median | Mean PSNR |
 | --- | ---: | ---: | ---: | ---: |
-| 1 | 11.839 s | 11.664 s | 24.565 dB | 24.570 dB |
-| 2 | 11.853 s | 11.708 s | 24.534 dB | 24.557 dB |
+| Baseline: automatic keys, two splats | 13.878 s | 38.667 s | 52.980 s | 25.481 dB |
+| Control: explicit keys, two splats | 10.295 s | 38.608 s | 49.298 s | 25.431 dB |
+| Candidate: explicit keys, four splats | 10.369 s | 38.060 s | 48.832 s | 25.437 dB |
 
-The two-run mean held-out PSNR changed from 24.549 to 24.563 dB (+0.014 dB).
-Each score averages 25 held-out views. These two repeats on one scene do not
-establish general quality equivalence or better reconstruction quality.
-
-A foreign `jimm` GPU process appeared during the third baseline job. Its
-measurements are retained separately and excluded from all summaries above.
-Further timing awaits an exclusive GPU window.
-The third 10k pair, 30k comparisons and repeated fixed-model measurements are
-**deferred**. These are the completed two-pair results, not a completed
-three-pair or 30k study.
+Cache-only PSNR values are 25.417, 25.474 and 25.401 dB. Its mean is 0.050 dB
+below the paired baseline group and 0.006 dB below the full candidate. This
+control also has per-view differences; its largest mean decrease is 0.631 dB
+on `_DSC8752.JPG`. The measurements do not isolate the observed quality
+difference to forward unrolling, nor establish long-run quality equivalence.
+They support separating the substantial compilation gain from the smaller
+training-loop gain. No implementation change was made during this completion
+window.
 
 ## Correctness
 
@@ -153,6 +216,13 @@ Python files and `training.toml`. Run `full_training.py` from the repository
 root. Update dataset paths for another machine. `final_fixed_update.py` also
 needs the common PLY identified by `fixed_protocol`; the model is not bundled.
 Use an exclusive GPU window and run jobs sequentially.
+
+`complete_measurements.py` reproduces the missing third 10k pair, all three
+30k pairs and the fixed-model comparisons. For the additional control, copy
+`candidate/` to `compile_keys_only/`, restore
+`src/jaxgs/kernels/packed_rasterize.py` from `baseline/`, and run
+`check_cache_only.py`. The record retains the original partial summary,
+completion-window logs and every per-view score.
 
 The project regression command explicitly selects `tests`:
 
