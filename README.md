@@ -52,8 +52,13 @@ with a 33.7% reduction in compiled temporary storage. Additional records cover
 [contribution pruning](benchmarks/results/contribution_pruning_20261002.md).
 
 The [optimizer memory study](benchmarks/results/training_memory_20261003.md)
-validates streaming access and smaller row-block prototypes. Repeated
-performance measurements are pending; these prototypes are not enabled.
+validated streaming access and smaller row-block prototypes. An exclusive
+follow-up in the [optimizer occupancy record](benchmarks/results/optimizer_occupancy_20261004.md)
+found that read/write `evict_first` hints are the repeatable winner: fixed
+Optax updates improve by 0.69–0.85% across four views, and complete 10k/30k
+training loops improve by 0.50%/1.05% in three-run medians. The hints are now
+enabled in the visible-cluster Triton optimizer; smaller row blocks remain
+rejected because they are slower despite higher theoretical occupancy.
 
 ## Features
 

@@ -92,7 +92,13 @@ def _with_rows(mask, rows_valid):
 def _load(ref, mask):
     from jax.experimental.pallas import triton as plt
 
-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)
+    # The row-local update touches a small working set once.  Evicting these
+    # loads first keeps the large pool from displacing raster data in L2.
+    return (
+        plt.load(ref, eviction_policy="evict_first")
+        if mask is None
+        else plt.load(ref, mask=mask, other=0, eviction_policy="evict_first")
+    )
 
 
 def update_visible_clusters(
@@ -213,7 +219,12 @@ def update_visible_clusters(
                     # A leaf returned as loaded keeps its aliased buffer; skipping
                     # its store also lets Triton drop the unused load.
                     if value is not block:
-                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask)
+                        plt.store(
+                            out.at[offset],
+                            value.astype(out.dtype),
+                            mask=mask,
+                            eviction_policy="evict_first",
+                        )
                 return carry
 
             jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)

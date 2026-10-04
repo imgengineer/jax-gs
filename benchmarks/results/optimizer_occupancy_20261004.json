@@ -1,0 +1,545 @@
+{
+  "date": "2026-10-04",
+  "baseline_revision": "1800632a2be57b7e870d4a51281443896e219372",
+  "status": "completed exclusive fixed-model and full-training comparison; cache eviction hints enabled in production",
+  "environment": {
+    "jax": "0.11.2",
+    "jaxlib": "0.11.2",
+    "flax": "0.12.10",
+    "optax": "0.2.8",
+    "nvidia-cutlass-dsl": "4.8.0",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "driver": "615.71.09",
+    "gpu_memory": "32607 MiB"
+  },
+  "protocol": {
+    "scene": "MipNerf360/bicycle",
+    "dataset_path": "/home/lzc/datasets/benchmarks/MipNerf360/bicycle",
+    "resolution": "1237x822, images_4, resolution=1",
+    "training_views": 169,
+    "held_out_views": 25,
+    "optimizer": "Optax",
+    "tiles": "8x16",
+    "capacity": 1000000,
+    "max_visibility_pairs": 8000000,
+    "seed": 0,
+    "position_lr_max_steps": 30000,
+    "common_fixed_model_sha256": "48176880b2cd71073aaa5fc5582190a9723ef7ba6644deb31f835d8ac5873fb8",
+    "fixed_model_views": [
+      0,
+      48,
+      96,
+      144
+    ],
+    "fixed_model_warmup_steps": 30,
+    "fixed_model_timed_steps": 500,
+    "training_trials_per_budget": 3
+  },
+  "fixed_model": {
+    "summary": [
+      {
+        "view": 0,
+        "samples_ms": {
+          "baseline": [
+            1.805408890126273,
+            1.8029794180765748,
+            1.8048816481605172
+          ],
+          "rows16": [
+            1.8053542100824416,
+            1.8092722480650991,
+            1.8047328081447631
+          ],
+          "rows8": [
+            1.8122995821759105,
+            1.8201389780733734,
+            1.8202491379342973
+          ],
+          "read_write_stream": [
+            1.7897098378743976,
+            1.7937549978960305,
+            1.790550221921876
+          ]
+        },
+        "median_ms": {
+          "baseline": 1.8048816481605172,
+          "rows16": 1.8053542100824416,
+          "rows8": 1.8201389780733734,
+          "read_write_stream": 1.790550221921876
+        },
+        "less_time_percent": {
+          "baseline": 0.0,
+          "rows16": -0.026182432649024534,
+          "rows8": -0.8453368634118608,
+          "read_write_stream": 0.7940368972806255
+        }
+      },
+      {
+        "view": 48,
+        "samples_ms": {
+          "baseline": [
+            1.686482024146244,
+            1.6847369158640504,
+            1.6813443200662732
+          ],
+          "rows16": [
+            1.687865769956261,
+            1.6918460878077894,
+            1.6946061218623072
+          ],
+          "rows8": [
+            1.7015999739523977,
+            1.7010261099785566,
+            1.70381144201383
+          ],
+          "read_write_stream": [
+            1.6704118098132312,
+            1.6693437059875578,
+            1.6725917800795287
+          ]
+        },
+        "median_ms": {
+          "baseline": 1.6847369158640504,
+          "rows16": 1.6918460878077894,
+          "rows8": 1.7015999739523977,
+          "read_write_stream": 1.6704118098132312
+        },
+        "less_time_percent": {
+          "baseline": 0.0,
+          "rows16": -0.4219751984299025,
+          "rows8": -1.0009312391483283,
+          "read_write_stream": 0.8502874197110044
+        }
+      },
+      {
+        "view": 96,
+        "samples_ms": {
+          "baseline": [
+            1.6207502018660307,
+            1.6235665341373533,
+            1.6265694298781455
+          ],
+          "rows16": [
+            1.628959699999541,
+            1.6308807081077248,
+            1.6320679339114577
+          ],
+          "rows8": [
+            1.6399947700556368,
+            1.6387346039991826,
+            1.6427486040629447
+          ],
+          "read_write_stream": [
+            1.6060883160680532,
+            1.6124120641034096,
+            1.6126145459711552
+          ]
+        },
+        "median_ms": {
+          "baseline": 1.6235665341373533,
+          "rows16": 1.6308807081077248,
+          "rows8": 1.6399947700556368,
+          "read_write_stream": 1.6124120641034096
+        },
+        "less_time_percent": {
+          "baseline": 0.0,
+          "rows16": -0.45050041477097125,
+          "rows8": -1.0118609599829131,
+          "read_write_stream": 0.6870349812839849
+        }
+      },
+      {
+        "view": 144,
+        "samples_ms": {
+          "baseline": [
+            1.5862995039205998,
+            1.5867273060139269,
+            1.5884770138654858
+          ],
+          "rows16": [
+            1.594161219894886,
+            1.5982984378933907,
+            1.598107177997008
+          ],
+          "rows8": [
+            1.6134044681675732,
+            1.6150920179206878,
+            1.6100338120013475
+          ],
+          "read_write_stream": [
+            1.5732329241000116,
+            1.5718662578146905,
+            1.5740561480633914
+          ]
+        },
+        "median_ms": {
+          "baseline": 1.5867273060139269,
+          "rows16": 1.598107177997008,
+          "rows8": 1.6134044681675732,
+          "read_write_stream": 1.5732329241000116
+        },
+        "less_time_percent": {
+          "baseline": 0.0,
+          "rows16": -0.7171914127871659,
+          "rows8": -1.6812694942940798,
+          "read_write_stream": 0.8504537523725486
+        }
+      }
+    ],
+    "profiles": {
+      "baseline": [
+        {
+          "name": "kernel",
+          "calls": 20,
+          "mean_us": 604.0047,
+          "kernel_details": "regs:242 static_shared:0 dynamic_shared:256 grid:30472,1,1 block:128,1,1 occ_pct:16.6667"
+        },
+        {
+          "name": "kernel_cutlass__backward",
+          "calls": 20,
+          "mean_us": 427.4537,
+          "kernel_details": "regs:80 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:50"
+        },
+        {
+          "name": "kernel_cutlass__forward",
+          "calls": 20,
+          "mean_us": 177.05665,
+          "kernel_details": "regs:92 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:41.6667"
+        }
+      ],
+      "rows16": [
+        {
+          "name": "kernel",
+          "calls": 20,
+          "mean_us": 608.0975999999999,
+          "kernel_details": "regs:106 static_shared:0 dynamic_shared:256 grid:60944,1,1 block:128,1,1 occ_pct:33.3333"
+        },
+        {
+          "name": "kernel_cutlass__backward",
+          "calls": 20,
+          "mean_us": 432.6259,
+          "kernel_details": "regs:80 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:50"
+        },
+        {
+          "name": "kernel_cutlass__forward",
+          "calls": 20,
+          "mean_us": 179.71655,
+          "kernel_details": "regs:92 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:41.6667"
+        }
+      ],
+      "rows8": [
+        {
+          "name": "kernel",
+          "calls": 20,
+          "mean_us": 617.5215000000001,
+          "kernel_details": "regs:96 static_shared:0 dynamic_shared:256 grid:121888,1,1 block:128,1,1 occ_pct:41.6667"
+        },
+        {
+          "name": "kernel_cutlass__backward",
+          "calls": 20,
+          "mean_us": 429.80415,
+          "kernel_details": "regs:80 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:50"
+        },
+        {
+          "name": "kernel_cutlass__forward",
+          "calls": 20,
+          "mean_us": 178.0391,
+          "kernel_details": "regs:92 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:41.6667"
+        }
+      ],
+      "read_write_stream": [
+        {
+          "name": "kernel",
+          "calls": 20,
+          "mean_us": 591.51385,
+          "kernel_details": "regs:242 static_shared:0 dynamic_shared:256 grid:30472,1,1 block:128,1,1 occ_pct:16.6667"
+        },
+        {
+          "name": "kernel_cutlass__backward",
+          "calls": 20,
+          "mean_us": 429.1718,
+          "kernel_details": "regs:80 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:50"
+        },
+        {
+          "name": "kernel_cutlass__forward",
+          "calls": 20,
+          "mean_us": 177.29405,
+          "kernel_details": "regs:92 static_shared:0 dynamic_shared:1152 grid:8034,1,1 block:32,1,1 occ_pct:41.6667"
+        }
+      ]
+    },
+    "all_jobs_foreign_processes": []
+  },
+  "training": {
+    "summary": {
+      "10000": {
+        "baseline_training_median_seconds": 11.698920078924857,
+        "candidate_training_median_seconds": 11.640533380908892,
+        "candidate_less_time_percent": 0.4990776723156398,
+        "baseline_psnr_median_db": 24.551938899119524,
+        "candidate_psnr_median_db": 24.548568201548154,
+        "candidate_psnr_delta_db": -0.003370697571369874,
+        "baseline_training_mean_seconds": 11.696008999288702,
+        "candidate_training_mean_seconds": 11.637164362279387,
+        "baseline_psnr_mean_db": 24.563718361299262,
+        "candidate_psnr_mean_db": 24.542303610071983
+      },
+      "30000": {
+        "baseline_training_median_seconds": 38.16798244102392,
+        "candidate_training_median_seconds": 37.7678687130101,
+        "candidate_less_time_percent": 1.0482967723852488,
+        "baseline_psnr_median_db": 25.46697808577635,
+        "candidate_psnr_median_db": 25.44638294523475,
+        "candidate_psnr_delta_db": -0.02059514054160161,
+        "baseline_training_mean_seconds": 38.09581030070937,
+        "candidate_training_mean_seconds": 37.75943465635646,
+        "baseline_psnr_mean_db": 25.46598336376239,
+        "candidate_psnr_mean_db": 25.437539079179807
+      }
+    },
+    "runs": [
+      {
+        "budget": 10000,
+        "trial": 1,
+        "variant": "baseline",
+        "training_seconds": 11.715200603939593,
+        "warmup_seconds": 10.532721064984798,
+        "image_load_seconds": 0.4260743069462478,
+        "actual_updates": 9971,
+        "final_gaussians": 975104,
+        "jit_cache_size": 7,
+        "mean_psnr": 24.551938899119524,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 10000,
+        "trial": 1,
+        "variant": "candidate",
+        "training_seconds": 11.608416763949208,
+        "warmup_seconds": 10.504365255008452,
+        "image_load_seconds": 0.434574086102657,
+        "actual_updates": 9971,
+        "final_gaussians": 975104,
+        "jit_cache_size": 7,
+        "mean_psnr": 24.551425397161076,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 10000,
+        "trial": 2,
+        "variant": "baseline",
+        "training_seconds": 11.673906315001659,
+        "warmup_seconds": 10.466523910989054,
+        "image_load_seconds": 0.4564732760190964,
+        "actual_updates": 9971,
+        "final_gaussians": 975104,
+        "jit_cache_size": 7,
+        "mean_psnr": 24.589660425560215,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 10000,
+        "trial": 2,
+        "variant": "candidate",
+        "training_seconds": 11.662542941980064,
+        "warmup_seconds": 10.527432910050265,
+        "image_load_seconds": 0.42274820106104016,
+        "actual_updates": 9971,
+        "final_gaussians": 975104,
+        "jit_cache_size": 7,
+        "mean_psnr": 24.526917231506722,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 10000,
+        "trial": 3,
+        "variant": "baseline",
+        "training_seconds": 11.698920078924857,
+        "warmup_seconds": 10.459012565901503,
+        "image_load_seconds": 0.4590088580735028,
+        "actual_updates": 9971,
+        "final_gaussians": 975104,
+        "jit_cache_size": 7,
+        "mean_psnr": 24.549555759218048,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 10000,
+        "trial": 3,
+        "variant": "candidate",
+        "training_seconds": 11.640533380908892,
+        "warmup_seconds": 10.308425844996236,
+        "image_load_seconds": 0.451053480966948,
+        "actual_updates": 9971,
+        "final_gaussians": 975104,
+        "jit_cache_size": 7,
+        "mean_psnr": 24.548568201548154,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 30000,
+        "trial": 1,
+        "variant": "baseline",
+        "training_seconds": 37.903906171093695,
+        "warmup_seconds": 10.29188121901825,
+        "image_load_seconds": 0.44088852393906564,
+        "actual_updates": 29913,
+        "final_gaussians": 993152,
+        "jit_cache_size": 7,
+        "mean_psnr": 25.491789685629545,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 30000,
+        "trial": 1,
+        "variant": "candidate",
+        "training_seconds": 37.74169440404512,
+        "warmup_seconds": 10.33556045894511,
+        "image_load_seconds": 0.43964582902844995,
+        "actual_updates": 29913,
+        "final_gaussians": 993152,
+        "jit_cache_size": 7,
+        "mean_psnr": 25.45435225863927,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 30000,
+        "trial": 2,
+        "variant": "baseline",
+        "training_seconds": 38.16798244102392,
+        "warmup_seconds": 10.296264969045296,
+        "image_load_seconds": 0.4403407119680196,
+        "actual_updates": 29913,
+        "final_gaussians": 993152,
+        "jit_cache_size": 7,
+        "mean_psnr": 25.439182319881276,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 30000,
+        "trial": 2,
+        "variant": "candidate",
+        "training_seconds": 37.7678687130101,
+        "warmup_seconds": 10.274356787907891,
+        "image_load_seconds": 0.4489227309823036,
+        "actual_updates": 29913,
+        "final_gaussians": 993152,
+        "jit_cache_size": 7,
+        "mean_psnr": 25.411882033665403,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 30000,
+        "trial": 3,
+        "variant": "baseline",
+        "training_seconds": 38.21554229001049,
+        "warmup_seconds": 10.32215877796989,
+        "image_load_seconds": 0.42328263295348734,
+        "actual_updates": 29913,
+        "final_gaussians": 993152,
+        "jit_cache_size": 7,
+        "mean_psnr": 25.46697808577635,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      },
+      {
+        "budget": 30000,
+        "trial": 3,
+        "variant": "candidate",
+        "training_seconds": 37.76874085201416,
+        "warmup_seconds": 10.292174282949418,
+        "image_load_seconds": 0.4203615300357342,
+        "actual_updates": 29913,
+        "final_gaussians": 993152,
+        "jit_cache_size": 7,
+        "mean_psnr": 25.44638294523475,
+        "training_foreign_processes": [],
+        "evaluation_foreign_processes": []
+      }
+    ],
+    "all_jobs_returned_success": true,
+    "all_jobs_foreign_processes": [],
+    "timing_scope": "epoch loop including densification, pruning, opacity decay and spatial refinement; excludes preload, warmup and final checkpoint write",
+    "evaluation_scope": "25 held-out views with the frozen production JAX renderer"
+  },
+  "source": {
+    "production_file": "src/jaxgs/kernels/visible_optax.py",
+    "production_sha256": "c1f7924664a55d7942bb001d58d2aea7837727aa02d23f088f0de243581655d6",
+    "baseline_sha256": "65e5ddace1342cc1a07d3d83d94b909f98b80feedf71613184ab5e786963502d",
+    "rows16_sha256": "c9d1a3bf74d7937652efc37c155cc608f774b02933148998e9ed344e532e24f3",
+    "rows8_sha256": "6ffddbb2a0ad56b33758be32a0354c846e087b4aa8b1aa098110bd01a5d7e098",
+    "stream_candidate_sha256": "cb95378a467988b08d7ba3a8d6e5f3f2baee88ef9bdb1eebdd78d5ea6fb8e78b",
+    "production_delta_from_frozen_baseline": "--- /home/lzc/Documents/jax-gs/output/optimizer_occupancy_20261004/baseline/src/jaxgs/kernels/visible_optax.py\t2026-10-03 22:35:44.000000000 +0800\n+++ /home/lzc/Documents/jax-gs/src/jaxgs/kernels/visible_optax.py\t2026-10-04 09:36:39.969261990 +0800\n@@ -92,7 +92,13 @@\n def _load(ref, mask):\n     from jax.experimental.pallas import triton as plt\n \n-    return plt.load(ref) if mask is None else plt.load(ref, mask=mask, other=0)\n+    # The row-local update touches a small working set once.  Evicting these\n+    # loads first keeps the large pool from displacing raster data in L2.\n+    return (\n+        plt.load(ref, eviction_policy=\"evict_first\")\n+        if mask is None\n+        else plt.load(ref, mask=mask, other=0, eviction_policy=\"evict_first\")\n+    )\n \n \n def update_visible_clusters(\n@@ -213,7 +219,12 @@\n                     # A leaf returned as loaded keeps its aliased buffer; skipping\n                     # its store also lets Triton drop the unused load.\n                     if value is not block:\n-                        plt.store(out.at[offset], value.astype(out.dtype), mask=mask)\n+                        plt.store(\n+                            out.at[offset],\n+                            value.astype(out.dtype),\n+                            mask=mask,\n+                            eviction_policy=\"evict_first\",\n+                        )\n                 return carry\n \n             jax.lax.fori_loop(first_part, jnp.minimum(first_part + blocks, parts), update_rows, 0)\n",
+    "behavior": "Read and write operations in the row-local Triton optimizer carry eviction_policy=\"evict_first\". Program shape, arithmetic, aliases, masks, state transitions and fallback path are unchanged."
+  },
+  "validation": {
+    "targeted_tests": "51 passed: test_visible_optax.py, test_optax.py, test_sh_pullback.py, test_muon.py",
+    "formatting": "ruff check, ruff format --check and git diff --check passed",
+    "previous_optimizer_validation": "The same stream candidate passed 51 targeted tests, 95-array bit-exact isolated optimizer comparison, 138-array end-to-end state comparison and 17 CUDA memcheck cases in training_memory_20261003.",
+    "cuda_observations": "No foreign GPU compute process was observed in any fixed-model, training or evaluation job.",
+    "quality_caveat": "The candidate PSNR median is lower by 0.021 dB at 10k and 0.021 dB at 30k; this small scene-wide difference is within observed run-to-run variation and is retained as a limitation rather than claimed as exact quality equivalence."
+  },
+  "disposition": {
+    "enabled": true,
+    "accepted": "streaming read/write eviction hints",
+    "rejected": "rows16 and rows8 program shapes; both reduced registers but increased total update time",
+    "fixed_model_speed": "0.687% to 0.850% less time across four views (three alternating rounds)",
+    "training_speed": "0.502% less median loop time at 10k and 1.059% less at 30k"
+  },
+  "reproduction_scripts": {
+    "measure_fixed.py": {
+      "sha256": "4feba4742c7d21658da5a35ece1bcf0b7b57179d1ed8fdf0469dbb291fce564b",
+      "source": "import json\nimport subprocess\nfrom pathlib import Path\n\nwork = Path(__file__).parent\npython = \".venv/bin/python\"\norders = (\n    (\"baseline\", \"rows16\", \"rows8\", \"read_write_stream\"),\n    (\"read_write_stream\", \"rows8\", \"rows16\", \"baseline\"),\n    (\"rows16\", \"baseline\", \"read_write_stream\", \"rows8\"),\n)\nfor trial, order in enumerate(orders, 1):\n    for variant in order:\n        name = f\"fixed_{trial}_{variant}\"\n        subprocess.run([\n            python, str(work / \"run_checked.py\"), variant, name,\n            python, str(work / \"final_fixed_update.py\"), str(work / f\"{name}.json\"),\n            \"--views\", \"0\", \"48\", \"96\", \"144\",\n        ], check=True)\n        rows = json.loads((work / f\"{name}.json\").read_text())\n        print(name, {row[\"view\"]: row[\"milliseconds\"] for row in rows}, flush=True)\n\nfor variant in orders[0]:\n    name = f\"profile_{variant}\"\n    subprocess.run([\n        python, str(work / \"run_checked.py\"), variant, name,\n        python, str(work / \"final_fixed_update.py\"), str(work / f\"{name}.json\"),\n        \"--profile\", str(work / f\"{variant}_trace\"),\n    ], check=True)\n    print(name, \"done\", flush=True)\n"
+    },
+    "summarize_fixed.py": {
+      "sha256": "c6f2cc6cee44d9a043dda3ba2c6f56ec87a655a27acd20913de66fc757dca3ab",
+      "source": "import collections\nimport gzip\nimport json\nimport statistics\nfrom pathlib import Path\n\nwork = Path(__file__).parent\nvariants = (\"baseline\", \"rows16\", \"rows8\", \"read_write_stream\")\nsummary = []\nfor view in (0, 48, 96, 144):\n    samples = {}\n    for variant in variants:\n        samples[variant] = []\n        for trial in (1, 2, 3):\n            path = work / f\"fixed_{trial}_{variant}.json\"\n            if path.exists():\n                rows = json.loads(path.read_text())\n                samples[variant] += [row[\"milliseconds\"] for row in rows if row[\"view\"] == view]\n    medians = {variant: statistics.median(values) for variant, values in samples.items() if values}\n    if \"baseline\" in medians:\n        summary.append(dict(view=view, samples_ms=samples, median_ms=medians,\n                            less_time_percent={variant: 100 * (1 - value / medians[\"baseline\"])\n                                               for variant, value in medians.items()}))\n(work / \"fixed_summary.json\").write_text(json.dumps(summary, indent=2) + \"\\n\")\nprint(json.dumps(summary, indent=2))\n\nprofiles = {}\nfor variant in variants:\n    paths = list((work / f\"{variant}_trace\").rglob(\"*.trace.json.gz\"))\n    if not paths:\n        continue\n    events = json.loads(gzip.decompress(paths[0].read_bytes()))[\"traceEvents\"]\n    gpu_pids = {e[\"pid\"] for e in events if e.get(\"ph\") == \"M\" and e.get(\"name\") == \"process_name\"\n                and \"/device:GPU:\" in e.get(\"args\", {}).get(\"name\", \"\")}\n    times, metadata = collections.defaultdict(list), {}\n    for event in events:\n        if event.get(\"ph\") != \"X\" or event.get(\"pid\") not in gpu_pids or \"dur\" not in event:\n            continue\n        name = event[\"name\"].split(\"_tensorptr\")[0]\n        times[name].append(event[\"dur\"])\n        if \"kernel_details\" in event.get(\"args\", {}):\n            metadata[name] = event[\"args\"][\"kernel_details\"]\n    rows = [dict(name=name, calls=len(values), mean_us=statistics.mean(values),\n                 per_step_us=sum(values) / 20, kernel_details=metadata.get(name))\n            for name, values in times.items()]\n    rows.sort(key=lambda row: -row[\"per_step_us\"])\n    profiles[variant] = rows\n    print(variant, rows[:3])\n(work / \"profiles.json\").write_text(json.dumps(profiles, indent=2) + \"\\n\")\n"
+    },
+    "measure_training.py": {
+      "sha256": "f60fd9aea5f1c808665b9077052eb2c996cbd9224c188f704ea96adde44cc311",
+      "source": "import json\nimport subprocess\nfrom pathlib import Path\n\nwork = Path(__file__).parent\npython = \".venv/bin/python\"\nscene = \"/home/lzc/datasets/benchmarks/MipNerf360/bicycle\"\nfor budget in (10000, 30000):\n    for trial in (1, 2, 3):\n        order = (\"baseline\", \"candidate\") if trial % 2 else (\"candidate\", \"baseline\")\n        for variant in order:\n            name = f\"train_{budget}_{trial}_{variant}\"\n            subprocess.run([\n                python, str(work / \"run_checked.py\"), variant, name,\n                python, \"-m\", \"jaxgs.training.trainer\", scene,\n                \"--config\", str(work / \"training.toml\"), \"--iterations\", str(budget),\n                \"--output\", str(work / f\"{name}.ply\"),\n            ], check=True)\n            report = json.loads((work / f\"{name}.json\").read_text())\n            print(name, {key: report[key] for key in (\n                \"training_seconds\", \"warmup_seconds\", \"image_load_seconds\",\n                \"actual_updates\", \"jit_cache_size\", \"final_gaussians\"\n            )}, flush=True)\n            evaluation = \"eval_\" + name\n            subprocess.run([\n                python, str(work / \"run_checked.py\"), \"baseline\", evaluation,\n                python, \"benchmarks/evaluate_protocol.py\", scene,\n                str(work / f\"{name}.ply\"), \"--backend\", \"jaxgs\",\n                \"--output\", str(work / f\"{evaluation}.json\"),\n            ], check=True)\n            result = json.loads((work / f\"{evaluation}.json\").read_text())\n            print(evaluation, \"PSNR\", result[\"mean_psnr\"], flush=True)\n"
+    },
+    "run_checked.py": {
+      "sha256": "9c988a92f771f3a41961e02582ad2b1b2c61851a21dae4d26a2ad93c5ff1683f",
+      "source": "import json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport time\n\nwork = Path(__file__).parent\nvariant, name, *command = sys.argv[1:]\nenv = dict(os.environ, PYTHONPATH=str(work / variant / 'src'),\n           XLA_PYTHON_CLIENT_PREALLOCATE='false')\nchecks = 0\nstart = time.perf_counter()\nsamples = []\napps = subprocess.check_output(\n    ['nvidia-smi', '--query-compute-apps=pid', '--format=csv,noheader'], text=True).strip()\nif apps:\n    raise RuntimeError(f'GPU is already occupied: {apps}')\nwith (work / f'{name}.log').open('w') as log:\n    process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)\n    while process.poll() is None:\n        checks += 1\n        apps = subprocess.check_output(\n            ['nvidia-smi', '--query-compute-apps=pid,process_name', '--format=csv,noheader'],\n            text=True).strip().splitlines()\n        foreign = [line for line in apps if int(line.split(',')[0]) != process.pid]\n        if foreign:\n            samples.append({'seconds': time.perf_counter() - start, 'foreign': foreign})\n        time.sleep(0.5)\nrecord = dict(variant=variant, command=command, pid=process.pid,\n              wall_seconds=time.perf_counter() - start,\n              returncode=process.returncode, monitor_samples=checks, foreign_processes=samples)\n(work / f'{name}.monitor.json').write_text(json.dumps(record, indent=2) + '\\n')\nprint(json.dumps(record), flush=True)\nif process.returncode or samples:\n    print((work / f'{name}.log').read_text()[-4000:])\n    sys.exit(process.returncode or 1)\n"
+    },
+    "isolated_update.py": {
+      "sha256": "b0d90b60bc93ff6d8c1ca0450e7f7307a95833518fe2d14dd7484d1c5ecf9b4c",
+      "source": "import importlib.util\nimport json\nimport sys\nfrom pathlib import Path\n\nimport jax\nimport jax.numpy as jnp\nimport numpy as np\n\nfrom jaxgs.training.optimizer import create_adam_state, optax_update\n\nspec = importlib.util.spec_from_file_location(\"visible_cases\", \"tests/test_visible_optax.py\")\ncases = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(cases)\noutput = Path(sys.argv[1])\nrng = np.random.default_rng(718)\npool = cases._pool(257, 65, rng)\nstate = create_adam_state(pool)\nstate = state.replace(\n    m=jax.tree.map(lambda x: x + 0.2, state.m),\n    v=jax.tree.map(lambda x: x + 0.1, state.v),\n    step=jnp.arange(257, dtype=jnp.int32),\n)\nvisible, clusters = cases._visible(257, 65, [True, False, True, True])\ncenter = jnp.array([0.1, -0.2, 0.3], jnp.float32)\npool = pool.replace(xyz=pool.xyz.at[0].set(center))\narrays = {}\nfor index, degree in enumerate((0, 1, 2, 3, 0)):\n    _, gradients = cases._compact(rng, pool, visible, 65, 1)\n    pool, state = jax.jit(lambda p, s, g: optax_update(\n        p, s, g, visible, 37 + index, 2.0, cluster_size=65,\n        compact_gradients=True, active_degree=degree, compacted_clusters=clusters,\n        sh_pullback_center=center if degree > 0 else None,\n    ))(pool, state, tuple(gradients))\n    for leaf, value in enumerate(jax.tree.leaves((pool, state))):\n        arrays[f\"stage{index}_sh{degree}/{leaf}\"] = np.asarray(value)\nnp.savez(output, **arrays)\nprint(json.dumps(dict(arrays=len(arrays), degree_schedule=[0, 1, 2, 3, 0],\n                      partial_clusters=True, free_and_invisible_slots=True,\n                      nonzero_momentum=True, undefined_gradient_tail=True)), flush=True)\n"
+    },
+    "validate_states.py": {
+      "sha256": "1c4fe5397e6ca2921d0aa33364d20ccaf3b439493477b3da5131b47d4ac6a767",
+      "source": "import json\nimport os\nimport subprocess\nfrom pathlib import Path\n\nimport numpy as np\n\nwork = Path(__file__).parent\nfor variant in (\"baseline\", \"read_write_stream\"):\n    command = [\".venv/bin/python\", str(work / \"check_training.py\"), str(work / f\"states_{variant}.npz\")]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"states_{variant}.log\").open(\"w\") as log:\n        subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)\n    print(variant, \"state checks complete\", flush=True)\n\nbaseline = np.load(work / \"states_baseline.npz\")\ncandidate = np.load(work / \"states_read_write_stream.npz\")\nassert set(baseline.files) == set(candidate.files)\nrows = []\nfor name in baseline.files:\n    expected, actual = baseline[name], candidate[name]\n    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-6)\n    delta = actual.astype(np.float64) - expected.astype(np.float64)\n    rows.append(dict(name=name, equal=bool(np.array_equal(actual, expected)),\n                     max_abs=float(np.max(np.abs(delta))),\n                     relative_l2=float(np.linalg.norm(delta) / max(np.linalg.norm(expected.astype(np.float64)), 1e-20))))\nresult = dict(arrays=len(rows), arrays_equal=sum(row[\"equal\"] for row in rows),\n              max_abs=max(row[\"max_abs\"] for row in rows),\n              max_relative_l2=max(row[\"relative_l2\"] for row in rows),\n              rtol=2e-5, atol=2e-6, rows=rows)\n(work / \"state_comparison.json\").write_text(json.dumps(result, indent=2) + \"\\n\")\nprint({key: value for key, value in result.items() if key != \"rows\"}, flush=True)\n"
+    },
+    "validate_rows.py": {
+      "sha256": "20ffeeac082de2808242cf48afdce7370504b752bd868a6748dbaab53175bd0c",
+      "source": "import json\nimport os\nimport subprocess\nfrom pathlib import Path\n\nwork = Path(__file__).parent\nrecords = []\nfor variant in (\"rows16\", \"rows8\"):\n    command = [\n        \".venv/bin/python\", \"-m\", \"pytest\",\n        \"tests/test_visible_optax.py\", \"tests/test_optax.py\",\n        \"tests/test_sh_pullback.py\", \"tests/test_muon.py\",\n        \"-q\", \"-p\", \"no:cacheprovider\",\n    ]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"{variant}_tests.log\").open(\"w\") as log:\n        result = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT)\n    records.append(dict(variant=variant, command=command, returncode=result.returncode))\n    (work / \"row_validation.json\").write_text(json.dumps(records, indent=2) + \"\\n\")\n    print(variant, result.returncode, flush=True)\n    print((work / f\"{variant}_tests.log\").read_text()[-1200:], flush=True)\n    if result.returncode:\n        raise SystemExit(result.returncode)\n"
+    },
+    "validate_final.py": {
+      "sha256": "73a99be28f7ae16b2ceaa97f6eea5414a42831f8e7cfa70c1066554045962034",
+      "source": "import json\nimport os\nimport subprocess\nfrom pathlib import Path\n\nimport numpy as np\n\nwork = Path(__file__).parent\nvariants = (\"baseline\", \"read_write_stream\", \"rows16\", \"rows8\")\nrecords = []\nfor variant in variants:\n    command = [\".venv/bin/python\", str(work / \"isolated_update.py\"), str(work / f\"isolated_{variant}.npz\")]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"isolated_{variant}.log\").open(\"w\") as log:\n        subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)\n    print(variant, \"isolated update complete\", flush=True)\nbaseline = np.load(work / \"isolated_baseline.npz\")\nfor variant in variants[1:]:\n    candidate = np.load(work / f\"isolated_{variant}.npz\")\n    assert set(baseline.files) == set(candidate.files)\n    for name in baseline.files:\n        np.testing.assert_array_equal(candidate[name], baseline[name])\n    records.append(dict(variant=variant, arrays=len(baseline.files), bit_exact=True))\n(work / \"isolated_comparison.json\").write_text(json.dumps(records, indent=2) + \"\\n\")\n\nchecks = []\nfor variant in variants[1:]:\n    command = [\n        \"/usr/local/cuda/bin/compute-sanitizer\", \"--tool\", \"memcheck\",\n        \"--report-api-errors\", \"no\", \"--error-exitcode\", \"86\",\n        \".venv/bin/python\", \"-m\", \"pytest\", \"tests/test_visible_optax.py\",\n        \"-k\", \"matches_dense_optax or runs_other_row_local_transforms or deferred_sh_matches\",\n        \"-q\", \"-p\", \"no:cacheprovider\",\n    ]\n    env = dict(os.environ, PYTHONPATH=str(work / variant / \"src\"), XLA_PYTHON_CLIENT_PREALLOCATE=\"false\")\n    with (work / f\"memcheck_{variant}.log\").open(\"w\") as log:\n        result = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT)\n    checks.append(dict(variant=variant, command=command, returncode=result.returncode))\n    (work / \"cuda_checks.json\").write_text(json.dumps(checks, indent=2) + \"\\n\")\n    print(variant, \"memcheck\", result.returncode, flush=True)\n    print((work / f\"memcheck_{variant}.log\").read_text()[-1000:], flush=True)\n    if result.returncode:\n        raise SystemExit(result.returncode)\n"
+    }
+  },
+  "cleanup": {
+    "temporary_measurement_directory": "output/optimizer_occupancy_20261004 (not committed; retained locally until this record is reviewed)",
+    "large_training_checkpoints": "not copied into the repository record",
+    "common_model": "output/viewer_bicycle/model.ply retained; its hash is recorded above",
+    "measurement_directory_after_archive": "deleted after commit; raw summaries and runner sources remain in this JSON"
+  },
+  "reproduction_commands": {
+    "fixed_model": "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python output/optimizer_occupancy_20261004/measure_fixed.py",
+    "summarize_fixed": "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python output/optimizer_occupancy_20261004/summarize_fixed.py",
+    "full_training": "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python output/optimizer_occupancy_20261004/measure_training.py",
+    "targeted_tests": ".venv/bin/python -m pytest tests/test_visible_optax.py tests/test_optax.py tests/test_sh_pullback.py tests/test_muon.py -q"
+  }
+}
