@@ -2,6 +2,8 @@ import cuda.bindings.driver as cuda
 import cutlass
 import cutlass.cute as cute
 
+from . import half2 as h
+
 
 @cute.kernel
 def _projection_kernel(
@@ -23,6 +25,7 @@ def _projection_kernel(
     out_color: cute.Tensor,
     out_alpha: cute.Tensor,
     out_visible: cute.Tensor,
+    out_packed: cute.Tensor,
     capacity: int,
     sh_dim: cutlass.Constexpr,
     degree: cutlass.Constexpr,
@@ -32,6 +35,7 @@ def _projection_kernel(
     far: float,
     cluster_size: cutlass.Constexpr,
     compacted: cutlass.Constexpr,
+    packed: cutlass.Constexpr,
 ):
     tidx, _, _ = cute.arch.thread_idx()
     bidx, _, _ = cute.arch.block_idx()
@@ -134,6 +138,7 @@ def _projection_kernel(
             ),
             coefficients,
         )
+        colors = cute.make_rmem_tensor(3, cute.Float32)
         for channel in cutlass.range_constexpr(3):
             value = 0.28209479177387814 * coefficients[channel]
             if degree >= 1:
@@ -163,7 +168,21 @@ def _projection_kernel(
                     + 1.445305721320277 * dz * (xx - yy) * coefficients[channel + 42]
                     - 0.5900435899266435 * dx * (xx - 3 * yy) * coefficients[channel + 45]
                 )
-            out_color[gid * 3 + channel] = cute.max(value + 0.5, cute.Float32(0.0))
+            colors[channel] = cute.max(value + 0.5, cute.Float32(0.0))
+            out_color[gid * 3 + channel] = colors[channel]
+
+        # The packed rasterizer normally launches a second pool-wide pack
+        # kernel. Projection already has these values in registers, so the
+        # fused path emits the same half2 record without another global pass.
+        if cutlass.const_expr(packed) and is_visible:
+            out_packed[gid * 8] = h.float_bits(u - 0.5)
+            out_packed[gid * 8 + 1] = h.float_bits(v - 0.5)
+            out_packed[gid * 8 + 2] = cutlass.Uint32(0)
+            out_packed[gid * 8 + 3] = h.pack(colors[0], colors[1])
+            out_packed[gid * 8 + 4] = h.float_bits(d / det)
+            out_packed[gid * 8 + 5] = h.float_bits(-b / det)
+            out_packed[gid * 8 + 6] = h.float_bits(a / det)
+            out_packed[gid * 8 + 7] = h.pack(colors[2], alpha)
 
 
 @cute.kernel
@@ -222,6 +241,7 @@ def launch_projection(
     out_color: cute.Tensor,
     out_alpha: cute.Tensor,
     out_visible: cute.Tensor,
+    out_packed: cute.Tensor,
     *,
     capacity: int,
     sh_dim: cutlass.Constexpr,
@@ -232,6 +252,7 @@ def launch_projection(
     far: float,
     cluster_size: cutlass.Constexpr,
     compacted: cutlass.Constexpr,
+    packed: cutlass.Constexpr,
     clear_invisible: cutlass.Constexpr = True,
 ):
     block = 128
@@ -262,6 +283,7 @@ def launch_projection(
         out_color,
         out_alpha,
         out_visible,
+        out_packed,
         capacity,
         sh_dim,
         degree,
@@ -271,4 +293,5 @@ def launch_projection(
         far,
         cluster_size,
         compacted,
+        packed,
     ).launch(grid=[(capacity + block - 1) // block, 1, 1], block=[block, 1, 1], stream=stream)

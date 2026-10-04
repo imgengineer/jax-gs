@@ -57,7 +57,8 @@ def compute_training_step(
 
     # SH0 already has just three gradients; deferral only helps higher bands.
     defer_sh = optimizer in ("optax", "muon") and active_degree > 0
-    projected_gaussians, projection_pullback = project_with_compact_pullback(
+    include_packed = config.tile_size in (8, 16)
+    projection_result = project_with_compact_pullback(
         culled_gaussians,
         camera,
         config,
@@ -66,14 +67,25 @@ def compute_training_step(
         rgb_only=True,
         active_sh_only=optimizer in ("optax", "muon"),
         sh_color_only=defer_sh,
+        include_packed=include_packed,
     )
+    if include_packed:
+        projected_gaussians, projection_pullback, packed_params = projection_result
+    else:
+        projected_gaussians, projection_pullback = projection_result
+        packed_params = None
     visibility_table = build_sorted_visibility_table_cute(
         jax.lax.stop_gradient(projected_gaussians), camera, config
     )
     # LiteGS's half2 kernel needs at least 64 pixels per tile. Small diagnostic
     # scenes retain the float32 path; production uses LiteGS's packed path.
     loss_and_grad = (
-        partial(packed_loss_and_grad, symmetric_conic=True, visible_clusters=visible_clusters)
+        partial(
+            packed_loss_and_grad,
+            symmetric_conic=True,
+            visible_clusters=visible_clusters,
+            packed_params=packed_params,
+        )
         if config.tile_size in (8, 16)
         else rasterize_loss_and_grad
     )

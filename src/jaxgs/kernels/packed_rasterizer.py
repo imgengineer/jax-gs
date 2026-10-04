@@ -26,13 +26,20 @@ def packed_forward(
     camera: Camera,
     config: CapacityConfig,
     collect_stats: bool = False,
+    packed_params: chex.Array | None = None,
 ) -> tuple[chex.Array, PackedRasterCache, chex.Array]:
     """Return RGB, the backward cache, and fragment statistics.
 
     The table may reference only visible Gaussians; others are not packed.
     """
     return _packed_forward(
-        projected, table, camera, config, collect_stats, record_contributions=True
+        projected,
+        table,
+        camera,
+        config,
+        collect_stats,
+        record_contributions=True,
+        packed_params=packed_params,
     )
 
 
@@ -44,6 +51,7 @@ def _packed_forward(
     collect_stats: bool,
     *,
     record_contributions: bool,
+    packed_params: chex.Array | None = None,
 ) -> tuple[chex.Array, PackedRasterCache, chex.Array]:
     from cutlass.jax import cutlass_call
 
@@ -57,11 +65,14 @@ def _packed_forward(
     cached_pixels = pixels if record_contributions else 1
     cached_tiles = tiles if record_contributions else 1
     bit_words = (config.visibility_capacity + 31) // 32 + tiles if record_contributions else 1
+    use_packed_input = packed_params is not None
     call = cutlass_call(
         launch_forward,
         compile_key=launch_forward,
         output_shape_dtype=(
-            jax.ShapeDtypeStruct((config.max_gaussians * 8,), jnp.uint32),
+            jax.ShapeDtypeStruct(
+                (1 if use_packed_input else config.max_gaussians * 8,), jnp.uint32
+            ),
             jax.ShapeDtypeStruct((pixels * 3,), jnp.float32),
             jax.ShapeDtypeStruct((cached_pixels,), jnp.float32),
             jax.ShapeDtypeStruct((cached_pixels,), jnp.int32),
@@ -78,8 +89,10 @@ def _packed_forward(
         capacity=config.max_gaussians,
         collect_stats=int(collect_stats),
         record_contributions=record_contributions,
+        use_packed_input=use_packed_input,
     )
-    params, rgb, trans, last, stats, backward_work, _, contribution_bits = call(
+    packed_input = packed_params if use_packed_input else jnp.zeros((1,), jnp.uint32)
+    params_output, rgb, trans, last, stats, backward_work, _, contribution_bits = call(
         projected.mean.reshape(-1),
         projected.conic.reshape(-1),
         projected.color.reshape(-1),
@@ -87,7 +100,9 @@ def _packed_forward(
         projected.visible.astype(jnp.int8),
         table.gaussian_ids,
         table.tile_offsets,
+        packed_input,
     )
+    params = packed_params if use_packed_input else params_output
     return (
         rgb.reshape(camera.height, camera.width, 3),
         (params, trans, last, backward_work, contribution_bits),
@@ -187,6 +202,7 @@ def packed_loss_and_grad(
     *,
     symmetric_conic: bool = False,
     visible_clusters: VisibleClusters | None = None,
+    packed_params: chex.Array | None = None,
 ) -> tuple[chex.Array, ProjectedGaussians, FragmentStatistics]:
     """Loss, projected-field gradients and detached [C, 4] fragment statistics.
 
@@ -194,7 +210,9 @@ def packed_loss_and_grad(
     """
     from .fused_loss import _fused_loss_and_grad_with_scale
 
-    image, cache, fragments = packed_forward(projected, table, camera, config, collect_stats)
+    image, cache, fragments = packed_forward(
+        projected, table, camera, config, collect_stats, packed_params
+    )
     loss, image_grad, image_grad_scale = _fused_loss_and_grad_with_scale(image, target)
     gradients, alpha_grad_sq_sum = packed_backward(
         projected,

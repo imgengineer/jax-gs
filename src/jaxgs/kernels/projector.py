@@ -31,6 +31,7 @@ def _project_gaussian_arrays(
     active_degree: int | None = None,
     compacted_clusters: VisibleClusters | None = None,
     clear_invisible: bool = True,
+    packed: bool = False,
 ) -> tuple[chex.Array, ...]:
     """Launch projection with the pool layout and optional visible-cluster prefix.
 
@@ -52,6 +53,7 @@ def _project_gaussian_arrays(
         jax.ShapeDtypeStruct((capacity * 3,), jnp.float32),
         jax.ShapeDtypeStruct((capacity,), jnp.float32),
         jax.ShapeDtypeStruct((capacity,), jnp.int8),
+        jax.ShapeDtypeStruct((capacity * 8 if packed else 1,), jnp.uint32),
     )
     project_kernel = cutlass_call(
         launch_projection,
@@ -67,6 +69,7 @@ def _project_gaussian_arrays(
         far=far,
         cluster_size=config.cluster_size,
         compacted=compacted_clusters is not None,
+        packed=packed,
         clear_invisible=clear_invisible,
     )
     cluster_arrays = (
@@ -74,7 +77,7 @@ def _project_gaussian_arrays(
         if compacted_clusters is None
         else compacted_clusters
     )
-    mean, depth, conic, radius, color, alpha, visible = project_kernel(
+    mean, depth, conic, radius, color, alpha, visible, packed_params = project_kernel(
         xyz.reshape(-1),
         log_scale.reshape(-1),
         rotation.reshape(-1),
@@ -94,6 +97,7 @@ def _project_gaussian_arrays(
         color.reshape(capacity, 3),
         alpha,
         visible.astype(jnp.bool_),
+        packed_params,
     )
 
 
@@ -117,7 +121,7 @@ def project_cute(
             camera.height,
             camera.near,
             camera.far,
-        )
+        )[:7]
     )
 
 
@@ -231,7 +235,7 @@ def project_cute_vjp(
             camera.world_to_camera,
             intrinsics,
             camera.center,
-        )
+        )[:7]
     )
 
 
@@ -315,7 +319,11 @@ def project_with_compact_pullback(
     rgb_only: bool = False,
     active_sh_only: bool = False,
     sh_color_only: bool = False,
-) -> tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients]]:
+    include_packed: bool = False,
+) -> (
+    tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients]]
+    | tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients], chex.Array]
+):
     """CuTe projection and a pullback producing gradients in visible-cluster order.
 
     The pullback returns fixed-capacity buffers in visible-cluster order.
@@ -335,23 +343,24 @@ def project_with_compact_pullback(
         raise ValueError("active_degree must fit the pool's SH coefficients")
     intrinsics = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
     parameters = (pool.xyz, pool.log_scale, pool.rotation, pool.opacity, pool.sh)
-    projected = ProjectedGaussians(
-        *_project_gaussian_arrays(
-            *parameters,
-            pool.alive,
-            camera.world_to_camera,
-            intrinsics,
-            camera.center,
-            config,
-            camera.width,
-            camera.height,
-            camera.near,
-            camera.far,
-            active_degree,
-            clusters,
-            clear_invisible=False,
-        )
+    projection_values = _project_gaussian_arrays(
+        *parameters,
+        pool.alive,
+        camera.world_to_camera,
+        intrinsics,
+        camera.center,
+        config,
+        camera.width,
+        camera.height,
+        camera.near,
+        camera.far,
+        active_degree,
+        clusters,
+        clear_invisible=False,
+        packed=include_packed,
     )
+    projected = ProjectedGaussians(*projection_values[:7])
+    packed_params = projection_values[7]
 
     def pullback(cotangents):
         arrays = _compute_projection_gradients(
@@ -386,4 +395,4 @@ def project_with_compact_pullback(
             for index, (array, value) in enumerate(zip(arrays, parameters, strict=True))
         )
 
-    return projected, pullback
+    return (projected, pullback, packed_params) if include_packed else (projected, pullback)

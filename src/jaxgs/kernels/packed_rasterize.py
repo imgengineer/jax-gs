@@ -670,6 +670,7 @@ def launch_forward(
     visible: cute.Tensor,
     ids: cute.Tensor,
     offsets: cute.Tensor,
+    packed_input: cute.Tensor,
     params: cute.Tensor,
     rgb: cute.Tensor,
     final_t: cute.Tensor,
@@ -686,19 +687,24 @@ def launch_forward(
     capacity: int,
     collect_stats: cutlass.Constexpr,
     record_contributions: cutlass.Constexpr,
+    use_packed_input: cutlass.Constexpr,
 ):
     tiles_x = (width + tile_size - 1) // tile_size
     tiles = tiles_x * ((height + tile_height - 1) // tile_height)
     launch_tile_order(stream, offsets, order, tiles=tiles, from_offsets=True)
-    _pack(mean, conic, color, opacity, visible, params, capacity).launch(
-        grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
-    )
+    raster_params = params
+    if cutlass.const_expr(use_packed_input):
+        raster_params = packed_input
+    else:
+        _pack(mean, conic, color, opacity, visible, params, capacity).launch(
+            grid=[(capacity + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
+        )
     if cutlass.const_expr(collect_stats):
         _zero_fragments(stats, capacity * 2).launch(
             grid=[(capacity * 2 + 255) // 256, 1, 1], block=[256, 1, 1], stream=stream
         )
     _forward(
-        params,
+        raster_params,
         ids,
         offsets,
         order,
