@@ -531,7 +531,7 @@
     }
   },
   "cleanup": {
-    "temporary_measurement_directory": "output/optimizer_occupancy_20261004 (not committed; retained locally until this record is reviewed)",
+    "temporary_measurement_directory": "output/optimizer_occupancy_20261004 (deleted after the archived measurements were committed)",
     "large_training_checkpoints": "not copied into the repository record",
     "common_model": "output/viewer_bicycle/model.ply retained; its hash is recorded above",
     "measurement_directory_after_archive": "deleted after commit; raw summaries and runner sources remain in this JSON"
