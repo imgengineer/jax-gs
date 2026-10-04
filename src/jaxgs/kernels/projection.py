@@ -138,7 +138,7 @@ def _projection_kernel(
             ),
             coefficients,
         )
-        colors = cute.make_rmem_tensor(3, cute.Float32)
+        color0 = cute.Float32(0.0)
         for channel in cutlass.range_constexpr(3):
             value = 0.28209479177387814 * coefficients[channel]
             if degree >= 1:
@@ -168,8 +168,15 @@ def _projection_kernel(
                     + 1.445305721320277 * dz * (xx - yy) * coefficients[channel + 42]
                     - 0.5900435899266435 * dx * (xx - 3 * yy) * coefficients[channel + 45]
                 )
-            colors[channel] = cute.max(value + 0.5, cute.Float32(0.0))
-            out_color[gid * 3 + channel] = colors[channel]
+            color = cute.max(value + 0.5, cute.Float32(0.0))
+            out_color[gid * 3 + channel] = color
+            if cutlass.const_expr(packed):
+                if channel == 0:
+                    color0 = color
+                if channel == 1 and is_visible:
+                    out_packed[gid * 8 + 3] = h.pack(color0, color)
+                if channel == 2 and is_visible:
+                    out_packed[gid * 8 + 7] = h.pack(color, alpha)
 
         # The packed rasterizer normally launches a second pool-wide pack
         # kernel. Projection already has these values in registers, so the
@@ -178,11 +185,9 @@ def _projection_kernel(
             out_packed[gid * 8] = h.float_bits(u - 0.5)
             out_packed[gid * 8 + 1] = h.float_bits(v - 0.5)
             out_packed[gid * 8 + 2] = cutlass.Uint32(0)
-            out_packed[gid * 8 + 3] = h.pack(colors[0], colors[1])
             out_packed[gid * 8 + 4] = h.float_bits(d / det)
             out_packed[gid * 8 + 5] = h.float_bits(-b / det)
             out_packed[gid * 8 + 6] = h.float_bits(a / det)
-            out_packed[gid * 8 + 7] = h.pack(colors[2], alpha)
 
 
 @cute.kernel
