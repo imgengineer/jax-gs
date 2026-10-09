@@ -32,6 +32,7 @@ def _projection_kernel(
     far: float,
     cluster_size: cutlass.Constexpr,
     compacted: cutlass.Constexpr,
+    visible_color_only: cutlass.Constexpr,
 ):
     tidx, _, _ = cute.arch.thread_idx()
     bidx, _, _ = cute.arch.block_idx()
@@ -117,53 +118,61 @@ def _projection_kernel(
         )
         out_visible[gid] = cutlass.Int8(1) if is_visible else cutlass.Int8(0)
 
-        dx, dy, dz = wx - center[0], wy - center[1], wz - center[2]
-        direction_norm = cute.rsqrt(cute.max(dx * dx + dy * dy + dz * dz, cute.Float32(1e-16)))
-        dx, dy, dz = dx * direction_norm, dy * direction_norm, dz * direction_norm
-        xx, yy, zz = dx * dx, dy * dy, dz * dz
-        # Each point's coefficients are contiguous: load the active degree's
-        # prefix with 128-bit loads instead of strided scalar loads.
-        stride = sh_dim * 3
-        coefficients = cute.make_rmem_tensor(
-            min(stride, ((degree + 1) * (degree + 1) * 3 + 3) // 4 * 4), cute.Float32
-        )
-        cute.autovec_copy(
-            cute.make_tensor(
-                sh.iterator + cute.assume(gid * stride, divby=4 if stride % 4 == 0 else 1),
-                coefficients.layout,
-            ),
-            coefficients,
-        )
-        for channel in cutlass.range_constexpr(3):
-            value = 0.28209479177387814 * coefficients[channel]
-            if degree >= 1:
-                value += (
-                    -0.4886025119029199 * dy * coefficients[channel + 3]
-                    + 0.4886025119029199 * dz * coefficients[channel + 6]
-                    - 0.4886025119029199 * dx * coefficients[channel + 9]
-                )
-            if degree >= 2:
-                value += (
-                    1.0925484305920792 * dx * dy * coefficients[channel + 12]
-                    - 1.0925484305920792 * dy * dz * coefficients[channel + 15]
-                    + 0.31539156525252005 * (2 * zz - xx - yy) * coefficients[channel + 18]
-                    - 1.0925484305920792 * dx * dz * coefficients[channel + 21]
-                    + 0.5462742152960396 * (xx - yy) * coefficients[channel + 24]
-                )
-            if degree >= 3:
-                value += (
-                    -0.5900435899266435 * dy * (3 * xx - yy) * coefficients[channel + 27]
-                    + 2.890611442640554 * dx * dy * dz * coefficients[channel + 30]
-                    - 0.4570457994644658 * dy * (4 * zz - xx - yy) * coefficients[channel + 33]
-                    + 0.3731763325901154
-                    * dz
-                    * (2 * zz - 3 * xx - 3 * yy)
-                    * coefficients[channel + 36]
-                    - 0.4570457994644658 * dx * (4 * zz - xx - yy) * coefficients[channel + 39]
-                    + 1.445305721320277 * dz * (xx - yy) * coefficients[channel + 42]
-                    - 0.5900435899266435 * dx * (xx - 3 * yy) * coefficients[channel + 45]
-                )
-            out_color[gid * 3 + channel] = cute.max(value + 0.5, cute.Float32(0.0))
+        evaluate_color = True
+        if cutlass.const_expr(visible_color_only):
+            evaluate_color = is_visible
+        if evaluate_color:
+            dx, dy, dz = wx - center[0], wy - center[1], wz - center[2]
+            direction_norm = cute.rsqrt(cute.max(dx * dx + dy * dy + dz * dz, cute.Float32(1e-16)))
+            dx, dy, dz = dx * direction_norm, dy * direction_norm, dz * direction_norm
+            xx, yy, zz = dx * dx, dy * dy, dz * dz
+            # Each point's coefficients are contiguous: load the active degree's
+            # prefix with 128-bit loads instead of strided scalar loads.
+            stride = sh_dim * 3
+            coefficients = cute.make_rmem_tensor(
+                min(stride, ((degree + 1) * (degree + 1) * 3 + 3) // 4 * 4), cute.Float32
+            )
+            cute.autovec_copy(
+                cute.make_tensor(
+                    sh.iterator + cute.assume(gid * stride, divby=4 if stride % 4 == 0 else 1),
+                    coefficients.layout,
+                ),
+                coefficients,
+            )
+            for channel in cutlass.range_constexpr(3):
+                value = 0.28209479177387814 * coefficients[channel]
+                if degree >= 1:
+                    value += (
+                        -0.4886025119029199 * dy * coefficients[channel + 3]
+                        + 0.4886025119029199 * dz * coefficients[channel + 6]
+                        - 0.4886025119029199 * dx * coefficients[channel + 9]
+                    )
+                if degree >= 2:
+                    value += (
+                        1.0925484305920792 * dx * dy * coefficients[channel + 12]
+                        - 1.0925484305920792 * dy * dz * coefficients[channel + 15]
+                        + 0.31539156525252005 * (2 * zz - xx - yy) * coefficients[channel + 18]
+                        - 1.0925484305920792 * dx * dz * coefficients[channel + 21]
+                        + 0.5462742152960396 * (xx - yy) * coefficients[channel + 24]
+                    )
+                if degree >= 3:
+                    value += (
+                        -0.5900435899266435 * dy * (3 * xx - yy) * coefficients[channel + 27]
+                        + 2.890611442640554 * dx * dy * dz * coefficients[channel + 30]
+                        - 0.4570457994644658 * dy * (4 * zz - xx - yy) * coefficients[channel + 33]
+                        + 0.3731763325901154
+                        * dz
+                        * (2 * zz - 3 * xx - 3 * yy)
+                        * coefficients[channel + 36]
+                        - 0.4570457994644658 * dx * (4 * zz - xx - yy) * coefficients[channel + 39]
+                        + 1.445305721320277 * dz * (xx - yy) * coefficients[channel + 42]
+                        - 0.5900435899266435 * dx * (xx - 3 * yy) * coefficients[channel + 45]
+                    )
+                out_color[gid * 3 + channel] = cute.max(value + 0.5, cute.Float32(0.0))
+        else:
+            # Training's raster pullback has zero color cotangents here.
+            for channel in cutlass.range_constexpr(3):
+                out_color[gid * 3 + channel] = cute.Float32(0)
 
 
 @cute.kernel
@@ -233,6 +242,7 @@ def launch_projection(
     cluster_size: cutlass.Constexpr,
     compacted: cutlass.Constexpr,
     clear_invisible: cutlass.Constexpr = True,
+    visible_color_only: cutlass.Constexpr = False,
 ):
     block = 128
     if cutlass.const_expr(compacted and clear_invisible):
@@ -271,4 +281,5 @@ def launch_projection(
         far,
         cluster_size,
         compacted,
+        visible_color_only,
     ).launch(grid=[(capacity + block - 1) // block, 1, 1], block=[block, 1, 1], stream=stream)

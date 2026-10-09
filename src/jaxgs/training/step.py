@@ -66,6 +66,7 @@ def compute_training_step(
         rgb_only=True,
         active_sh_only=optimizer in ("optax", "muon"),
         sh_color_only=defer_sh,
+        visible_color_only=True,
     )
     visibility_table = build_sorted_visibility_table_cute(
         jax.lax.stop_gradient(projected_gaussians), camera, config

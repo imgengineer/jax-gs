@@ -31,6 +31,7 @@ def _project_gaussian_arrays(
     active_degree: int | None = None,
     compacted_clusters: VisibleClusters | None = None,
     clear_invisible: bool = True,
+    visible_color_only: bool = False,
 ) -> tuple[chex.Array, ...]:
     """Launch projection with the pool layout and optional visible-cluster prefix.
 
@@ -68,6 +69,7 @@ def _project_gaussian_arrays(
         cluster_size=config.cluster_size,
         compacted=compacted_clusters is not None,
         clear_invisible=clear_invisible,
+        visible_color_only=visible_color_only,
     )
     cluster_arrays = (
         (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32))
@@ -315,6 +317,7 @@ def project_with_compact_pullback(
     rgb_only: bool = False,
     active_sh_only: bool = False,
     sh_color_only: bool = False,
+    visible_color_only: bool = False,
 ) -> tuple[ProjectedGaussians, Callable[[ProjectedGaussians], ParameterGradients]]:
     """CuTe projection and a pullback producing gradients in visible-cluster order.
 
@@ -330,6 +333,8 @@ def project_with_compact_pullback(
     SH direction derivative.
     Outside the visible clusters, only projected.visible is defined (False):
     binning and rasterization read the other fields of visible Gaussians only.
+    visible_color_only skips SH evaluation for culled points inside those
+    clusters and sets their color to zero, as used by the training renderer.
     """
     if not 0 <= active_degree <= config.sh_degree:
         raise ValueError("active_degree must fit the pool's SH coefficients")
@@ -350,6 +355,7 @@ def project_with_compact_pullback(
             active_degree,
             clusters,
             clear_invisible=False,
+            visible_color_only=visible_color_only,
         )
     )
 
