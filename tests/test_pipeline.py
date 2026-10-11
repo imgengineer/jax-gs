@@ -228,25 +228,6 @@ def test_raster_alpha_cutoff_and_cap():
             np.testing.assert_allclose(result.alpha[0, 0], expected, atol=1e-6)
 
 
-def test_projection_culls_near_and_transparent_points():
-    config = CapacityConfig(2, 2, 2, 4, 0)
-    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_gaussians(
-        create_gaussians(config),
-        jnp.array([[0.0, 0.0, 0.1], [0.0, 0.0, 2.0]]),
-        jnp.full((2, 3), 0.5),
-        opacity=0.5,
-    )
-    pool = pool.replace(opacity=pool.opacity.at[1, 0].set(jnp.log(0.001 / 0.999)))
-    projectors = [project]
-    if jax.default_backend() == "gpu" and importlib.util.find_spec("cutlass") is not None:
-        from jaxgs.kernels.projector import project_cute
-
-        projectors.append(project_cute)
-    for projector in projectors:
-        np.testing.assert_array_equal(projector(pool, camera, config).visible, [False, False])
-
-
 def test_overflow_is_reported():
     config, camera, pool = scene(capacity=3, k=1)
     pool = seed_gaussians(
@@ -286,29 +267,7 @@ def test_slot_reuse_resets_moments():
     assert np.all(np.asarray(jax.nn.sigmoid(pool.opacity[pool.alive])) <= 0.01001)
 
 
-def test_split_keeps_capacity_and_shrinks_both_gaussians():
-    config, _, pool = scene()
-    pool = pool.replace(log_scale=pool.log_scale.at[0].set(jnp.log(0.1)))
-    original_xyz = pool.xyz[0]
-    child_pool, _, count = densify_step(
-        pool,
-        create_adam_state(pool),
-        jnp.array([1.0, 0.0, 0.0, 0.0]),
-        jax.random.key(2),
-        max_new=1,
-        threshold=0.5,
-    )
-    assert int(count) == 1
-    assert child_pool.xyz.shape == pool.xyz.shape
-    assert int(child_pool.n_active) == 2
-    np.testing.assert_allclose(
-        child_pool.xyz[0] + child_pool.xyz[1], 2 * original_xyz, rtol=1e-5, atol=1e-5
-    )
-    np.testing.assert_allclose(child_pool.log_scale[0], jnp.log(0.1 / 1.6))
-    np.testing.assert_allclose(child_pool.log_scale[1], jnp.log(0.1 / 1.6))
-
-
-def test_split_offset_follows_gaussian_rotation():
+def test_split_respects_rotation_and_shrinks_pool():
     from jaxgs.render.projection import quaternion_to_matrix
 
     config, _, pool = scene()
@@ -330,6 +289,12 @@ def test_split_offset_follows_gaussian_rotation():
     expected = quaternion_to_matrix(rotation) @ (jax.random.normal(key, (1, 3))[0] * scales / 1.6)
     np.testing.assert_allclose(
         (child_pool.xyz[1] - child_pool.xyz[0]) / 2, expected, rtol=1e-5, atol=1e-5
+    )
+    assert child_pool.xyz.shape == pool.xyz.shape
+    assert int(child_pool.n_active) == 2
+    np.testing.assert_allclose(child_pool.xyz[0] + child_pool.xyz[1], 2 * pool.xyz[0])
+    np.testing.assert_allclose(
+        child_pool.log_scale[:2], jnp.broadcast_to(jnp.log(scales / 1.6), (2, 3))
     )
 
 

@@ -1,5 +1,7 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from jaxgs.reference.loss import photometric_loss
 
@@ -10,14 +12,8 @@ def test_identical_image_has_zero_photometric_loss():
         np.testing.assert_allclose(photometric_loss(image, image), 0.0, atol=1e-7)
 
 
+@pytest.mark.gpu
 def test_cute_fused_loss_value_and_image_gradient():
-    import importlib.util
-
-    import jax
-    import pytest
-
-    if jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None:
-        pytest.skip("CuTe fused loss requires JAX CUDA")
     from jaxgs.kernels.fused_loss import fused_loss_and_grad
 
     rng = np.random.default_rng(41)
@@ -36,14 +32,8 @@ def test_cute_fused_loss_value_and_image_gradient():
     np.testing.assert_allclose(gradient, 0, atol=2e-7)
 
 
+@pytest.mark.gpu
 def test_cute_fused_loss_uint8_target_matches_normalized_float():
-    import importlib.util
-
-    import jax
-    import pytest
-
-    if jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None:
-        pytest.skip("CuTe fused loss requires JAX CUDA")
     from jaxgs.kernels.fused_loss import fused_loss_and_grad
 
     rng = np.random.default_rng(42)
@@ -60,14 +50,8 @@ def test_cute_fused_loss_uint8_target_matches_normalized_float():
                 np.testing.assert_array_equal(value, reference)
 
 
+@pytest.mark.gpu
 def test_cute_fused_gradient_scale_matches_full_image_reduction():
-    import importlib.util
-
-    import jax
-    import pytest
-
-    if jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None:
-        pytest.skip("CuTe fused loss requires JAX CUDA")
     from jaxgs.kernels.fused_loss import _fused_loss_and_grad_with_scale, fused_loss_and_grad
 
     loss_fn = jax.jit(fused_loss_and_grad)

@@ -1,5 +1,3 @@
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -11,10 +9,7 @@ from jaxgs.render.cluster_culling import build_cluster_tile_mask
 from jaxgs.render.projection import project
 from jaxgs.render.visibility_table import build_visibility_table
 
-requires_cute = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe edge regression requires JAX CUDA",
-)
+requires_cute = pytest.mark.gpu
 
 
 def edge_scene(edge="left", anisotropic=False):
@@ -72,9 +67,20 @@ def test_reference_preserves_edge_support(edge, anisotropic):
 @pytest.mark.parametrize("backend", ["jax", pytest.param("cute", marks=requires_cute)])
 def test_projection_uses_native_coarse_bounds(backend):
     config, camera, pool, _ = edge_scene()
-    means = np.array([[-38.3, 64], [-38.5, 64], [294.3, 64], [294.5, 64], [128, 64]])
-    xyz = np.c_[(means - [128, 64]) / 64, np.full(5, 2)]
-    pool = seed_gaussians(create_gaussians(config), jnp.array(xyz), jnp.full((5, 3), 0.5), scale=2)
+    means = np.array(
+        [
+            [-38.3, 64],
+            [-38.5, 64],
+            [294.3, 64],
+            [294.5, 64],
+            [128, 64],
+            [128, 64],
+            [128, 64],
+        ]
+    )
+    depths = np.array([2, 2, 2, 2, 2, 0.1, 1001])
+    xyz = np.c_[(means - [128, 64]) / 64, depths]
+    pool = seed_gaussians(create_gaussians(config), jnp.array(xyz), jnp.full((7, 3), 0.5), scale=2)
     pool = pool.replace(opacity=pool.opacity.at[4, 0].set(jnp.log(0.001 / 0.999)))
     projector = project
     if backend == "cute":
@@ -82,7 +88,7 @@ def test_projection_uses_native_coarse_bounds(backend):
 
         projector = project_cute
     np.testing.assert_array_equal(
-        projector(pool, camera, config).visible[:5], [True, False, True, False, False]
+        projector(pool, camera, config).visible[:7], [True, False, True, False, False, False, False]
     )
 
 

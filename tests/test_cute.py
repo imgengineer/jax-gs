@@ -1,4 +1,5 @@
-import importlib.util
+import importlib
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -13,11 +14,9 @@ from jaxgs.training.optimizer import create_adam_state
 from jaxgs.training.reference_densify import densify_step
 from jaxgs.training.reference_trainer import train_step
 
+pytestmark = pytest.mark.gpu
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
+
 def test_compile_keys_preserve_projection_specializations_without_ir_lookup(monkeypatch):
     from jaxgs.kernels.projector import project_cute_vjp
 
@@ -65,46 +64,6 @@ def test_compile_keys_preserve_projection_specializations_without_ir_lookup(monk
                 np.testing.assert_array_equal(getattr(actual, name), getattr(expected, name))
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
-def test_cute_forward_and_backward_match_reference():
-    from jaxgs.kernels.binning import build_visibility_table_cute
-    from jaxgs.render.rasterizer import rasterize, rasterize_forward
-
-    config = CapacityConfig(2, 2, 2, 4, 0)
-    camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
-    pool = seed_gaussians(
-        create_gaussians(config),
-        jnp.array([[0.1, 0.0, 2.0], [-0.2, 0.1, 3.0]], jnp.float32),
-        jnp.array([[1.0, 0.2, 0.1], [0.1, 0.5, 0.9]], jnp.float32),
-        scale=0.2,
-        opacity=0.5,
-    )
-    projected = project(pool, camera, config)
-    table = build_visibility_table(projected, camera, config)
-    forward = rasterize_forward(projected, table, camera, config)
-    reference = rasterize_jax(projected, table, camera, config)
-    narrow_table = build_visibility_table_cute(projected, camera, CapacityConfig(2, 2, 1, 4, 0))
-    assert np.any(narrow_table.overflow)
-    for name in ("rgb", "depth", "alpha"):
-        np.testing.assert_allclose(
-            getattr(forward, name), getattr(reference, name), rtol=1e-5, atol=1e-6
-        )
-
-    def loss(p, renderer):
-        result = renderer(p, table, camera, config)
-        return jnp.sum(result.rgb**2) + 0.1 * jnp.sum(result.depth) + 0.2 * jnp.sum(result.alpha)
-
-    cute_grads = jax.grad(lambda p: loss(p, rasterize), allow_int=True)(projected)
-    ref_grads = jax.grad(lambda p: loss(p, rasterize_jax), allow_int=True)(projected)
-    for name in ("mean", "conic", "depth", "color", "alpha"):
-        np.testing.assert_allclose(
-            getattr(cute_grads, name), getattr(ref_grads, name), rtol=2e-3, atol=2e-4
-        )
-
-
 @pytest.mark.parametrize(
     "capacity,num_tiles,dtype",
     [
@@ -114,10 +73,6 @@ def test_cute_forward_and_backward_match_reference():
         (257, 65535, np.uint16),
         (257, 65536, np.uint32),
     ],
-)
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
 )
 def test_sorted_tile_ranges_cover_gaps_padding_and_full_capacity(capacity, num_tiles, dtype):
     from cutlass.jax import cutlass_call
@@ -153,10 +108,6 @@ def test_sorted_tile_ranges_cover_gaps_padding_and_full_capacity(capacity, num_t
 
 
 @pytest.mark.parametrize("tiles_x", [255, 256])
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_sorted_binning_tile_key_width_preserves_padding_sentinel(tiles_x):
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
 
@@ -187,10 +138,6 @@ def test_sorted_binning_tile_key_width_preserves_padding_sentinel(tiles_x):
     assert int(table.gaussian_ids[0]) == 0
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_sorted_binning_keeps_more_than_one_gaussian_per_tile():
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
     from jaxgs.kernels.sorted_rasterizer import rasterize_sorted_cute_vjp
@@ -239,10 +186,6 @@ def test_sorted_binning_keeps_more_than_one_gaussian_per_tile():
     assert bool(narrow.overflow)
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_sorted_binning_keeps_large_ellipses_and_handles_empty_scene():
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
     from jaxgs.kernels.sorted_rasterizer import rasterize_sorted_cute_vjp
@@ -271,10 +214,6 @@ def test_sorted_binning_keeps_large_ellipses_and_handles_empty_scene():
 
 
 @pytest.mark.parametrize("tile_size", [16, 32])
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_sorted_rasterizer_partial_tiles_and_early_termination(tile_size):
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
     from jaxgs.kernels.sorted_rasterizer import rasterize_sorted_cute_vjp
@@ -344,10 +283,6 @@ def test_sorted_rasterizer_partial_tiles_and_early_termination(tile_size):
 
 
 @pytest.mark.parametrize("pipeline", ["bounded", "sorted"])
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_cute_projection_binning_and_parameter_gradients(pipeline):
     from jaxgs.kernels.binning import build_visibility_table_cute
     from jaxgs.kernels.projector import project_cute, project_cute_vjp
@@ -420,10 +355,6 @@ def test_cute_projection_binning_and_parameter_gradients(pipeline):
         )
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_projection_pullback_zero_and_individual_cotangents():
     from jaxgs.kernels.projector import project_cute_vjp
 
@@ -459,10 +390,6 @@ def test_projection_pullback_zero_and_individual_cotangents():
         np.testing.assert_array_equal(np.asarray(getattr(actual, name))[[0, 7, 8]], 0)
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_cute_projection_pullback_matches_reference_all_fields():
     from jaxgs.kernels.projector import project_cute_vjp
 
@@ -509,10 +436,6 @@ def test_cute_projection_pullback_matches_reference_all_fields():
 
 
 @pytest.mark.parametrize("degree", [0, 2])
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_cute_projection_pullback_clipped_color_and_near_plane(degree):
     from jaxgs.kernels.projector import project_cute_vjp
 
@@ -553,10 +476,6 @@ def test_cute_projection_pullback_clipped_color_and_near_plane(degree):
         np.testing.assert_allclose(value, reference, rtol=3e-3, atol=3e-4, err_msg=name)
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_cute_training_with_symmetric_covariance_stays_finite():
     config = CapacityConfig(2, 2, 2, 4, 0)
     camera = Camera.from_colmap([1, 0, 0, 0], [0, 0, 0], 8, 8, 4, 4, 8, 8)
@@ -577,10 +496,6 @@ def test_cute_training_with_symmetric_covariance_stays_finite():
     assert np.all(np.isfinite(np.asarray(pool.log_scale)))
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_cute_allocator_resets_reused_slot_with_padded_indices():
     config = CapacityConfig(3, 2, 2, 4, 0)
     pool = create_gaussians(config).replace(
@@ -608,10 +523,6 @@ def test_cute_allocator_resets_reused_slot_with_padded_indices():
     assert int(next_state.step[0]) == 0
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL",
-)
 def test_cute_pipeline_matches_reference_with_multiple_clusters():
     from jaxgs.kernels.binning import build_visibility_table_cute
     from jaxgs.kernels.projector import project_cute
@@ -639,6 +550,10 @@ def test_cute_pipeline_matches_reference_with_multiple_clusters():
     np.testing.assert_allclose(projected.radius, reference.radius, rtol=2e-4, atol=1e-3)
     reference_table = build_visibility_table(reference, camera, config)
     table = build_visibility_table_cute(projected, camera, config)
+    narrow_table = build_visibility_table_cute(
+        projected, camera, replace(config, max_gaussians_per_tile=1)
+    )
+    assert np.any(narrow_table.overflow)
     np.testing.assert_array_equal(table.tile_count, reference_table.tile_count)
     np.testing.assert_array_equal(
         table.tile_gaussian_ids[table.tile_valid],

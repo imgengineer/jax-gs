@@ -1,9 +1,7 @@
 import importlib
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
-import jax
 import numpy as np
 import pytest
 from PIL import Image
@@ -35,10 +33,7 @@ def test_benchmark_rejects_empty_gaussian_cloud(benchmark):
         benchmark._cluster_indices(0, 128)
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="fixed training benchmark requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize(
     "count,width,height,expected_shape",
     [(128, 32, 16, (16, 32)), (129, 32, 16, (16, 32)), (129, 2000, 24, (19, 1600))],

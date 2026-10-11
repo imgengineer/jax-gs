@@ -1,11 +1,17 @@
 """Spatial ordering of Gaussian parameters and their optimizer state."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import chex
 import jax
 import jax.numpy as jnp
 
-from ..training.optimizer import AdamState
 from .point import GaussianArrays
+
+if TYPE_CHECKING:
+    from ..training.optimizer import AdamState
 
 
 def _spread_bits(value: chex.Array) -> chex.Array:

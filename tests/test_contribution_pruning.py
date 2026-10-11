@@ -1,8 +1,5 @@
 """Contribution masks preserve RGB cotangents across holes and opaque tails."""
 
-import importlib.util
-
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -10,10 +7,7 @@ import pytest
 from jaxgs import Camera, CapacityConfig
 from jaxgs.render.types import ProjectedGaussians, SortedVisibilityTable
 
-pytestmark = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="Packed rasterizer requires JAX CUDA and CuTe",
-)
+pytestmark = pytest.mark.gpu
 
 
 @pytest.mark.parametrize("kind", ["holes", "empty", "opaque"])

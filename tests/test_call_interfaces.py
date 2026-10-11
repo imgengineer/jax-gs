@@ -1,6 +1,5 @@
 """LiteGS-style calls retain JAX shapes, NNX updates and rendering contracts."""
 
-import importlib.util
 from dataclasses import replace
 
 import jax
@@ -16,11 +15,7 @@ from jaxgs.render.projection import project
 from jaxgs.render.visibility_table import build_visibility_table
 from jaxgs.scene.cluster import world_cluster_bounds
 
-requires_gpu = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="requires JAX CUDA and CuTe",
-)
-backends = ["reference", pytest.param("cute", marks=requires_gpu)]
+backends = ["reference", pytest.param("cute", marks=pytest.mark.gpu)]
 
 
 def scene(tile_size=4, tile_height=None):
@@ -60,8 +55,8 @@ def test_preprocess_keeps_fixed_shapes_and_parameter_buffers(backend, empty):
     "backend,tile_size,tile_height",
     [
         ("reference", 4, 4),
-        pytest.param("cute", 4, 4, marks=requires_gpu),
-        pytest.param("cute", 16, 8, marks=requires_gpu),
+        pytest.param("cute", 4, 4, marks=pytest.mark.gpu),
+        pytest.param("cute", 16, 8, marks=pytest.mark.gpu),
     ],
 )
 @pytest.mark.parametrize("degree", [0, 1])

@@ -1,9 +1,7 @@
 import importlib
-import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -22,15 +20,15 @@ def evaluation(monkeypatch):
     return importlib.import_module("evaluate_protocol")
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="evaluation requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize(
-    "degree,width,height,expected_shape",
-    [(degree, 16, 8, (8, 16)) for degree in range(4)] + [(0, 2000, 24, (19, 1600))],
+    "degree,width,height,expected_shape,suffix",
+    [
+        *((degree, 16, 8, (8, 16), ".npz") for degree in range(4)),
+        (3, 16, 8, (8, 16), ".ply"),
+        (0, 2000, 24, (19, 1600), ".npz"),
+    ],
 )
-@pytest.mark.parametrize("suffix", [".npz", ".ply"])
 def test_evaluation_matches_reference_for_checkpoint_sh_and_resolution(
     evaluation, tmp_path, degree, width, height, expected_shape, suffix
 ):

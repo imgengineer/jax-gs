@@ -1,18 +1,12 @@
 """Training may skip culled SH values without changing rendering or its pullback."""
 
-import importlib.util
-
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from jaxgs import Camera, CapacityConfig, create_gaussians, seed_gaussians
 
-pytestmark = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="Projection visibility requires JAX CUDA and CuTe",
-)
+pytestmark = pytest.mark.gpu
 
 
 @pytest.mark.parametrize("degree", [0, 1, 2, 3])

@@ -1,4 +1,3 @@
-import importlib.util
 from dataclasses import replace
 
 import jax
@@ -8,10 +7,7 @@ import pytest
 
 from jaxgs import Camera, CapacityConfig, create_gaussians, seed_gaussians
 
-pytestmark = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="Packed rasterizer requires JAX CUDA and CuTe",
-)
+pytestmark = pytest.mark.gpu
 
 
 @pytest.mark.parametrize("degree", [0, 1, 2, 3])

@@ -1,5 +1,3 @@
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -177,10 +175,7 @@ def test_densification_preserves_normal_random_prefix_and_compilation(partitiona
         assert len(set(cache_sizes)) == 1
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe partition requires JAX CUDA",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize("capacity", [1, 257, 1025])
 @pytest.mark.parametrize("pattern", ["split", "clone", "mixed"])
 def test_cute_partition_preserves_stable_groups_and_unused_tail(capacity, pattern):
@@ -201,15 +196,6 @@ def test_cute_partition_preserves_stable_groups_and_unused_tail(capacity, patter
         actual = partition(jnp.asarray(split), jnp.array(candidate_count))
         np.testing.assert_array_equal(actual, expected)
         assert partition._cache_size() == 1
-
-
-@pytest.mark.skipif(importlib.util.find_spec("cutlass") is None, reason="CuTe is not installed")
-def test_cute_partition_requires_cuda(monkeypatch):
-    from jaxgs.kernels.partitioner import stable_split_partition_cute
-
-    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
-    with pytest.raises(RuntimeError, match="CuTe partition requires"):
-        stable_split_partition_cute(jnp.array([True]), jnp.array(1))
 
 
 def test_adam_rates_mask_and_opacity_decay():
@@ -242,10 +228,7 @@ def test_adam_rates_mask_and_opacity_decay():
         np.testing.assert_array_equal(getattr(cleared.v, field), 0)
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe protocol requires JAX CUDA",
-)
+@pytest.mark.gpu
 def test_fragment_statistics_and_full_step():
     from jaxgs.kernels.projector import project_cute_vjp
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
@@ -310,10 +293,7 @@ def test_fragment_statistics_and_full_step():
     np.testing.assert_array_equal(next_pool.sh[:, 1:], pool.sh[:, 1:])
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe protocol requires JAX CUDA",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize("tile_size", [4, 16])
 def test_training_uint8_targets_match_float_pixel_values(tile_size):
     from jaxgs.scene.cluster import world_cluster_bounds

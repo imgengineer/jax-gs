@@ -12,7 +12,7 @@ from ..config import CapacityConfig
 from ..scene.camera import Camera
 from ..scene.cluster import world_cluster_bounds
 from ..scene.point import GaussianArrays
-from . import render, render_preprocess
+from .pipeline import render, render_preprocess
 
 RESOLUTIONS = {
     "640x360": (640, 360),

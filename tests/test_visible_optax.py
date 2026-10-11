@@ -1,7 +1,5 @@
 """Optax transformations applied only to the rows of visible clusters."""
 
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -12,10 +10,7 @@ from jaxgs import CapacityConfig, create_gaussians, seed_gaussians
 from jaxgs.scene.types import PARAMETER_NAMES, ParameterArrays
 from jaxgs.training.optimizer import create_adam_state, optax_update
 
-pytestmark = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="The visible-cluster Optax kernel requires a JAX CUDA device",
-)
+pytestmark = pytest.mark.gpu
 
 
 def _pool(capacity, cluster_size, rng):

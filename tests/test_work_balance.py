@@ -1,7 +1,5 @@
 """Heaviest-first tile scheduling, staged splat batches and cooperative pair emission."""
 
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -10,10 +8,7 @@ import pytest
 from jaxgs import Camera, CapacityConfig
 from jaxgs.render.types import ProjectedGaussians
 
-pytestmark = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe kernels require JAX CUDA and NVIDIA CUTLASS DSL",
-)
+pytestmark = pytest.mark.gpu
 
 
 def test_half_pair_sums_preserve_rounding_and_nonfinite_values():

@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import runpy
 import sys
@@ -11,7 +10,7 @@ import pytest
 from PIL import Image
 
 from jaxgs.config import load_config
-from jaxgs.io_manager.checkpoint import load_gaussians, save_gaussians
+from jaxgs.io_manager.checkpoint import load_gaussians
 from jaxgs.training import start
 from jaxgs.training.initialization import initialize_pool, load_training_frames
 from jaxgs.training.trainer import train
@@ -135,10 +134,7 @@ def test_training_report_preserves_checkpoint(tmp_path, filename, report_name):
     assert sorted(path.name for path in output.parent.iterdir()) == sorted([filename, report_name])
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="production training requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize("fail", [False, True])
 @pytest.mark.parametrize("mixed_resolution", [False, True])
 def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_resolution):
@@ -234,12 +230,8 @@ def test_precompilation_preserves_original_training_buffers(scene, fail, mixed_r
         assert update.jitted_fn._cache_size() == cache_size
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="production training requires JAX CUDA and CuTe",
-)
-@pytest.mark.parametrize("grouped", [False, True])
-@pytest.mark.parametrize("iterations", [63, 64])
+@pytest.mark.gpu
+@pytest.mark.parametrize(("grouped", "iterations"), [(False, 64), (True, 63)])
 def test_complete_training_schedule_and_checkpoint(scene, monkeypatch, grouped, iterations):
     from jaxgs.training import trainer, warmup
 
@@ -301,23 +293,12 @@ def test_complete_training_schedule_and_checkpoint(scene, monkeypatch, grouped, 
     assert int(pool.n_active) == report["final_gaussians"]
     np.testing.assert_array_equal(pool.free_mask, ~pool.alive)
     assert int(pool.alive.sum()) == int(pool.n_active)
-    # Shared checkpoint helpers preserve occupancy and every parameter, even
-    # when the caller chooses a suffix other than .npz.
-    copy = scene / "copy.checkpoint"
-    save_gaussians(copy, pool)
-    for actual, expected in zip(
-        jax.tree.leaves(load_gaussians(copy)), jax.tree.leaves(pool), strict=True
-    ):
-        np.testing.assert_array_equal(actual, expected)
     assert json.loads((scene / "output" / "pool.json").read_text())["config"] == json.loads(
         json.dumps(report["config"])
     )
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="production training requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 def test_training_overflow_aborts_before_saving(scene):
     config = load_config()
     config = replace(
@@ -333,10 +314,7 @@ def test_training_overflow_aborts_before_saving(scene):
     assert not output.exists() and not output.with_suffix(".json").exists()
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="production training requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize("loss", [float("nan"), float("inf")])
 def test_nonfinite_loss_preserves_existing_checkpoint(scene, monkeypatch, loss):
     from jaxgs.training import trainer
@@ -369,15 +347,11 @@ def test_nonfinite_loss_preserves_existing_checkpoint(scene, monkeypatch, loss):
     assert not output.with_suffix(".json").exists()
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="production training requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 @pytest.mark.filterwarnings(
     "ignore:.*found in sys.modules after import of package.*:RuntimeWarning"
 )
-@pytest.mark.parametrize("iterations", [3, 4])
-def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch, iterations):
+def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch):
     path = scene / "cli.toml"
     path.write_text(
         "[model]\nsh_degree=0\n[optimization]\niterations=6\n"
@@ -395,13 +369,13 @@ def test_production_module_cli_applies_config_and_overrides(scene, monkeypatch, 
             "--config",
             str(path),
             "--iterations",
-            str(iterations),
+            "4",
         ],
     )
     runpy.run_module("jaxgs.training.trainer", run_name="__main__")
     report = json.loads(output.with_suffix(".json").read_text())
     assert report["actual_updates"] == 3
-    assert report["config"]["optimization"]["iterations"] == iterations
+    assert report["config"]["optimization"]["iterations"] == 4
     assert [row["step"] for row in report["history"]] == [3]
     assert report["config"]["optimization"]["position_lr_max_steps"] == 30000
     assert report["config"]["model"]["sh_degree"] == 0

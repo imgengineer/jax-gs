@@ -1,7 +1,5 @@
 """Public rendering contracts and errors that must precede GPU launches."""
 
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -12,11 +10,8 @@ from jaxgs.render.projection import project
 from jaxgs.render.rasterizer import rasterize, rasterize_forward
 from jaxgs.render.visibility_table import build_visibility_table
 
-has_cute = importlib.util.find_spec("cutlass") is not None
-requires_cute = pytest.mark.skipif(not has_cute, reason="requires NVIDIA CUTLASS DSL")
-requires_gpu = pytest.mark.skipif(
-    not has_cute or jax.default_backend() != "gpu", reason="requires JAX CUDA and CuTe"
-)
+requires_cute = pytest.mark.cute
+requires_gpu = pytest.mark.gpu
 
 
 @pytest.fixture
@@ -35,7 +30,7 @@ def scene():
     return config, camera, pool, projected, table
 
 
-@pytest.mark.parametrize("backend", ["reference", pytest.param("cute", marks=requires_gpu)])
+@pytest.mark.parametrize("backend", ["reference", pytest.param("cute", marks=pytest.mark.gpu)])
 def test_forward_dispatch_preserves_background_depth_and_alpha(scene, backend):
     from jaxgs.reference.rasterizer_jax import rasterize_jax
 
@@ -64,13 +59,15 @@ def test_render_rejects_unknown_backend(scene, render):
 
 @requires_cute
 @pytest.mark.parametrize(
-    "operation", ["allocate", "cluster", "project", "bin", "render", "sorted_render"]
+    "operation",
+    ["allocate", "cluster", "project", "bin", "render", "sorted_render", "partition"],
 )
 def test_cute_rejects_cpu_before_launch(scene, monkeypatch, operation):
     import cutlass.jax
 
     from jaxgs.kernels.allocator import allocate_free_slots_cute
     from jaxgs.kernels.binning import compact_clusters_cute
+    from jaxgs.kernels.partitioner import stable_split_partition_cute
     from jaxgs.kernels.projector import project_cute
     from jaxgs.kernels.rasterizer import rasterize_cute
     from jaxgs.kernels.sorted_binning import build_sorted_visibility_table_cute
@@ -93,6 +90,7 @@ def test_cute_rejects_cpu_before_launch(scene, monkeypatch, operation):
         "render": lambda: rasterize_cute(projected, table, camera, config),
         # The device check precedes access to the sorted table representation.
         "sorted_render": lambda: rasterize_sorted_cute_vjp(projected, None, camera, config),
+        "partition": lambda: stable_split_partition_cute(jnp.array([True]), jnp.array(1)),
     }
     with pytest.raises(RuntimeError, match="requires a JAX CUDA device"):
         calls[operation]()

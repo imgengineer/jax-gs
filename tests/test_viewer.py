@@ -1,5 +1,3 @@
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -63,10 +61,7 @@ def test_renderer_rejects_invalid_models(invalid):
         ViewRenderer(pool)
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="viewer rendering requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 def test_resolution_warmup_reuses_jit_for_dynamic_cameras():
     renderer = ViewRenderer(_pool(), pair_capacity=65536)
     camera = view_camera([1, 0, 0, 0], [0, 0, 0], np.pi / 3, 16 / 9, 1280, 720)
@@ -84,10 +79,7 @@ def test_resolution_warmup_reuses_jit_for_dynamic_cameras():
     assert renderer.jitted._cache_size() == len(RESOLUTIONS)
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="viewer rendering requires JAX CUDA and CuTe",
-)
+@pytest.mark.gpu
 def test_warmup_rejects_visibility_overflow():
     renderer = ViewRenderer(_pool(), pair_capacity=1)
     camera = view_camera([1, 0, 0, 0], [0, 0, 0], np.pi / 3, 16 / 9, 640, 360)

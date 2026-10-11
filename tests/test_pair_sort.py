@@ -1,16 +1,11 @@
 """Stable tile sort of the emitted pairs, limited to the pair count."""
 
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe kernels require JAX CUDA and NVIDIA CUTLASS DSL",
-)
+pytestmark = pytest.mark.gpu
 
 
 @pytest.mark.parametrize("num_tiles", [1, 200, 8034, 65535, 300000])

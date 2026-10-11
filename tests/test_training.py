@@ -1,4 +1,3 @@
-import importlib.util
 import runpy
 import sys
 
@@ -49,13 +48,12 @@ def test_initial_points_must_fit_cloud_and_capacity(small_scene, capacity, initi
 
 @pytest.mark.parametrize(
     "backend,error",
-    [("reference", "tile capacity overflow"), ("cute", "visibility pair capacity overflow")],
+    [
+        ("reference", "tile capacity overflow"),
+        pytest.param("cute", "visibility pair capacity overflow", marks=pytest.mark.gpu),
+    ],
 )
 def test_reference_trainer_aborts_on_backend_overflow(small_scene, backend, error):
-    if backend == "cute" and (
-        jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None
-    ):
-        pytest.skip("CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL")
     output = small_scene / "overflow.npz"
     with pytest.raises(RuntimeError, match=error):
         train_colmap(
@@ -177,12 +175,8 @@ def test_training_reserves_free_slots_when_points_exceed_capacity(tmp_path):
     np.testing.assert_array_equal(pool.free_mask, [False, True])
 
 
-@pytest.mark.parametrize("backend", ["reference", "cute"])
+@pytest.mark.parametrize("backend", ["reference", pytest.param("cute", marks=pytest.mark.gpu)])
 def test_colmap_training_densifies_and_saves(tmp_path, backend):
-    if backend == "cute" and (
-        jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None
-    ):
-        pytest.skip("CuTe test requires JAX CUDA and NVIDIA CUTLASS DSL")
     sparse = tmp_path / "sparse" / "0"
     sparse.mkdir(parents=True)
     images = tmp_path / "images"

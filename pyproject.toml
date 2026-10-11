@@ -38,6 +38,10 @@ filterwarnings = [
     # kernels/visible_optax.py documents its use of this backend and the dense fallback.
     "ignore:The Pallas Triton backend is deprecated:DeprecationWarning",
 ]
+markers = [
+    "gpu: requires a JAX CUDA device and NVIDIA CUTLASS DSL",
+    "cute: requires NVIDIA CUTLASS DSL and may run on a mocked device boundary",
+]
 
 [tool.coverage.run]
 branch = true

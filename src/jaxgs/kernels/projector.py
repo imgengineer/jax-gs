@@ -1,6 +1,7 @@
 """CuTe Gaussian projection and its parameter gradients exposed through JAX."""
 
 from collections.abc import Callable
+from functools import partial
 
 import chex
 import jax
@@ -103,8 +104,16 @@ def project_cute(
     pool: GaussianArrays, camera: Camera, config: CapacityConfig
 ) -> ProjectedGaussians:
     intrinsics = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
+    project_arrays = partial(
+        _project_gaussian_arrays,
+        config=config,
+        width=camera.width,
+        height=camera.height,
+        near=camera.near,
+        far=camera.far,
+    )
     return ProjectedGaussians(
-        *_project_gaussian_arrays(
+        *project_arrays(
             pool.xyz,
             pool.log_scale,
             pool.rotation,
@@ -114,11 +123,6 @@ def project_cute(
             camera.world_to_camera,
             intrinsics,
             camera.center,
-            config,
-            camera.width,
-            camera.height,
-            camera.near,
-            camera.far,
         )
     )
 
@@ -134,12 +138,22 @@ def project_cute_vjp(
     if active_degree is not None and not 0 <= active_degree <= config.sh_degree:
         raise ValueError("active_degree must fit the pool's SH coefficients")
     intrinsics = jnp.stack([camera.fx, camera.fy, camera.cx, camera.cy])
+    project_arrays_impl = partial(
+        _project_gaussian_arrays,
+        config=config,
+        width=camera.width,
+        height=camera.height,
+        near=camera.near,
+        far=camera.far,
+        active_degree=active_degree,
+        compacted_clusters=compacted_clusters,
+    )
 
     @jax.custom_vjp
     def project_arrays(
         xyz, log_scale, rotation, opacity, sh, alive, world_to_camera, intrinsics, camera_center
     ):
-        return _project_gaussian_arrays(
+        return project_arrays_impl(
             xyz,
             log_scale,
             rotation,
@@ -149,19 +163,12 @@ def project_cute_vjp(
             world_to_camera,
             intrinsics,
             camera_center,
-            config,
-            camera.width,
-            camera.height,
-            camera.near,
-            camera.far,
-            active_degree,
-            compacted_clusters,
         )
 
     def project_forward(
         xyz, log_scale, rotation, opacity, sh, alive, world_to_camera, intrinsics, camera_center
     ):
-        result = _project_gaussian_arrays(
+        result = project_arrays_impl(
             xyz,
             log_scale,
             rotation,
@@ -171,13 +178,6 @@ def project_cute_vjp(
             world_to_camera,
             intrinsics,
             camera_center,
-            config,
-            camera.width,
-            camera.height,
-            camera.near,
-            camera.far,
-            active_degree,
-            compacted_clusters,
         )
         return result, (
             xyz,

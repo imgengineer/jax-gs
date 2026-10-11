@@ -1,4 +1,3 @@
-import importlib.util
 from dataclasses import replace
 
 import jax
@@ -50,10 +49,7 @@ def test_model_parameters_pool_views_and_fixed_shape_updates():
         assert getattr(model, name) is variable
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="CuTe protocol requires JAX CUDA",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize("degree,collect", [(0, False), (3, True)])
 @pytest.mark.parametrize("optimizer", ["cute", "optax", "muon"])
 @pytest.mark.parametrize("bound", [False, True])

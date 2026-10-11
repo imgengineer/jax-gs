@@ -297,7 +297,7 @@ src/jaxgs/
 ├── config/          # Typed settings and fixed capacities
 ├── data.py          # Image frames and Grain decoding
 ├── scene/           # NNX Gaussian model, cameras and spatial organization
-├── render/          # Preprocessing, rendering and shared PyTrees
+├── render/          # Public pipeline, backend dispatch and shared PyTrees
 ├── viewer.py        # viser camera events, controls and frame delivery
 ├── kernels/         # CuTe kernels and JAX bindings
 ├── training/        # Initialization, warmup, compiled steps and epoch orchestration
@@ -364,9 +364,8 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false uv run pytest tests -q \
   --cov=jaxgs --cov-report=term-missing
 ```
 
-The [training validation](benchmarks/results/training_followup_20261003.md) passed all
-**445 project tests**, with **99.77% Python line and branch coverage**:
-2,264 statements and 326 branches.
+The current suite covers **443 project tests**, with **99.77% Python line and
+branch coverage**: 2,276 statements and 326 branches.
 GPU DSL bodies are excluded from Python coverage; parity, gradient, training
 and CUDA device checks verify their behavior. CUDA memcheck, racecheck and
 synccheck each passed 28 contribution/staging cases with zero device errors or

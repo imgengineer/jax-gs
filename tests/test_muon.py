@@ -1,7 +1,5 @@
 """Muon for each Gaussian's SH color map, with LiteGS Adam for the other fields."""
 
-import importlib.util
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -147,10 +145,7 @@ def test_muon_update_rms_matches_its_setting():
     assert 0.4 * 0.68 < float(jnp.median(rest_rms)) < 0.4 * 1.19
 
 
-@pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="The visible-cluster Optax kernel requires a JAX CUDA device",
-)
+@pytest.mark.gpu
 @pytest.mark.parametrize("cluster_size,capacity,degree", [(128, 300, 3), (65, 257, 1), (2, 9, 0)])
 def test_visible_muon_matches_dense_update(cluster_size, capacity, degree):
     from test_visible_optax import _compact, _visible

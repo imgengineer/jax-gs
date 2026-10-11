@@ -1,8 +1,5 @@
 """RGB-only rendering keeps the training image without its backward storage."""
 
-import importlib.util
-
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -10,10 +7,7 @@ import pytest
 from jaxgs import Camera, CapacityConfig
 from jaxgs.render.types import ProjectedGaussians, SortedVisibilityTable
 
-pytestmark = pytest.mark.skipif(
-    jax.default_backend() != "gpu" or importlib.util.find_spec("cutlass") is None,
-    reason="Packed inference requires JAX CUDA and CuTe",
-)
+pytestmark = pytest.mark.gpu
 
 
 @pytest.mark.parametrize("tile_height,tile_width", [(8, 8), (8, 16), (12, 16), (16, 16)])

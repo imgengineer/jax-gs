@@ -25,7 +25,7 @@ boundaries; the decisions below follow jaxgs's fixed shapes and custom kernels.
 | `io_manager/colmap.py`, `io_manager/checkpoint.py` | COLMAP readers, standard Gaussian PLY models and fixed-capacity NPZ checkpoints. |
 | `io_manager/report.py` | Final checkpoint and production training report output. |
 | `scene/point.py` | `GaussianModel` owns NNX parameters and occupancy; `GaussianArrays` exposes the same buffers to kernels. |
-| `render/types.py`, `scene/types.py` | Shared PyTrees and the parameter ordering used across rendering and optimization. |
+| `render/__init__.py`, `render/pipeline.py`, `render/types.py`, `scene/types.py` | Public rendering exports, preprocessing and backend dispatch, plus shared render PyTrees and parameter ordering. |
 | `render/view.py` | Fixed-model rendering with cached cluster bounds and four reusable JIT resolutions. |
 | `viewer.py` | viser camera conversion, per-client controls and serialized frame delivery. |
 | `kernels/`, `reference/` | GPU implementations and numerical correctness implementations. |
@@ -103,6 +103,13 @@ CuTe combines SH activation and projection in one kernel. Those operations
 remain in `render`; preprocessing performs cluster culling and compaction.
 Production training shares preprocessing, then uses its compact parameter
 pullback and fused loss kernels. Evaluation uses both public rendering calls.
+
+Tests use the `gpu` marker for CUDA and CuTe execution and the `cute` marker for
+package-only device-boundary checks. `tests/conftest.py` applies the matching
+skip once during collection, so backend capability checks stay out of individual
+test bodies. Parameterized cases cover distinct numerical or API contracts;
+repeated suffix, schedule and checkpoint combinations are kept in their shared
+I/O tests.
 
 The web viewer binds a fixed model and configuration in `ViewRenderer`.
 `jax.jit` wraps preprocessing, RGB rendering and uint8 conversion together;
