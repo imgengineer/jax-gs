@@ -171,19 +171,30 @@ def load_colmap_points(scene_dir: str | Path) -> tuple[jnp.ndarray, jnp.ndarray]
     scene_dir = Path(scene_dir)
     sparse = _sparse_dir(scene_dir)
     binary = sparse / "points3D.bin"
-    xyz, rgb = [], []
     if binary.exists():
         with binary.open("rb") as fid:
-            for _ in range(_read(fid, "Q")[0]):
+            count = _read(fid, "Q")[0]
+            xyz = np.empty((count, 3), dtype=np.float32)
+            rgb = np.empty((count, 3), dtype=np.float32)
+            for index in range(count):
                 record = _read(fid, "QdddBBBd")
-                xyz.append(record[1:4])
-                rgb.append([channel / 255.0 for channel in record[4:7]])
+                xyz[index] = record[1:4]
+                rgb[index] = (
+                    record[4] / 255.0,
+                    record[5] / 255.0,
+                    record[6] / 255.0,
+                )
                 fid.seek(8 * _read(fid, "Q")[0], 1)
     else:
-        for line in _records(sparse / "points3D.txt"):
+        records = _records(sparse / "points3D.txt")
+        xyz = np.empty((len(records), 3), dtype=np.float32)
+        rgb = np.empty((len(records), 3), dtype=np.float32)
+        for index, line in enumerate(records):
             parts = line.split()
-            xyz.append([float(x) for x in parts[1:4]])
-            rgb.append([int(x) / 255.0 for x in parts[4:7]])
-    return jnp.asarray(np.asarray(xyz, np.float32).reshape(-1, 3)), jnp.asarray(
-        np.asarray(rgb, np.float32).reshape(-1, 3)
-    )
+            xyz[index] = parts[1:4]
+            rgb[index] = (
+                int(parts[4]) / 255.0,
+                int(parts[5]) / 255.0,
+                int(parts[6]) / 255.0,
+            )
+    return jnp.asarray(xyz), jnp.asarray(rgb)
